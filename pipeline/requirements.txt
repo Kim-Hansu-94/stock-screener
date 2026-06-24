@@ -1,7 +1,7 @@
-pandas
-finance-datareader
-yfinance
-supabase
-requests
-python-dotenv
-pytest
+pandas==2.3.3
+finance-datareader==0.9.202
+yfinance==1.4.1
+supabase==2.31.0
+requests==2.34.2
+python-dotenv==1.2.2
+pytest==9.1.1
