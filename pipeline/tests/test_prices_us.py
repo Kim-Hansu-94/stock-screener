@@ -63,3 +63,17 @@ def test_get_us_market_caps_defaults_to_zero_on_error(mock_ticker_cls):
     mock_ticker_cls.side_effect = RuntimeError("network error")
     result = get_us_market_caps(["BROKEN"])
     assert result == {"BROKEN": 0.0}
+
+
+@patch("pipeline.src.prices_us.yf.Ticker")
+def test_get_us_market_caps_handles_partial_failure(mock_ticker_cls):
+    def side_effect_fn(ticker):
+        if ticker == "BROKEN":
+            raise RuntimeError("network error")
+        fake_ticker = MagicMock()
+        fake_ticker.fast_info = {"marketCap": 1000.0 if ticker == "AAPL" else 2000.0}
+        return fake_ticker
+
+    mock_ticker_cls.side_effect = side_effect_fn
+    result = get_us_market_caps(["AAPL", "BROKEN", "MSFT"])
+    assert result == {"AAPL": 1000.0, "BROKEN": 0.0, "MSFT": 2000.0}
