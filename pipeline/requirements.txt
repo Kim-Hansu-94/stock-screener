@@ -1,0 +1,7 @@
+pandas
+finance-datareader
+yfinance
+supabase
+requests
+python-dotenv
+pytest
