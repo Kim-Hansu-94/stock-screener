@@ -36,3 +36,10 @@ def test_main_saves_kr_and_us_results(monkeypatch):
     assert first_call_result.screened_stocks[0]["ticker"] == "005930"
     assert first_call_result.price_history[0]["ticker"] == "005930"
     assert first_call_result.price_history[0]["close"] == 104.0
+
+    # Independently verify the second call (US result)
+    second_call_result = fake_db.save_pipeline_result.call_args_list[1].args[0]
+    assert second_call_result.market == "US"
+    assert second_call_result.regime == "bear"
+    assert second_call_result.screened_stocks == []
+    assert second_call_result.price_history == []
