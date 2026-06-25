@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { createChart, CrosshairMode, type IChartApi } from 'lightweight-charts'
+import { createChart, CrosshairMode } from 'lightweight-charts'
 import { simpleMovingAverage } from '@/lib/calculations'
 import type { PriceHistoryRow } from '@/lib/types'
 
@@ -17,7 +17,6 @@ const MOVING_AVERAGES: Array<{ window: number; color: string }> = [
 
 export function StockChart({ history }: StockChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const chartRef = useRef<IChartApi | null>(null)
 
   useEffect(() => {
     if (!containerRef.current || history.length === 0) return
@@ -27,7 +26,6 @@ export function StockChart({ history }: StockChartProps) {
       height: 300,
       crosshair: { mode: CrosshairMode.Normal },
     })
-    chartRef.current = chart
 
     const candleSeries = chart.addCandlestickSeries()
     candleSeries.setData(
