@@ -1,9 +1,6 @@
 import { getUniverseStocks, getAllUniversePriceHistory } from '@/lib/queries'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { translateSector } from '@/lib/sectorMap'
 import type { Market, OpportunityStockRow } from '@/lib/types'
-import { SimilaritySearch } from './SimilaritySearch'
+import { DiscoverTabs } from './DiscoverTabs'
 
 const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
@@ -70,87 +67,8 @@ export default async function DiscoverPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl space-y-5 px-4 py-8">
-      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">패턴 유사 종목</h2>
-          <p className="mt-0.5 text-xs text-gray-400">
-            기준 종목의 급등 직전 구간과 패턴이 유사한 현재 종목을 찾습니다.
-          </p>
-        </div>
-        <SimilaritySearch />
-      </section>
-
-      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
-          <p className="mt-0.5 text-xs text-gray-400">
-            NASDAQ 100 · S&amp;P 500 · KOSPI · KOSDAQ 종목 중 3년 고점 대비 {MIN_DRAWDOWN}–{MAX_DRAWDOWN}% 조정받은 종목입니다.
-          </p>
-        </div>
-
-        {opportunityError ? (
-          <p className="text-sm text-red-600">{opportunityError}</p>
-        ) : opportunities.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            해당 조건의 종목이 없습니다. 파이프라인 실행 후 데이터가 채워집니다.
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {opportunities.map((stock) => (
-              <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} />
-            ))}
-          </div>
-        )}
-      </section>
+    <main className="mx-auto max-w-3xl px-4 py-8">
+      <DiscoverTabs opportunities={opportunities} opportunityError={opportunityError} />
     </main>
-  )
-}
-
-function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
-  const drawdownStr = stock.drawdown.toFixed(1)
-  const variant =
-    stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
-
-  const formatPrice = (price: number) =>
-    stock.market === 'KR'
-      ? `${price.toLocaleString('ko-KR')}원`
-      : `$${price.toFixed(2)}`
-
-  const marketTag = stock.market === 'KR'
-    ? (stock.index_membership ? stock.index_membership : 'KR')
-    : (stock.index_membership ?? 'US')
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
-          <span>
-            {stock.name} <span className="text-gray-400 text-sm font-normal">({stock.ticker})</span>
-          </span>
-          <Badge variant={variant}>-{drawdownStr}%</Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
-          <div>
-            <dt className="text-xs text-gray-400">섹터</dt>
-            <dd>{translateSector(stock.sector)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-400">지수</dt>
-            <dd>{marketTag}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-400">현재가</dt>
-            <dd>{formatPrice(stock.currentClose)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-400">3년 고점</dt>
-            <dd>{formatPrice(stock.high3y)}</dd>
-          </div>
-        </dl>
-      </CardContent>
-    </Card>
   )
 }

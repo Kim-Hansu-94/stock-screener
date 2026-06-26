@@ -70,3 +70,20 @@ export interface OpportunityStockRow {
   drawdown: number
   history: PriceHistoryRow[]
 }
+
+export interface DailyReportResult {
+  ticker: string
+  name: string
+  sector: string | null
+  similarity: number
+  matchedStandard: string       // e.g. "D-Wave Quantum"
+  matchedStandardTicker: string // e.g. "QBTS"
+  matchedBottom: string         // e.g. "2024-01-15"
+  volumeTriggered: boolean
+  history: PriceHistoryRow[]
+}
+
+export interface DailyReportResponse {
+  generatedAt: string
+  results: DailyReportResult[]
+}
