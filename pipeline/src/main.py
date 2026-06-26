@@ -40,13 +40,14 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
 
     universe_rows = []
     if not result.universe_df.empty:
-        for _, row in result.universe_df.iterrows():
+        clean_universe = result.universe_df.fillna("")
+        for _, row in clean_universe.iterrows():
             universe_rows.append({
                 "ticker": row["ticker"],
                 "market": result.market,
-                "name": row.get("name", "") or "",
-                "sector": row.get("sector", "") or "",
-                "index_membership": row.get("index_membership", "") or "",
+                "name": row.get("name", ""),
+                "sector": row.get("sector", ""),
+                "index_membership": row.get("index_membership", ""),
                 "updated_at": today.isoformat(),
             })
 
