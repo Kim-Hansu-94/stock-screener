@@ -142,7 +142,10 @@ export async function GET(request: NextRequest) {
     try {
       fullHist = (await yahooFinance.historical(
         ticker,
-        { period1: autoStart.toISOString().slice(0, 10) },
+        {
+          period1: autoStart.toISOString().slice(0, 10),
+          period2: new Date().toISOString().slice(0, 10),
+        },
         { validateResult: false },
       )) as unknown as Array<{ date: Date; close: number; volume: number }>
     } catch (err) {

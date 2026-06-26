@@ -86,7 +86,10 @@ async function loadGoldPatterns(): Promise<GoldPattern[]> {
     try {
       hist = (await yahooFinance.historical(
         gs.ticker,
-        { period1: startDate.toISOString().slice(0, 10) },
+        {
+          period1: startDate.toISOString().slice(0, 10),
+          period2: new Date().toISOString().slice(0, 10),
+        },
         { validateResult: false },
       )) as unknown as YahooHistRow[]
     } catch {
