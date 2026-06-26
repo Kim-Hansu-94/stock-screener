@@ -151,11 +151,11 @@ export default async function HomePage() {
                   </tr>
                   <tr>
                     <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">단기 눌림</td>
-                    <td className="py-1.5">현재가 &lt; 5일선 이면서 20일선 ±3% 이내 (추세 유지 중 조정)</td>
+                    <td className="py-1.5">20일선 ≤ 현재가 ≤ 10일선 (10~20일선 사이 눌림 구간)</td>
                   </tr>
                   <tr>
                     <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">RSI</td>
-                    <td className="py-1.5">40 ~ 55 구간 (과열 아님, 과매도 아님)</td>
+                    <td className="py-1.5">40 ~ 60 구간 (과열 아님, 과매도 아님)</td>
                   </tr>
                   <tr>
                     <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">거래량</td>
