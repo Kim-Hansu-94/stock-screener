@@ -44,13 +44,15 @@ export async function GET(request: NextRequest) {
   // 1. Fetch reference ticker historical data from Yahoo Finance
   let refPrices: number[]
   try {
-    const hist = (await yahooFinance.historical(ticker, {
-      period1: from,
-      period2: to,
-    })) as unknown as Array<{ close: number }>
+    const hist = (await yahooFinance.historical(
+      ticker,
+      { period1: from, period2: to },
+      { validateResult: false },
+    )) as unknown as Array<{ close: number }>
     refPrices = hist.map((d) => d.close).filter((v) => v != null && isFinite(v))
-  } catch {
-    return Response.json({ error: `${ticker} 데이터를 가져오지 못했습니다.` }, { status: 502 })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return Response.json({ error: `${ticker} 데이터 오류: ${msg}` }, { status: 502 })
   }
 
   if (refPrices.length < MIN_OVERLAP_DAYS) {
