@@ -46,13 +46,16 @@ export function SimilaritySearch() {
         <p className="mb-1 font-semibold text-gray-700">알고리즘</p>
         <ol className="list-decimal list-inside space-y-0.5">
           <li>거래대금 하위 20% · 심한 역배열 종목 사전 제거</li>
+          <li>변동성 수축 조건: 최근 20일 수익률 σ &lt; 직전 60일 σ × 0.5 (바닥 다지기 확인)</li>
+          <li>매집봉 조건: 최근 60일 내 직전 90일 평균 거래량 500% 초과일이 2회 이상</li>
           <li>기준 종목의 지정 기간 일별 수익률 + 거래량 비율을 Z-score로 정규화</li>
-          <li>DB 전 종목을 동일한 기간 길이의 최근 구간으로 잘라 동일하게 정규화</li>
-          <li>코사인 유사도 계산 — 수익률 70% · 거래량 30% 가중 합산</li>
-          <li>유사도 상위 20종목 반환 (최소 20거래일 이상 겹칠 때만 유효)</li>
+          <li>코사인 유사도 계산 — 수익률 80% · 거래량 20% 가중 합산 후 상위 20종목 반환</li>
         </ol>
         <p className="mt-1.5 text-gray-400">
-          예: AEVA 2024-01-01 ~ 2024-10-01 급등 전 패턴과 지금 유사한 흐름을 보이는 종목을 찾습니다.
+          SPAC 데스밸리 바닥 패턴 기준: 기간을 60~120 거래일(3~6개월)로 설정하면 정확도가 높습니다.
+        </p>
+        <p className="mt-0.5 text-gray-400">
+          예: JOBY 2023-06-01 ~ 2023-10-01 — 급등 직전 바닥 횡보 구간
         </p>
       </div>
       <div className="flex flex-wrap items-end gap-3">
