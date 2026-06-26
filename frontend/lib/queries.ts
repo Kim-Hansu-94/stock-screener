@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
-import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow } from './types'
+import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -48,6 +48,50 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
 }
 
 export async function getPriceHistoryByTicker(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, PriceHistoryRow[]>> {
+  'use cache'
+  cacheLife('hours')
+  if (tickers.length === 0) return {}
+
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 120)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_price_history')
+    .select('ticker, market, date, open, high, low, close, volume')
+    .eq('market', market)
+    .in('ticker', tickers)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: true })
+
+  if (error) throw error
+
+  const grouped: Record<string, PriceHistoryRow[]> = {}
+  for (const row of (data ?? []) as PriceHistoryRow[]) {
+    grouped[row.ticker] ??= []
+    grouped[row.ticker].push(row)
+  }
+  return grouped
+}
+
+export async function getUniverseStocks(market: Market): Promise<UniverseStockRow[]> {
+  'use cache'
+  cacheLife('hours')
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_universe')
+    .select('ticker, market, name, sector, index_membership, updated_at')
+    .eq('market', market)
+
+  if (error) throw error
+  return (data ?? []) as UniverseStockRow[]
+}
+
+export async function getAllUniversePriceHistory(
   market: Market,
   tickers: string[],
 ): Promise<Record<string, PriceHistoryRow[]>> {

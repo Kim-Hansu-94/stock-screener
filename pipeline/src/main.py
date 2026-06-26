@@ -25,7 +25,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
 
     history_rows = []
     for ticker, hist in result.price_history.items():
-        for idx, row in hist.iterrows():
+        for idx, row in hist.tail(120).iterrows():
             history_rows.append({
                 "ticker": ticker,
                 "market": result.market,
@@ -37,6 +37,18 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
                 "volume": int(row["Volume"]),
             })
 
+    universe_rows = []
+    if not result.universe_df.empty:
+        for _, row in result.universe_df.iterrows():
+            universe_rows.append({
+                "ticker": row["ticker"],
+                "market": result.market,
+                "name": row.get("name", "") or "",
+                "sector": row.get("sector", "") or "",
+                "index_membership": row.get("index_membership", "") or "",
+                "updated_at": today.isoformat(),
+            })
+
     return PipelineResult(
         date=today.isoformat(),
         market=result.market,
@@ -44,6 +56,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
         leading_sectors=result.leading_sectors,
         screened_stocks=screened_rows,
         price_history=history_rows,
+        universe_metadata=universe_rows,
     )
 
 

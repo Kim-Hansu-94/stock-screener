@@ -36,3 +36,13 @@ create table if not exists stock_price_history (
   volume bigint not null,
   primary key (ticker, market, date)
 );
+
+create table if not exists stock_universe (
+  ticker            text not null,
+  market            text not null check (market in ('KR', 'US')),
+  name              text,
+  sector            text,
+  index_membership  text,
+  updated_at        text not null,
+  primary key (ticker, market)
+);

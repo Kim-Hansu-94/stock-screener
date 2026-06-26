@@ -13,6 +13,9 @@ from .screener import passes_pullback_filter
 
 SECTOR_DETECTION_LOOKBACK_DAYS = 45
 FULL_HISTORY_LOOKBACK_DAYS = 200
+# 180 calendar days ≈ 128 trading days — covers sector detection, screener (MIN_HISTORY_DAYS=85),
+# and provides enough history for chart similarity / opportunity detection.
+US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 180
 INDEX_LOOKBACK_DAYS = 400
 KR_MIN_MARKET_CAP = 300_000_000_000
 US_MIN_MARKET_CAP = 200_000_000
@@ -35,6 +38,7 @@ class MarketPipelineResult:
     leading_sectors: list[str] = field(default_factory=list)
     screened_stocks: list[ScreenedStock] = field(default_factory=list)
     price_history: dict[str, pd.DataFrame] = field(default_factory=dict)
+    universe_df: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _build_sector_frame(universe: pd.DataFrame, recent_histories: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -95,6 +99,7 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
     return MarketPipelineResult(
         market="KR", regime=regime, leading_sectors=top_sectors,
         screened_stocks=screened, price_history=price_history,
+        universe_df=universe,
     )
 
 
@@ -108,19 +113,21 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     index_close = prices_us.get_sp500_index_history(today, INDEX_LOOKBACK_DAYS)
     regime = determine_market_regime(index_close)
 
-    recent_histories = prices_us.get_us_stock_histories(
-        universe["ticker"].tolist(), today, SECTOR_DETECTION_LOOKBACK_DAYS,
+    # Single batch download for the full universe: replaces the previous two separate
+    # downloads (45-day sector detection + 200-day screener). Also provides history for
+    # chart similarity search and opportunity detection features.
+    all_histories = prices_us.get_us_stock_histories(
+        universe["ticker"].tolist(), today, US_UNIVERSE_HISTORY_LOOKBACK_DAYS,
     )
-    sector_df = _build_sector_frame(universe, recent_histories)
+    sector_df = _build_sector_frame(universe, all_histories)
     top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
 
     candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
-    full_histories = prices_us.get_us_stock_histories(
-        candidates["ticker"].tolist(), today, FULL_HISTORY_LOOKBACK_DAYS,
-    )
-    screened, price_history = _screen_candidates(candidates, lambda t: full_histories[t])
+    screened, _ = _screen_candidates(candidates, lambda t: all_histories.get(t, pd.DataFrame()))
 
     return MarketPipelineResult(
         market="US", regime=regime, leading_sectors=top_sectors,
-        screened_stocks=screened, price_history=price_history,
+        screened_stocks=screened,
+        price_history=all_histories,
+        universe_df=universe,
     )

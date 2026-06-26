@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 
 from supabase import Client, create_client
 
+_UPSERT_CHUNK = 1_000
+
 
 @dataclass
 class PipelineResult:
@@ -14,6 +16,12 @@ class PipelineResult:
     leading_sectors: list[str] = field(default_factory=list)
     screened_stocks: list[dict] = field(default_factory=list)
     price_history: list[dict] = field(default_factory=list)
+    universe_metadata: list[dict] = field(default_factory=list)
+
+
+def _batch_upsert(client: Client, table: str, rows: list[dict]) -> None:
+    for i in range(0, len(rows), _UPSERT_CHUNK):
+        client.table(table).upsert(rows[i : i + _UPSERT_CHUNK]).execute()
 
 
 class ScreenerDB:
@@ -48,4 +56,7 @@ class ScreenerDB:
             self.client.table("screened_stocks").upsert(rows).execute()
 
         if result.price_history:
-            self.client.table("stock_price_history").upsert(result.price_history).execute()
+            _batch_upsert(self.client, "stock_price_history", result.price_history)
+
+        if result.universe_metadata:
+            _batch_upsert(self.client, "stock_universe", result.universe_metadata)

@@ -35,3 +35,31 @@ export interface PriceHistoryRow {
   close: number
   volume: number
 }
+
+export interface UniverseStockRow {
+  ticker: string
+  market: Market
+  name: string
+  sector: string | null
+  index_membership: string | null
+  updated_at: string
+}
+
+export interface SimilarStockResult {
+  ticker: string
+  name: string
+  sector: string | null
+  similarity: number
+  history: PriceHistoryRow[]
+}
+
+export interface OpportunityStockRow {
+  ticker: string
+  name: string
+  sector: string | null
+  index_membership: string | null
+  currentClose: number
+  high120d: number
+  drawdown: number
+  history: PriceHistoryRow[]
+}
