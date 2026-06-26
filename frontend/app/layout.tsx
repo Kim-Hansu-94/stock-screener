@@ -28,13 +28,14 @@ export default function RootLayout({
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <header className="border-b bg-white">
-          <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3 text-sm font-medium">
-            <Link href="/" className="text-gray-700 hover:text-blue-600">
+      <body className="min-h-full flex flex-col bg-gray-50">
+        <header className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur-sm">
+          <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
+            <span className="text-sm font-bold tracking-tight text-gray-900">StockRadar</span>
+            <Link href="/" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
               눌림목 종목
             </Link>
-            <Link href="/discover" className="text-gray-700 hover:text-blue-600">
+            <Link href="/discover" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
               종목 발굴
             </Link>
           </nav>

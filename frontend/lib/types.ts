@@ -58,6 +58,7 @@ export interface OpportunityStockRow {
   name: string
   sector: string | null
   index_membership: string | null
+  market: Market
   currentClose: number
   high120d: number
   drawdown: number

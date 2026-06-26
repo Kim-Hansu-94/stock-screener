@@ -42,6 +42,18 @@ export function SimilaritySearch() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-500">
+        <p className="mb-1 font-semibold text-gray-700">알고리즘</p>
+        <ol className="list-decimal list-inside space-y-0.5">
+          <li>기준 종목의 지정 기간 일별 수익률을 Z-score로 정규화</li>
+          <li>DB의 전 종목을 동일한 기간 길이의 최근 구간으로 잘라 Z-score 정규화</li>
+          <li>코사인 유사도 계산 (최소 20거래일 이상 겹칠 때만 유효)</li>
+          <li>유사도 상위 20종목 반환</li>
+        </ol>
+        <p className="mt-1.5 text-gray-400">
+          예: AEVA 2024-01-01 ~ 2024-10-01 급등 전 패턴과 지금 유사한 흐름을 보이는 종목을 찾습니다.
+        </p>
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-gray-500">기준 티커</span>

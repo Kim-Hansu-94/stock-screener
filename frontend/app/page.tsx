@@ -1,5 +1,4 @@
 import { cacheLife } from 'next/cache'
-import { MarketRegimeBadge } from '@/components/MarketRegimeBadge'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
 import {
@@ -66,6 +65,44 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
   }
 }
 
+function RegimePill({ regime }: { regime: Regime | null }) {
+  if (regime === null) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+        데이터 없음
+      </span>
+    )
+  }
+  if (regime === 'bull') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+        상승장
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">
+      하락장
+    </span>
+  )
+}
+
+function RegimeCriteria({ regime }: { regime: Regime | null }) {
+  if (regime === null) return null
+  if (regime === 'bull') {
+    return (
+      <p className="mt-0.5 text-xs text-gray-400">
+        종가 &gt; 50일선 &gt; 200일선 — 상승 추세 확인 ✓
+      </p>
+    )
+  }
+  return (
+    <p className="mt-0.5 text-xs text-gray-400">
+      종가 &gt; 50일선 &gt; 200일선 조건 미충족 — 신중한 접근 권고
+    </p>
+  )
+}
+
 export default async function HomePage() {
   const [sections, usdKrwRate] = await Promise.all([
     Promise.all(MARKETS.map(({ market, label }) => loadMarketSection(market, label))),
@@ -73,21 +110,24 @@ export default async function HomePage() {
   ])
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 p-4">
-      <h1 className="text-xl font-bold">눌림목 매수 스크리너</h1>
-
-      <div className="flex flex-wrap gap-2">
-        {sections.map((section) => (
-          <MarketRegimeBadge key={section.market} marketLabel={section.label} regime={section.regime} />
-        ))}
+    <main className="mx-auto max-w-3xl space-y-5 px-4 py-8">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">눌림목 매수 스크리너</h1>
+        <p className="text-sm text-gray-500">
+          상승장에서 주도 섹터의 눌림목 구간에 있는 종목을 매일 추려 드립니다.
+        </p>
       </div>
 
       {sections.map((section) => (
-        <section key={section.market} className="space-y-4">
+        <section key={section.market} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold">{section.label} 시장</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-gray-900">{section.label} 시장</h2>
+              <RegimePill regime={section.regime} />
+            </div>
+            <RegimeCriteria regime={section.regime} />
             {section.date && (
-              <p className="text-xs text-gray-400">데이터 기준: {section.date}</p>
+              <p className="mt-0.5 text-xs text-gray-400">기준: {section.date}</p>
             )}
           </div>
 
@@ -117,57 +157,42 @@ export default async function HomePage() {
         </section>
       ))}
 
-      <section className="rounded-lg border border-gray-200 text-sm">
-        <details>
-          <summary className="cursor-pointer select-none px-4 py-3 font-medium text-gray-700 hover:bg-gray-50">
-            스크리닝 기준
-          </summary>
-          <div className="space-y-4 px-4 pb-4 pt-2 text-gray-600">
-            <div>
-              <p className="mb-2 text-xs text-gray-400">아래 조건을 모두 충족한 종목만 표시됩니다.</p>
-              <table className="w-full border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="py-1.5 pr-4 text-left font-medium text-gray-500">단계</th>
-                    <th className="py-1.5 text-left font-medium text-gray-500">기준</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">시장 분위기</td>
-                    <td className="py-1.5">지수 종가 &gt; 50일선 &gt; 200일선 (상승장 확인)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">주도 섹터</td>
-                    <td className="py-1.5">최근 5일 거래대금 + 섹터 평균 상승 기준 상위 3개 섹터에 속한 종목만 통과</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">시가총액</td>
-                    <td className="py-1.5">한국 3,000억원 이상 / 미국 2억달러 이상</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">장기 추세</td>
-                    <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">단기 눌림</td>
-                    <td className="py-1.5">20일선 ≤ 현재가 ≤ 10일선 (10~20일선 사이 눌림 구간)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">RSI</td>
-                    <td className="py-1.5">40 ~ 60 구간 (과열 아님, 과매도 아님)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-1.5 pr-4 font-medium text-gray-700 whitespace-nowrap">거래량</td>
-                    <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균 거래량 (매도 압력 약화)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-gray-400">파이프라인은 매일 오전 8:30 (KST) 전날 데이터를 기준으로 실행됩니다.</p>
-          </div>
-        </details>
-      </section>
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-700">스크리닝 기준</h3>
+        <table className="mt-3 w-full border-collapse text-xs text-gray-600">
+          <tbody className="divide-y divide-gray-50">
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시장 분위기</td>
+              <td className="py-1.5">지수 종가 &gt; 50일선 &gt; 200일선 (상승장 확인)</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">주도 섹터</td>
+              <td className="py-1.5">최근 5일 거래대금 기준 상위 3개 섹터에 속한 종목</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시가총액</td>
+              <td className="py-1.5">한국 3,000억원 이상 / 미국 2억달러 이상</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">장기 추세</td>
+              <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">단기 눌림</td>
+              <td className="py-1.5">20일선 ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">RSI</td>
+              <td className="py-1.5">40 ~ 60 구간</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">거래량</td>
+              <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균 (매도 압력 약화)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="mt-3 text-xs text-gray-400">매일 오전 8:30 (KST) 전날 데이터 기준으로 실행됩니다.</p>
+      </div>
     </main>
   )
 }

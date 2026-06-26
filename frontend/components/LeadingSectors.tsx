@@ -1,4 +1,5 @@
 import type { LeadingSectorRow } from '@/lib/types'
+import { translateSector } from '@/lib/sectorMap'
 
 interface LeadingSectorsProps {
   marketLabel: string
@@ -7,22 +8,23 @@ interface LeadingSectorsProps {
 
 export function LeadingSectors({ marketLabel, sectors }: LeadingSectorsProps) {
   if (sectors.length === 0) {
-    return <p className="text-sm text-gray-500">{marketLabel} 주도섹터 데이터가 없습니다.</p>
+    return <p className="text-xs text-gray-400">{marketLabel} 주도섹터 데이터가 없습니다.</p>
   }
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold text-gray-700">{marketLabel} 주도섹터</h3>
-      <ol className="mt-1 flex gap-2">
-        {sectors
-          .slice()
-          .sort((a, b) => a.rank - b.rank)
-          .map((sector) => (
-            <li key={sector.sector} className="rounded-full bg-blue-100 px-3 py-1 text-sm text-blue-800">
-              {sector.rank}. {sector.sector}
-            </li>
-          ))}
-      </ol>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-gray-400">주도섹터</span>
+      {sectors
+        .slice()
+        .sort((a, b) => a.rank - b.rank)
+        .map((sector) => (
+          <span
+            key={sector.sector}
+            className="inline-flex items-center rounded-md bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700"
+          >
+            {sector.rank}. {translateSector(sector.sector)}
+          </span>
+        ))}
     </div>
   )
 }

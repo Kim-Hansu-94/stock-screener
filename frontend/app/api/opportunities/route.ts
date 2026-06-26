@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
       name: meta?.name ?? ticker,
       sector: meta?.sector ?? null,
       index_membership: meta?.index_membership ?? null,
+      market: 'US',
       currentClose,
       high120d,
       drawdown,

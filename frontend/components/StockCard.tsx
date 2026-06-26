@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from './StockChart'
 import type { Market, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
+import { translateSector } from '@/lib/sectorMap'
 
 interface StockCardProps {
   stock: ScreenedStockRow
@@ -84,7 +85,7 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
           </div>
           <div>
             <dt className="text-gray-400">섹터</dt>
-            <dd>{stock.sector}</dd>
+            <dd>{translateSector(stock.sector)}</dd>
           </div>
           <div>
             <dt className="text-gray-400">RSI</dt>

@@ -1,20 +1,21 @@
 import { getUniverseStocks, getAllUniversePriceHistory } from '@/lib/queries'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import type { OpportunityStockRow } from '@/lib/types'
+import { translateSector } from '@/lib/sectorMap'
+import type { Market, OpportunityStockRow } from '@/lib/types'
 import { SimilaritySearch } from './SimilaritySearch'
 
 const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
 
-async function loadOpportunities(): Promise<OpportunityStockRow[]> {
-  const universe = await getUniverseStocks('US')
-  const nasdaq100 = universe.filter((u) => u.index_membership === 'NASDAQ100')
-  if (nasdaq100.length === 0) return []
-
-  const tickers = nasdaq100.map((u) => u.ticker)
-  const grouped = await getAllUniversePriceHistory('US', tickers)
-  const metaMap = new Map(nasdaq100.map((u) => [u.ticker, u]))
+async function computeOpportunities(
+  universe: { ticker: string; name: string; sector: string | null; index_membership: string | null }[],
+  market: Market,
+): Promise<OpportunityStockRow[]> {
+  if (universe.length === 0) return []
+  const tickers = universe.map((u) => u.ticker)
+  const grouped = await getAllUniversePriceHistory(market, tickers)
+  const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
   const results: OpportunityStockRow[] = []
   for (const [ticker, rows] of Object.entries(grouped)) {
@@ -31,14 +32,32 @@ async function loadOpportunities(): Promise<OpportunityStockRow[]> {
       name: meta?.name ?? ticker,
       sector: meta?.sector ?? null,
       index_membership: meta?.index_membership ?? null,
+      market,
       currentClose,
       high120d,
       drawdown,
       history: rows,
     })
   }
-  results.sort((a, b) => b.drawdown - a.drawdown)
   return results
+}
+
+async function loadOpportunities(): Promise<OpportunityStockRow[]> {
+  const [usUniverse, krUniverse] = await Promise.all([
+    getUniverseStocks('US'),
+    getUniverseStocks('KR'),
+  ])
+
+  const usFiltered = usUniverse.filter(
+    (u) => u.index_membership === 'NASDAQ100' || u.index_membership === 'S&P500',
+  )
+
+  const [usResults, krResults] = await Promise.all([
+    computeOpportunities(usFiltered, 'US'),
+    computeOpportunities(krUniverse, 'KR'),
+  ])
+
+  return [...usResults, ...krResults].sort((a, b) => b.drawdown - a.drawdown)
 }
 
 export default async function DiscoverPage() {
@@ -47,27 +66,26 @@ export default async function DiscoverPage() {
   try {
     opportunities = await loadOpportunities()
   } catch (err) {
-    opportunityError =
-      err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.'
+    opportunityError = err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.'
   }
 
   return (
-    <main className="mx-auto max-w-3xl space-y-10 p-4">
-      <section className="space-y-4">
+    <main className="mx-auto max-w-3xl space-y-5 px-4 py-8">
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div>
-          <h2 className="text-xl font-semibold">패턴 유사 종목</h2>
-          <p className="text-sm text-gray-500">
-            기준 종목의 급등 직전 차트 패턴과 유사한 현재 차트를 가진 종목을 찾습니다.
+          <h2 className="text-base font-semibold text-gray-900">패턴 유사 종목</h2>
+          <p className="mt-0.5 text-xs text-gray-400">
+            기준 종목의 급등 직전 구간과 패턴이 유사한 현재 종목을 찾습니다.
           </p>
         </div>
         <SimilaritySearch />
       </section>
 
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div>
-          <h2 className="text-xl font-semibold">미래먹거리 횡보/조정 종목</h2>
-          <p className="text-sm text-gray-500">
-            NASDAQ 100 종목 중 120일 고점 대비 {MIN_DRAWDOWN}–{MAX_DRAWDOWN}% 조정받은 종목입니다.
+          <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
+          <p className="mt-0.5 text-xs text-gray-400">
+            NASDAQ 100 · S&amp;P 500 · KOSPI · KOSDAQ 종목 중 120일 고점 대비 {MIN_DRAWDOWN}–{MAX_DRAWDOWN}% 조정받은 종목입니다.
           </p>
         </div>
 
@@ -80,7 +98,7 @@ export default async function DiscoverPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {opportunities.map((stock) => (
-              <OpportunityCard key={stock.ticker} stock={stock} />
+              <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} />
             ))}
           </div>
         )}
@@ -94,12 +112,21 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
   const variant =
     stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
 
+  const formatPrice = (price: number) =>
+    stock.market === 'KR'
+      ? `${price.toLocaleString('ko-KR')}원`
+      : `$${price.toFixed(2)}`
+
+  const marketTag = stock.market === 'KR'
+    ? (stock.index_membership ? stock.index_membership : 'KR')
+    : (stock.index_membership ?? 'US')
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           <span>
-            {stock.name} <span className="text-gray-400">({stock.ticker})</span>
+            {stock.name} <span className="text-gray-400 text-sm font-normal">({stock.ticker})</span>
           </span>
           <Badge variant={variant}>-{drawdownStr}%</Badge>
         </CardTitle>
@@ -107,20 +134,20 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
       <CardContent>
         <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
           <div>
-            <dt className="text-gray-400">섹터</dt>
-            <dd>{stock.sector ?? '-'}</dd>
+            <dt className="text-xs text-gray-400">섹터</dt>
+            <dd>{translateSector(stock.sector)}</dd>
           </div>
           <div>
-            <dt className="text-gray-400">현재가</dt>
-            <dd>${stock.currentClose.toFixed(2)}</dd>
+            <dt className="text-xs text-gray-400">지수</dt>
+            <dd>{marketTag}</dd>
           </div>
           <div>
-            <dt className="text-gray-400">120일 고점</dt>
-            <dd>${stock.high120d.toFixed(2)}</dd>
+            <dt className="text-xs text-gray-400">현재가</dt>
+            <dd>{formatPrice(stock.currentClose)}</dd>
           </div>
           <div>
-            <dt className="text-gray-400">조정폭</dt>
-            <dd>-{drawdownStr}%</dd>
+            <dt className="text-xs text-gray-400">120일 고점</dt>
+            <dd>{formatPrice(stock.high120d)}</dd>
           </div>
         </dl>
       </CardContent>
