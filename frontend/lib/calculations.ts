@@ -18,3 +18,15 @@ export function simpleMovingAverage(valuesAscending: number[], window: number): 
     return sum / window
   })
 }
+
+export function formatKrwAmount(krw: number): string {
+  const jo = 1_000_000_000_000
+  const eok = 100_000_000
+  if (krw >= jo) {
+    return `${(krw / jo).toFixed(1)}조원`
+  }
+  if (krw >= eok) {
+    return `${Math.round(krw / eok)}억원`
+  }
+  return `${Math.round(krw).toLocaleString('ko-KR')}원`
+}

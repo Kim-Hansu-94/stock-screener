@@ -1,3 +1,4 @@
+import { cacheLife } from 'next/cache'
 import { MarketRegimeBadge } from '@/components/MarketRegimeBadge'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
@@ -9,16 +10,27 @@ import {
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 
-export const dynamic = 'force-dynamic'
-
 const MARKETS: { market: Market; label: string }[] = [
   { market: 'KR', label: '한국' },
   { market: 'US', label: '미국' },
 ]
 
+async function fetchUsdKrwRate(): Promise<number> {
+  'use cache'
+  cacheLife('hours')
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW')
+    const json = await res.json()
+    return json.rates.KRW as number
+  } catch {
+    return 1380
+  }
+}
+
 interface MarketSectionData {
   market: Market
   label: string
+  date: string | null
   regime: Regime | null
   sectors: LeadingSectorRow[]
   stocks: ScreenedStockRow[]
@@ -30,7 +42,7 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
   try {
     const regimeRow = await getLatestRegime(market)
     if (!regimeRow) {
-      return { market, label, regime: null, sectors: [], stocks: [], priceHistory: {}, error: null }
+      return { market, label, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, error: null }
     }
 
     const [sectors, stocks] = await Promise.all([
@@ -39,11 +51,12 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
     ])
     const priceHistory = await getPriceHistoryByTicker(market, stocks.map((stock) => stock.ticker))
 
-    return { market, label, regime: regimeRow.regime, sectors, stocks, priceHistory, error: null }
+    return { market, label, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks, priceHistory, error: null }
   } catch (cause) {
     return {
       market,
       label,
+      date: null,
       regime: null,
       sectors: [],
       stocks: [],
@@ -54,7 +67,10 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
 }
 
 export default async function HomePage() {
-  const sections = await Promise.all(MARKETS.map(({ market, label }) => loadMarketSection(market, label)))
+  const [sections, usdKrwRate] = await Promise.all([
+    Promise.all(MARKETS.map(({ market, label }) => loadMarketSection(market, label))),
+    fetchUsdKrwRate(),
+  ])
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 p-4">
@@ -68,7 +84,12 @@ export default async function HomePage() {
 
       {sections.map((section) => (
         <section key={section.market} className="space-y-4">
-          <h2 className="text-lg font-semibold">{section.label} 시장</h2>
+          <div>
+            <h2 className="text-lg font-semibold">{section.label} 시장</h2>
+            {section.date && (
+              <p className="text-xs text-gray-400">데이터 기준: {section.date}</p>
+            )}
+          </div>
 
           {section.error && <p className="text-sm text-red-600">{section.error}</p>}
 
@@ -85,6 +106,8 @@ export default async function HomePage() {
                       key={stock.ticker}
                       stock={stock}
                       history={section.priceHistory[stock.ticker] ?? []}
+                      market={section.market}
+                      usdKrwRate={usdKrwRate}
                     />
                   ))}
                 </div>

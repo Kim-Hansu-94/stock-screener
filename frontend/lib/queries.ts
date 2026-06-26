@@ -1,7 +1,10 @@
+import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
 import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
+  'use cache'
+  cacheLife('hours')
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('market_regime')
@@ -16,6 +19,8 @@ export async function getLatestRegime(market: Market): Promise<MarketRegimeRow |
 }
 
 export async function getLeadingSectors(market: Market, date: string): Promise<LeadingSectorRow[]> {
+  'use cache'
+  cacheLife('hours')
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('leading_sectors')
@@ -29,6 +34,8 @@ export async function getLeadingSectors(market: Market, date: string): Promise<L
 }
 
 export async function getScreenedStocks(market: Market, date: string): Promise<ScreenedStockRow[]> {
+  'use cache'
+  cacheLife('hours')
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('screened_stocks')
@@ -44,7 +51,13 @@ export async function getPriceHistoryByTicker(
   market: Market,
   tickers: string[],
 ): Promise<Record<string, PriceHistoryRow[]>> {
+  'use cache'
+  cacheLife('hours')
   if (tickers.length === 0) return {}
+
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 120)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
@@ -52,6 +65,7 @@ export async function getPriceHistoryByTicker(
     .select('ticker, market, date, open, high, low, close, volume')
     .eq('market', market)
     .in('ticker', tickers)
+    .gte('date', cutoffStr)
     .order('date', { ascending: true })
 
   if (error) throw error
