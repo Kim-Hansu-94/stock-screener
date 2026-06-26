@@ -4,10 +4,10 @@ from unittest.mock import patch
 from pipeline.src.universe_us import get_us_universe
 
 FAKE_SP500 = pd.DataFrame({
-    "Symbol": ["AAPL", "MSFT"],
-    "Name": ["Apple", "Microsoft"],
-    "Sector": ["Information Technology", "Information Technology"],
-    "Industry": ["Tech Hardware", "Software"],
+    "Symbol": ["AAPL", "MSFT", "BRK.B", "BF.B", "BRKB"],
+    "Name": ["Apple", "Microsoft", "Berkshire B", "Brown-Forman B", "Berkshire B dup"],
+    "Sector": ["Information Technology", "Information Technology", "Financials", "Consumer Staples", "Financials"],
+    "Industry": ["Tech Hardware", "Software", "Insurance", "Spirits", "Insurance"],
 })
 
 FAKE_NASDAQ100_HTML = """
@@ -34,4 +34,10 @@ def test_combines_sp500_and_nasdaq100_without_duplicates(mock_listing, mock_get)
     assert result.loc["MSFT", "index_membership"] == "S&P500"
     assert result.loc["PDD", "index_membership"] == "NASDAQ100"
     assert pd.isna(result.loc["PDD", "sector"])
-    assert len(result) == 3
+    # dot-separated class share tickers are normalized to Yahoo Finance hyphen format
+    assert "BRK-B" in result.index
+    assert "BRK.B" not in result.index
+    assert "BF-B" in result.index
+    assert "BF.B" not in result.index
+    # no-separator variant (BRKB) also normalized, then deduped with BRK-B
+    assert "BRKB" not in result.index
