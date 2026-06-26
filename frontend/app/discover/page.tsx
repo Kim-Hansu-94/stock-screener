@@ -21,9 +21,9 @@ async function computeOpportunities(
   for (const [ticker, rows] of Object.entries(grouped)) {
     if (rows.length < 5) continue
     const closes = rows.map((r) => r.close)
-    const high120d = Math.max(...closes)
+    const high3y = Math.max(...closes)
     const currentClose = closes[closes.length - 1]
-    const drawdown = ((high120d - currentClose) / high120d) * 100
+    const drawdown = ((high3y - currentClose) / high3y) * 100
     if (drawdown < MIN_DRAWDOWN || drawdown > MAX_DRAWDOWN) continue
 
     const meta = metaMap.get(ticker)
@@ -34,7 +34,7 @@ async function computeOpportunities(
       index_membership: meta?.index_membership ?? null,
       market,
       currentClose,
-      high120d,
+      high3y,
       drawdown,
       history: rows,
     })
@@ -85,7 +85,7 @@ export default async function DiscoverPage() {
         <div>
           <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
           <p className="mt-0.5 text-xs text-gray-400">
-            NASDAQ 100 · S&amp;P 500 · KOSPI · KOSDAQ 종목 중 120일 고점 대비 {MIN_DRAWDOWN}–{MAX_DRAWDOWN}% 조정받은 종목입니다.
+            NASDAQ 100 · S&amp;P 500 · KOSPI · KOSDAQ 종목 중 3년 고점 대비 {MIN_DRAWDOWN}–{MAX_DRAWDOWN}% 조정받은 종목입니다.
           </p>
         </div>
 
@@ -146,8 +146,8 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
             <dd>{formatPrice(stock.currentClose)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">120일 고점</dt>
-            <dd>{formatPrice(stock.high120d)}</dd>
+            <dt className="text-xs text-gray-400">3년 고점</dt>
+            <dd>{formatPrice(stock.high3y)}</dd>
           </div>
         </dl>
       </CardContent>

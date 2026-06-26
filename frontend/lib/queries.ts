@@ -100,7 +100,7 @@ export async function getAllUniversePriceHistory(
   if (tickers.length === 0) return {}
 
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 120)
+  cutoff.setFullYear(cutoff.getFullYear() - 3)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const supabase = createServerSupabaseClient()

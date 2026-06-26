@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   if (tickers.length === 0) return Response.json([])
 
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 120)
+  cutoff.setFullYear(cutoff.getFullYear() - 3)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const { data: histData, error: histErr } = await supabase
@@ -52,9 +52,9 @@ export async function GET(request: NextRequest) {
   for (const [ticker, rows] of Object.entries(grouped)) {
     if (rows.length < 5) continue
     const closes = rows.map((r) => r.close)
-    const high120d = Math.max(...closes)
+    const high3y = Math.max(...closes)
     const currentClose = closes[closes.length - 1]
-    const drawdown = ((high120d - currentClose) / high120d) * 100
+    const drawdown = ((high3y - currentClose) / high3y) * 100
 
     if (drawdown < minDrawdown || drawdown > maxDrawdown) continue
 
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       index_membership: meta?.index_membership ?? null,
       market: 'US',
       currentClose,
-      high120d,
+      high3y,
       drawdown,
       history: rows,
     })

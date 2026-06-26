@@ -60,7 +60,7 @@ export interface OpportunityStockRow {
   index_membership: string | null
   market: Market
   currentClose: number
-  high120d: number
+  high3y: number
   drawdown: number
   history: PriceHistoryRow[]
 }
