@@ -25,7 +25,8 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
 
     history_rows = []
     for ticker, hist in result.price_history.items():
-        for idx, row in hist.tail(120).iterrows():
+        clean = hist.tail(120).dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        for idx, row in clean.iterrows():
             history_rows.append({
                 "ticker": ticker,
                 "market": result.market,
