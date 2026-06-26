@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
-import yahooFinance from 'yahoo-finance2'
+import YahooFinance from 'yahoo-finance2'
+const yahooFinance = new YahooFinance()
 import { createServerSupabaseClient } from '@/lib/supabase'
 import type { PriceHistoryRow, SimilarStockResult } from '@/lib/types'
 
