@@ -51,6 +51,10 @@ export function DiscoverTabs({
             <p className="mt-0.5 text-xs text-gray-400">
               Gold Standard 5종목(QBTS · RGTI · AEVA · JOBY · FCEL)의 바닥 패턴과 싱크로율이 가장 높은 상위 20종목을 매일 자동 스캔합니다.
             </p>
+            <div className="mt-2 space-y-0.5 text-xs text-gray-400">
+              <p><span className="font-medium text-gray-500">Gold 패턴 출처:</span> Yahoo Finance 실시간 (서버에서 직접 다운로드)</p>
+              <p><span className="font-medium text-gray-500">비교 대상 출처:</span> 파이프라인이 수집한 NASDAQ 100 · S&amp;P 500 전 종목 (Supabase)</p>
+            </div>
           </div>
           <DailyReport />
         </section>
@@ -63,6 +67,10 @@ export function DiscoverTabs({
             <p className="mt-0.5 text-xs text-gray-400">
               티커를 입력하면 현재 비슷하게 움직이는 종목을 찾아드립니다. 아이디어 검증 및 차트 공부용입니다.
             </p>
+            <div className="mt-2 space-y-0.5 text-xs text-gray-400">
+              <p><span className="font-medium text-gray-500">기준 종목 출처:</span> Yahoo Finance 실시간 (입력한 티커를 직접 다운로드)</p>
+              <p><span className="font-medium text-gray-500">비교 대상 출처:</span> 파이프라인이 수집한 NASDAQ 100 · S&amp;P 500 전 종목 (Supabase)</p>
+            </div>
           </div>
           <SimilaritySearch />
         </section>
