@@ -53,6 +53,12 @@ export interface SimilarStockResult {
   history: PriceHistoryRow[]
 }
 
+export interface SimilarSearchResponse {
+  detectedFrom: string
+  detectedTo: string
+  results: SimilarStockResult[]
+}
+
 export interface OpportunityStockRow {
   ticker: string
   name: string

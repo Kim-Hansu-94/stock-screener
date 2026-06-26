@@ -4,13 +4,15 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StockChart } from '@/components/StockChart'
-import type { SimilarStockResult } from '@/lib/types'
+import type { SimilarStockResult, SimilarSearchResponse } from '@/lib/types'
 
 export function SimilaritySearch() {
   const [ticker, setTicker] = useState('AEVA')
-  const [from, setFrom] = useState('2024-01-01')
-  const [to, setTo] = useState('2024-10-01')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [results, setResults] = useState<SimilarStockResult[]>([])
+  const [detectedPeriod, setDetectedPeriod] = useState<{ from: string; to: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
@@ -22,15 +24,18 @@ export function SimilaritySearch() {
     setError(null)
     setSearched(false)
     try {
-      const res = await fetch(
-        `/api/similar?ticker=${encodeURIComponent(t)}&from=${from}&to=${to}`,
-      )
-      const data = (await res.json()) as { error?: string } | SimilarStockResult[]
+      let url = `/api/similar?ticker=${encodeURIComponent(t)}`
+      if (from && to) url += `&from=${from}&to=${to}`
+      const res = await fetch(url)
+      const data = (await res.json()) as { error?: string } | SimilarSearchResponse
       if (!res.ok) {
         setError((data as { error?: string }).error ?? '검색 중 오류가 발생했습니다.')
         setResults([])
+        setDetectedPeriod(null)
       } else {
-        setResults(data as SimilarStockResult[])
+        const resp = data as SimilarSearchResponse
+        setResults(resp.results)
+        setDetectedPeriod({ from: resp.detectedFrom, to: resp.detectedTo })
         setSearched(true)
       }
     } catch {
@@ -48,16 +53,15 @@ export function SimilaritySearch() {
           <li>거래대금 하위 20% · 심한 역배열 종목 사전 제거</li>
           <li>변동성 수축 조건: 최근 20일 수익률 σ &lt; 직전 60일 σ × 0.5 (바닥 다지기 확인)</li>
           <li>매집봉 조건: 최근 60일 내 직전 90일 평균 거래량 500% 초과일이 2회 이상</li>
-          <li>기준 종목의 지정 기간 일별 수익률 + 거래량 비율을 Z-score로 정규화</li>
+          <li>기준 종목의 바닥 구간 일별 수익률 + 거래량 비율을 Z-score로 정규화</li>
           <li>코사인 유사도 계산 — 수익률 80% · 거래량 20% 가중 합산 후 상위 20종목 반환</li>
         </ol>
         <p className="mt-1.5 text-gray-400">
-          SPAC 데스밸리 바닥 패턴 기준: 기간을 60~120 거래일(3~6개월)로 설정하면 정확도가 높습니다.
-        </p>
-        <p className="mt-0.5 text-gray-400">
-          예: JOBY 2023-06-01 ~ 2023-10-01 — 급등 직전 바닥 횡보 구간
+          티커만 입력하면 최근 바닥 구간을 자동 감지합니다. 특정 기간을 지정하려면 고급 옵션을 사용하세요.
         </p>
       </div>
+
+      {/* 메인 입력 */}
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-gray-500">기준 티커</span>
@@ -69,35 +73,65 @@ export function SimilaritySearch() {
             className="h-9 w-28 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-500">시작일</span>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-500">종료일</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
-          />
-        </label>
         <button
           type="button"
           onClick={handleSearch}
           disabled={loading || !ticker.trim()}
-          className="h-9 rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="h-9 rounded-md bg-blue-600 px-5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? '검색 중...' : '패턴 검색'}
         </button>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="h-9 px-3 text-xs text-gray-400 hover:text-gray-600"
+        >
+          {showAdvanced ? '고급 옵션 닫기 ▲' : '고급 옵션 (기간 직접 지정) ▼'}
+        </button>
       </div>
 
+      {/* 고급 옵션: 날짜 직접 지정 */}
+      {showAdvanced && (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-500">시작일</span>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-500">종료일</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
+            />
+          </label>
+          {(from || to) && (
+            <button
+              type="button"
+              onClick={() => { setFrom(''); setTo('') }}
+              className="h-9 px-3 text-xs text-gray-400 hover:text-red-500"
+            >
+              초기화
+            </button>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {/* 감지된 기간 표시 */}
+      {searched && detectedPeriod && (
+        <p className="text-xs text-gray-400">
+          분석 기간: {detectedPeriod.from} ~ {detectedPeriod.to}
+          {!(from && to) && ' (자동 감지)'}
+        </p>
+      )}
 
       {searched && results.length === 0 && !error && (
         <p className="text-sm text-gray-500">유사 패턴 종목을 찾지 못했습니다.</p>

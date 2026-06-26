@@ -2,7 +2,7 @@ import type { NextRequest } from 'next/server'
 import YahooFinance from 'yahoo-finance2'
 const yahooFinance = new YahooFinance()
 import { createServerSupabaseClient } from '@/lib/supabase'
-import type { PriceHistoryRow, SimilarStockResult } from '@/lib/types'
+import type { PriceHistoryRow, SimilarStockResult, SimilarSearchResponse } from '@/lib/types'
 
 const TOP_N = 20
 const MIN_OVERLAP_DAYS = 20
@@ -94,30 +94,75 @@ function hasVolumeSpikes(volumes: number[]): boolean {
 
 // ── API 핸들러 ────────────────────────────────────────────
 
+// 최근 200 거래일 내 최저가 날짜 인덱스 반환
+function findRecentBottomIdx(prices: number[]): number {
+  const lookback = Math.min(200, prices.length)
+  const slice = prices.slice(-lookback)
+  const minIdx = slice.indexOf(Math.min(...slice))
+  return prices.length - lookback + minIdx
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const ticker = searchParams.get('ticker')
-  const from = searchParams.get('from')
-  const to = searchParams.get('to')
+  const fromParam = searchParams.get('from')
+  const toParam = searchParams.get('to')
 
-  if (!ticker || !from || !to) {
-    return Response.json({ error: 'ticker, from, to 파라미터가 필요합니다.' }, { status: 400 })
+  if (!ticker) {
+    return Response.json({ error: 'ticker 파라미터가 필요합니다.' }, { status: 400 })
   }
 
   // 1. 기준 종목 데이터 (Yahoo Finance)
   let refPrices: number[]
   let refVolumes: number[]
-  try {
-    const hist = (await yahooFinance.historical(
-      ticker,
-      { period1: from, period2: to },
-      { validateResult: false },
-    )) as unknown as Array<{ close: number; volume: number }>
-    refPrices = hist.map((d) => d.close).filter((v) => v != null && isFinite(v))
-    refVolumes = hist.map((d) => d.volume ?? 0)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return Response.json({ error: `${ticker} 데이터 오류: ${msg}` }, { status: 502 })
+  let detectedFrom: string
+  let detectedTo: string
+
+  if (fromParam && toParam) {
+    // 수동 모드: 사용자가 지정한 기간
+    try {
+      const hist = (await yahooFinance.historical(
+        ticker,
+        { period1: fromParam, period2: toParam },
+        { validateResult: false },
+      )) as unknown as Array<{ date: Date; close: number; volume: number }>
+      refPrices = hist.map((d) => d.close).filter((v) => v != null && isFinite(v))
+      refVolumes = hist.map((d) => d.volume ?? 0)
+      detectedFrom = fromParam
+      detectedTo = toParam
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return Response.json({ error: `${ticker} 데이터 오류: ${msg}` }, { status: 502 })
+    }
+  } else {
+    // 자동 감지 모드: 최근 500일 다운로드 → 최저가 바닥 탐지 → 직전 90 거래일을 패턴으로 사용
+    const autoStart = new Date()
+    autoStart.setDate(autoStart.getDate() - 500)
+    let fullHist: Array<{ date: Date; close: number; volume: number }>
+    try {
+      fullHist = (await yahooFinance.historical(
+        ticker,
+        { period1: autoStart.toISOString().slice(0, 10) },
+        { validateResult: false },
+      )) as unknown as Array<{ date: Date; close: number; volume: number }>
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return Response.json({ error: `${ticker} 데이터 오류: ${msg}` }, { status: 502 })
+    }
+
+    if (fullHist.length < 30) {
+      return Response.json({ error: `${ticker} 데이터가 부족합니다.` }, { status: 400 })
+    }
+
+    const allPrices = fullHist.map((d) => d.close)
+    const bottomIdx = findRecentBottomIdx(allPrices)
+    const patternStart = Math.max(0, bottomIdx - 90)
+    const patternSlice = fullHist.slice(patternStart, bottomIdx + 1)
+
+    refPrices = patternSlice.map((d) => d.close)
+    refVolumes = patternSlice.map((d) => d.volume ?? 0)
+    detectedFrom = patternSlice[0].date.toISOString().slice(0, 10)
+    detectedTo = patternSlice[patternSlice.length - 1].date.toISOString().slice(0, 10)
   }
 
   if (refPrices.length < MIN_OVERLAP_DAYS) {
@@ -134,7 +179,7 @@ export async function GET(request: NextRequest) {
 
   // 2. 후보 종목 가격 이력 조회
   // 동적 cutoff: 기준 기간 × 1.5 (거래일 < 달력일 보정), 최소 400일 (필터용 200거래일 확보)
-  const fromDate = new Date(from)
+  const fromDate = new Date(detectedFrom)
   const today = new Date()
   const calendarDays = Math.ceil((today.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24))
   const lookbackDays = Math.max(Math.ceil(calendarDays * 1.5), 400)
@@ -214,5 +259,10 @@ export async function GET(request: NextRequest) {
   }
 
   results.sort((a, b) => b.similarity - a.similarity)
-  return Response.json(results.slice(0, TOP_N))
+  const response: SimilarSearchResponse = {
+    detectedFrom,
+    detectedTo,
+    results: results.slice(0, TOP_N),
+  }
+  return Response.json(response)
 }
