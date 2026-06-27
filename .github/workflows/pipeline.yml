@@ -1,0 +1,55 @@
+name: Stock Screener Pipeline
+
+on:
+  schedule:
+    # 08:00 KST = 23:00 UTC (전날). 월~금 KST = 일~목 UTC
+    - cron: '0 23 * * 0-4'
+  workflow_dispatch: # 수동 실행용
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Get today's date (UTC)
+        id: date
+        run: echo "date=$(date -u +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Restore KIS price & exchange cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            pipeline/.kis_price_cache.pkl
+            pipeline/.kis_exch_cache.json
+          key: kis-cache-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kis-cache-
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+          echo "KIS_APP_KEY=${{ secrets.KIS_APP_KEY }}" >> pipeline/.env
+          echo "KIS_APP_SECRET=${{ secrets.KIS_APP_SECRET }}" >> pipeline/.env
+
+      - name: Run pipeline
+        working-directory: pipeline
+        run: python -m src.main

@@ -5,3 +5,5 @@ pipeline/.env
 .venv/
 pipeline/.kis_token_cache.json
 pipeline/.kis_exch_cache.json
+pipeline/.kis_price_cache.pkl
+pipeline/logs/
