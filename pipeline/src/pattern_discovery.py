@@ -1,17 +1,17 @@
 """Gold Standard 바닥 패턴 유사도 계산 — 파이프라인 사전 계산 모듈.
 
 파이프라인 실행 시 Gold Standard 5종목(QBTS·RGTI·AEVA·JOBY·FCEL)의
-역사적 바닥 패턴 벡터를 yfinance로 계산하고, KIS로 수집한 전 종목 가격
+역사적 바닥 패턴 벡터를 KIS API로 계산하고, KIS로 수집한 전 종목 가격
 이력과 코사인 유사도를 비교해 상위 20종목을 반환한다.
 프론트엔드는 Supabase에서 이 결과를 읽기만 한다.
 """
 from __future__ import annotations
 
+import requests as req
 from datetime import date
 from typing import Any
 
 import pandas as pd
-import yfinance as yf
 
 GOLD_STANDARDS = [
     {
@@ -141,30 +141,29 @@ def _is_volume_trigger_today(volumes: list[float], multiplier: float = 3.0) -> b
 
 
 def _load_gold_patterns() -> list[dict[str, Any]]:
-    """yfinance로 Gold Standard 종목의 역사적 바닥 패턴 벡터를 계산."""
+    """KIS API로 Gold Standard 종목의 역사적 바닥 패턴 벡터를 계산."""
+    from .prices_us import _fetch_single, _save_exch_cache
+
     patterns: list[dict[str, Any]] = []
+    today = date.today()
+    session = req.Session()
 
     for gs in GOLD_STANDARDS:
         earliest = min(w[0] for w in gs["windows"])
+        # 윈도우 시작보다 300일 앞부터 수집 (충분한 컨텍스트 확보)
         start_dt = pd.Timestamp(earliest) - pd.Timedelta(days=300)
+        lookback_days = (today - start_dt.date()).days + 30
 
+        print(f"  [pattern_discovery] KIS 다운로드: {gs['ticker']} (약 {lookback_days}일)", flush=True)
         try:
-            df = yf.download(
-                gs["ticker"],
-                start=start_dt.strftime("%Y-%m-%d"),
-                end=date.today().strftime("%Y-%m-%d"),
-                progress=False,
-                auto_adjust=True,
-            )
-        except Exception:
+            df = _fetch_single(gs["ticker"], today, lookback_days, session)
+        except Exception as e:
+            print(f"  [pattern_discovery] {gs['ticker']} 실패: {e}", flush=True)
             continue
 
         if df.empty or len(df) < 50:
+            print(f"  [pattern_discovery] {gs['ticker']} 데이터 부족 ({len(df)}행) — 스킵", flush=True)
             continue
-
-        # yfinance MultiIndex 평탄화
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
 
         for win_start, win_end in gs["windows"]:
             win_mask = (df.index >= win_start) & (df.index <= win_end)
@@ -200,6 +199,7 @@ def _load_gold_patterns() -> list[dict[str, Any]]:
                 }
             )
 
+    _save_exch_cache()
     return patterns
 
 
@@ -217,7 +217,7 @@ def compute_pattern_matches(
     all_histories : 파이프라인이 KIS로 수집한 전 종목 가격 이력 (ticker → DataFrame)
     universe      : US universe DataFrame (ticker, name, sector 컬럼 포함)
     """
-    print("  [pattern_discovery] Gold Standard 패턴 다운로드 중 (yfinance)...", flush=True)
+    print("  [pattern_discovery] Gold Standard 패턴 다운로드 중 (KIS)...", flush=True)
     gold_patterns = _load_gold_patterns()
     if not gold_patterns:
         print("  [pattern_discovery] Gold Standard 패턴 로드 실패 — 스킵", flush=True)
