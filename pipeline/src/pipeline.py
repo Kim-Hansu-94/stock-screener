@@ -13,9 +13,9 @@ from .screener import passes_pullback_filter
 
 SECTOR_DETECTION_LOOKBACK_DAYS = 45
 FULL_HISTORY_LOOKBACK_DAYS = 200
-# 180 calendar days ≈ 128 trading days — covers sector detection, screener (MIN_HISTORY_DAYS=85),
-# and provides enough history for chart similarity / opportunity detection.
-US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 180
+# 140 calendar days ≈ 97 trading days — fits in one KIS API call (100-row limit), satisfies
+# screener (MIN_HISTORY_DAYS=85) and SMA60. Reduces from 180 days to halve KIS call count.
+US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 140
 INDEX_LOOKBACK_DAYS = 400
 KR_MIN_MARKET_CAP = 300_000_000_000
 US_MIN_MARKET_CAP = 200_000_000
@@ -122,8 +122,12 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     sector_df = _build_sector_frame(universe, all_histories)
     top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
 
-    candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
-    screened, _ = _screen_candidates(candidates, lambda t: all_histories.get(t, pd.DataFrame()))
+    # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
+    if regime == "bull":
+        candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
+        screened, _ = _screen_candidates(candidates, lambda t: all_histories.get(t, pd.DataFrame()))
+    else:
+        screened = []
 
     return MarketPipelineResult(
         market="US", regime=regime, leading_sectors=top_sectors,

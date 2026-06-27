@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 from .db import PipelineResult, ScreenerDB
+from .pattern_discovery import compute_pattern_matches
 from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 
 KST = timezone(timedelta(hours=9))
@@ -66,8 +67,16 @@ def main() -> None:
     load_dotenv()
     today = _today_kst()
     db = ScreenerDB.from_env()
-    for result in (run_kr_pipeline(today), run_us_pipeline(today)):
-        db.save_pipeline_result(_to_db_result(result, today))
+
+    kr_result = run_kr_pipeline(today)
+    db.save_pipeline_result(_to_db_result(kr_result, today))
+
+    us_result = run_us_pipeline(today)
+    db.save_pipeline_result(_to_db_result(us_result, today))
+
+    print("Gold Standard 패턴 유사도 계산 중...", flush=True)
+    matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
+    db.save_pattern_matches(matches, today.isoformat())
 
 
 if __name__ == "__main__":

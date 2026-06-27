@@ -60,3 +60,26 @@ class ScreenerDB:
 
         if result.universe_metadata:
             _batch_upsert(self.client, "stock_universe", result.universe_metadata)
+
+    def save_pattern_matches(self, matches: list[dict], computed_at: str) -> None:
+        if not matches:
+            return
+        # 기존 결과 전체 삭제 후 새 결과 삽입
+        self.client.table("pattern_match_results").delete().gte("rank", 1).execute()
+        rows = [
+            {
+                "ticker": m["ticker"],
+                "name": m["name"],
+                "sector": m.get("sector"),
+                "similarity": m["similarity"],
+                "matched_standard": m["matched_standard"],
+                "matched_standard_ticker": m["matched_standard_ticker"],
+                "matched_bottom": m["matched_bottom"],
+                "volume_triggered": m["volume_triggered"],
+                "close": m.get("close"),
+                "rank": i + 1,
+                "computed_at": computed_at,
+            }
+            for i, m in enumerate(matches)
+        ]
+        self.client.table("pattern_match_results").insert(rows).execute()

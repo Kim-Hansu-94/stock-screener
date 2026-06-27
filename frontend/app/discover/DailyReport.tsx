@@ -28,7 +28,7 @@ export function DailyReport() {
   if (loading) {
     return (
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-500">
-        전 종목 패턴 스캔 중... 최초 실행 시 20~30초 소요될 수 있습니다.
+        패턴 매칭 결과 불러오는 중...
       </div>
     )
   }
