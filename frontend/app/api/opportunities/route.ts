@@ -12,19 +12,20 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServerSupabaseClient()
 
-  // Fetch NASDAQ100 universe stocks (미래먹거리 proxy)
+  // NASDAQ100 종목 조회 — S&P500과 중복 시 S&P500으로 태깅되므로 둘 다 포함
   const { data: universeData, error: universeErr } = await supabase
     .from('stock_universe')
     .select('ticker, name, sector, index_membership')
     .eq('market', 'US')
-    .eq('index_membership', 'NASDAQ100')
+    .in('index_membership', ['NASDAQ100', 'S&P500'])
   if (universeErr) return Response.json({ error: universeErr.message }, { status: 500 })
 
   const tickers = (universeData ?? []).map((r) => r.ticker)
   if (tickers.length === 0) return Response.json([])
 
+  // 파이프라인은 120일치 데이터를 누적 저장 → 1년 전까지 조회
   const cutoff = new Date()
-  cutoff.setFullYear(cutoff.getFullYear() - 3)
+  cutoff.setFullYear(cutoff.getFullYear() - 1)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const { data: histData, error: histErr } = await supabase
@@ -52,9 +53,9 @@ export async function GET(request: NextRequest) {
   for (const [ticker, rows] of Object.entries(grouped)) {
     if (rows.length < 5) continue
     const closes = rows.map((r) => r.close)
-    const high3y = Math.max(...closes)
+    const highPeak = Math.max(...closes)
     const currentClose = closes[closes.length - 1]
-    const drawdown = ((high3y - currentClose) / high3y) * 100
+    const drawdown = ((highPeak - currentClose) / highPeak) * 100
 
     if (drawdown < minDrawdown || drawdown > maxDrawdown) continue
 
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
       index_membership: meta?.index_membership ?? null,
       market: 'US',
       currentClose,
-      high3y,
+      high3y: highPeak,
       drawdown,
       history: rows,
     })
