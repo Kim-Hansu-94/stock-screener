@@ -83,9 +83,25 @@ def detect_signals(close: pd.Series, volume: pd.Series) -> pd.Series:
 
 # ── 유니버스 ──────────────────────────────────────────────────────────
 
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
+}
+
+
+def _read_html(url: str) -> list[pd.DataFrame]:
+    import requests, io
+    resp = requests.get(url, headers=_HEADERS, timeout=30)
+    resp.raise_for_status()
+    return pd.read_html(io.StringIO(resp.text))
+
+
 def _try_ndx_tickers() -> list[str]:
-    """Wikipedia NASDAQ-100 에서 티커 추출 (테이블 번호가 페이지마다 다를 수 있어 유연하게 처리)."""
-    tables = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
+    """Wikipedia NASDAQ-100 에서 티커 추출."""
+    tables = _read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
     for t in tables:
         cols = [c for c in t.columns if str(c).lower() in ("ticker", "symbol")]
         if cols:
@@ -93,13 +109,43 @@ def _try_ndx_tickers() -> list[str]:
     return []
 
 
+def _try_vthr_tickers() -> list[str]:
+    """Vanguard VTHR (Russell 3000 ETF) API에서 미국 주식 티커 추출."""
+    import time
+    import requests as req
+    BASE = "https://investor.vanguard.com/investment-products/etfs/profile/api/VTHR/portfolio-holding/stock"
+    all_entities: list[dict] = []
+    start = 1
+    total_size: int | None = None
+    while True:
+        resp = req.get(f"{BASE}?start={start}&count=500", headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        if total_size is None:
+            total_size = data.get("size", 0)
+        entities = data.get("fund", {}).get("entity", [])
+        if not entities:
+            break
+        all_entities.extend(entities)
+        if len(all_entities) >= total_size:
+            break
+        start += 500
+        time.sleep(0.2)
+    tickers = [
+        str(e["ticker"]).strip().replace(".", "-")
+        for e in all_entities
+        if e.get("ticker") and e["ticker"] not in ("-", "")
+    ]
+    return [t for t in tickers if t]
+
+
 def get_universe_tickers() -> list[str]:
-    """S&P 500 + NASDAQ 100 티커 (중복 제거)."""
+    """S&P 500 + NASDAQ 100 + Russell 3000 티커 (중복 제거)."""
     print("유니버스 수집 중...")
     tickers: set[str] = set()
 
     try:
-        sp500 = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
+        sp500 = _read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")[0]
         syms = sp500["Symbol"].str.replace(".", "-", regex=False).tolist()
         tickers.update(syms)
         print(f"  S&P 500: {len(syms)}개")
@@ -112,6 +158,13 @@ def get_universe_tickers() -> list[str]:
         print(f"  NASDAQ 100: {len(ndx)}개")
     except Exception as e:
         print(f"  NASDAQ 100 실패: {e}")
+
+    try:
+        vthr = _try_vthr_tickers()
+        tickers.update(vthr)
+        print(f"  Russell 3000 (VTHR): {len(vthr)}개")
+    except Exception as e:
+        print(f"  Russell 3000 실패: {e}")
 
     tickers.discard("SPY")
     result = sorted(tickers)
@@ -181,7 +234,11 @@ def download_spy() -> pd.Series:
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(years=YEARS_BACK)
     raw = yf.download("SPY", start=start, end=end, auto_adjust=True, progress=False)
-    return raw["Close"].dropna()
+    close = raw["Close"]
+    # yfinance >= 0.2.x: 단일 티커도 DataFrame 반환 → Series로 변환
+    if isinstance(close, pd.DataFrame):
+        close = close.squeeze()
+    return close.dropna()
 
 
 # ── 백테스트 ──────────────────────────────────────────────────────────
@@ -190,6 +247,9 @@ def run_backtest(prices: dict[str, pd.DataFrame], spy: pd.Series) -> pd.DataFram
     records: list[dict] = []
     total = len(prices)
     cooldown: dict[str, pd.Timestamp] = {}
+
+    # SPY SMA200 시장 국면 필터 – bear 구간(SPY < SMA200) 신호 억제
+    spy_sma200 = spy.rolling(200, min_periods=200).mean()
 
     for idx, (ticker, df) in enumerate(prices.items()):
         sys.stdout.write(f"\r신호 스캔: {idx+1}/{total} ({ticker:>6})  ")
@@ -204,6 +264,14 @@ def run_backtest(prices: dict[str, pd.DataFrame], spy: pd.Series) -> pd.DataFram
             continue
 
         for sig_date in sig[sig].index:
+            # 시장 국면 필터: SPY < SMA200이면 bear 구간 → 신호 건너뜀
+            spy_val = spy.get(sig_date)
+            sma_val = spy_sma200.get(sig_date)
+            if (spy_val is None or pd.isna(spy_val)
+                    or sma_val is None or pd.isna(sma_val)
+                    or float(spy_val) < float(sma_val)):
+                continue
+
             # 쿨다운: 같은 종목 30일 이내 중복 신호 제외
             last = cooldown.get(ticker)
             if last is not None and (sig_date - last).days < COOLDOWN_DAYS:
@@ -303,7 +371,8 @@ def print_summary(summary: pd.DataFrame) -> None:
 
 def main() -> None:
     print("=" * 70)
-    print("눌림목 매수 스크리너 백테스트  (최근 3년, S&P500 + NASDAQ100)")
+    print("눌림목 매수 스크리너 백테스트  (최근 3년, S&P500 + NASDAQ100 + Russell3000)")
+    print("시장 국면 필터: SPY < SMA200 구간 신호 제외")
     print("=" * 70)
 
     tickers = get_universe_tickers()
