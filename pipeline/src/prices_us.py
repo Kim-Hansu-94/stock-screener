@@ -73,6 +73,45 @@ def _last_us_trading_day(ref: date) -> date:
 _load_exch_cache()
 
 
+_OHLCV = ["Open", "High", "Low", "Close", "Volume"]
+
+
+def get_opportunity_histories(tickers: list[str], end: date, lookback_days: int = 1095) -> dict[str, pd.DataFrame]:
+    """yfinance batch download: S&P500/NASDAQ100 종목의 3년치 가격 히스토리."""
+    if not tickers:
+        return {}
+    start = (end - timedelta(days=lookback_days)).isoformat()
+    results: dict[str, pd.DataFrame] = {}
+    chunk = 100
+
+    for i in range(0, len(tickers), chunk):
+        batch = tickers[i : i + chunk]
+        print(f"  기회 종목 히스토리: {min(i + chunk, len(tickers))}/{len(tickers)}", flush=True)
+        try:
+            raw = yf.download(batch, start=start, end=end.isoformat(), progress=False)
+            if raw.empty:
+                continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                for ticker in batch:
+                    try:
+                        df = raw.xs(ticker, axis=1, level=1)
+                        cols = [c for c in _OHLCV if c in df.columns]
+                        df = df[cols].dropna(subset=["Close"])
+                        if not df.empty:
+                            results[ticker] = df
+                    except (KeyError, AttributeError):
+                        pass
+            else:
+                cols = [c for c in _OHLCV if c in raw.columns]
+                df = raw[cols].dropna(subset=["Close"])
+                if not df.empty:
+                    results[batch[0]] = df
+        except Exception as e:
+            print(f"  yfinance 오류 (batch {i // chunk + 1}): {e}", flush=True)
+
+    return results
+
+
 def get_sp500_index_history(end: date, lookback_days: int) -> pd.Series:
     start = end - timedelta(days=lookback_days)
     df = yf.download(SP500_INDEX_TICKER, start=start.isoformat(), end=end.isoformat(), progress=False)

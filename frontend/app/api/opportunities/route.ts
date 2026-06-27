@@ -23,9 +23,8 @@ export async function GET(request: NextRequest) {
   const tickers = (universeData ?? []).map((r) => r.ticker)
   if (tickers.length === 0) return Response.json([])
 
-  // 파이프라인은 120일치 데이터를 누적 저장 → 1년 전까지 조회
   const cutoff = new Date()
-  cutoff.setFullYear(cutoff.getFullYear() - 1)
+  cutoff.setFullYear(cutoff.getFullYear() - 3)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const { data: histData, error: histErr } = await supabase

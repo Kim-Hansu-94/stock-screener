@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
+from . import prices_us
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
@@ -73,6 +74,27 @@ def main() -> None:
 
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))
+
+    # S&P500 + NASDAQ100 종목 3년치 히스토리 (기회 종목 스크리너용)
+    print("기회 종목 3년 히스토리 수집 중...", flush=True)
+    opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
+    opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
+    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today)
+    opp_rows: list[dict] = []
+    for ticker, hist in opp_histories.items():
+        for idx, row in hist.iterrows():
+            opp_rows.append({
+                "ticker": ticker,
+                "market": "US",
+                "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
+                "open": float(row.get("Open", 0)),
+                "high": float(row.get("High", 0)),
+                "low": float(row.get("Low", 0)),
+                "close": float(row.get("Close", 0)),
+                "volume": int(row.get("Volume", 0)),
+            })
+    db.save_price_history(opp_rows)
+    print(f"  → {len(opp_rows)}행 저장", flush=True)
 
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
     matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)

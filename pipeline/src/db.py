@@ -61,6 +61,10 @@ class ScreenerDB:
         if result.universe_metadata:
             _batch_upsert(self.client, "stock_universe", result.universe_metadata)
 
+    def save_price_history(self, rows: list[dict]) -> None:
+        if rows:
+            _batch_upsert(self.client, "stock_price_history", rows)
+
     def save_pattern_matches(self, matches: list[dict], computed_at: str) -> None:
         if not matches:
             return
