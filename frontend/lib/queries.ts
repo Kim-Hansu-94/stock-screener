@@ -108,19 +108,22 @@ type DrawdownSummary = {
 }
 
 // Computes 3-year high + current close in the DB (one RPC call → bypasses PostgREST max_rows=1000)
+// new Date() lives here (inside 'use cache') — Next.js 16 cacheComponents mode requires this
 export async function getOpportunityDrawdowns(
   market: Market,
   tickers: string[],
-  cutoff: string,
 ): Promise<DrawdownSummary[]> {
   'use cache'
   cacheLife('hours')
   if (tickers.length === 0) return []
+  const cutoff = new Date()
+  cutoff.setFullYear(cutoff.getFullYear() - 3)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase.rpc('get_opp_drawdowns', {
     p_market: market,
     p_tickers: tickers,
-    p_cutoff: cutoff,
+    p_cutoff: cutoffStr,
   })
   if (error) throw error
   return (data ?? []) as DrawdownSummary[]

@@ -2,20 +2,17 @@ import { getUniverseStocks, getOpportunityDrawdowns, getPriceHistoryByTicker } f
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
-export const dynamic = 'force-dynamic'
-
 const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
 
 async function computeOpportunities(
   universe: { ticker: string; name: string; sector: string | null; index_membership: string | null }[],
   market: Market,
-  cutoffStr: string,
 ): Promise<OpportunityStockRow[]> {
   if (universe.length === 0) return []
 
   const tickers = universe.map((u) => u.ticker)
-  const summaries = await getOpportunityDrawdowns(market, tickers, cutoffStr)
+  const summaries = await getOpportunityDrawdowns(market, tickers)
 
   const passing = summaries.filter((s) => {
     if (s.high3y <= 0) return false
@@ -49,18 +46,14 @@ async function computeOpportunities(
 }
 
 async function loadOpportunities(): Promise<OpportunityStockRow[]> {
-  const cutoff = new Date()
-  cutoff.setFullYear(cutoff.getFullYear() - 3)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-
   const [usUniverse, krUniverse] = await Promise.all([
     getUniverseStocks('US', ['NASDAQ100', 'S&P500']),
     getUniverseStocks('KR'),
   ])
 
   const [usOpps, krOpps] = await Promise.all([
-    computeOpportunities(usUniverse, 'US', cutoffStr),
-    computeOpportunities(krUniverse, 'KR', cutoffStr),
+    computeOpportunities(usUniverse, 'US'),
+    computeOpportunities(krUniverse, 'KR'),
   ])
 
   return [...usOpps, ...krOpps].sort((a, b) => b.drawdown - a.drawdown)
