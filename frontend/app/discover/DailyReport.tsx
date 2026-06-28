@@ -57,13 +57,12 @@ export function DailyReport() {
           <>
             <p>
               오늘 전 종목을 스캔한 결과,{' '}
-              <strong>{visible.length}개</strong> 종목이 Gold Standard 바닥 패턴과 부합했습니다.
+              <strong>{visible.length}개</strong> 종목이 Gold Standard 바닥 특성에 부합했습니다.
               {visible[0] && (
                 <>
-                  {' '}최고 매칭은{' '}
+                  {' '}최고 점수는{' '}
                   <strong>{visible[0].ticker}</strong> ({visible[0].name})으로,{' '}
-                  <strong>{visible[0].matchedStandard}</strong>의 바닥 패턴과
-                  유사도 <strong>{(visible[0].similarity * 100).toFixed(1)}%</strong>입니다.
+                  <strong>{(visible[0].similarity * 100).toFixed(1)}%</strong>입니다.
                 </>
               )}
             </p>
@@ -115,7 +114,7 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
           </div>
         </CardTitle>
         <p className="text-xs text-gray-400">
-          {stock.matchedStandard} ({stock.matchedStandardTicker}) · 바닥 {stock.matchedBottom}
+          {stock.matchedStandard} · {stock.matchedBottom}
         </p>
       </CardHeader>
       <CardContent>

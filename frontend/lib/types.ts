@@ -76,9 +76,9 @@ export interface DailyReportResult {
   name: string
   sector: string | null
   similarity: number
-  matchedStandard: string       // e.g. "D-Wave Quantum"
-  matchedStandardTicker: string // e.g. "QBTS"
-  matchedBottom: string         // e.g. "2024-01-15"
+  matchedStandard: string        // e.g. "Gold Standard 바닥 특성"
+  matchedStandardTicker: string | null
+  matchedBottom: string          // e.g. "하락률 67% · 저점 유지 28일 · 거래량 +45%"
   volumeTriggered: boolean
   history: PriceHistoryRow[]
 }

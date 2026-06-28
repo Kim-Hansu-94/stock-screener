@@ -1,231 +1,112 @@
-"""Gold Standard 바닥 패턴 유사도 계산 — 파이프라인 사전 계산 모듈.
+"""Gold Standard 바닥 특성 기반 후보 종목 발굴 — 파이프라인 사전 계산 모듈.
 
-파이프라인 실행 시 Gold Standard 5종목(QBTS·RGTI·AEVA·JOBY·FCEL)의
-역사적 바닥 패턴 벡터를 KIS API로 계산하고, KIS로 수집한 전 종목 가격
-이력과 코사인 유사도를 비교해 상위 20종목을 반환한다.
-프론트엔드는 Supabase에서 이 결과를 읽기만 한다.
+Russell3000 전 종목의 가격/거래량 데이터에서 Gold Standard 종목들이 큰 반등 직전에
+공통으로 보였던 특성(심한 하락 후 바닥 다지기 + 거래량 유지)을 룰 기반으로 스코어링한다.
+
+기존 코사인 유사도 방식의 문제점:
+  - Z-scoring이 진폭 정보를 소거(±0.1% 종목과 ±30% 종목이 동일하게 보임)
+  - _is_deep_bearish 필터가 Gold Standard 종목 자체를 배제하는 역설
+  - KIS API로 Gold Standard 역사 데이터를 별도 다운로드해야 해 안정성 저하
 """
 from __future__ import annotations
 
-import requests as req
-from datetime import date
 from typing import Any
 
 import pandas as pd
 
-GOLD_STANDARDS = [
-    {
-        "ticker": "QBTS",
-        "name": "D-Wave Quantum",
-        "windows": [("2023-01-01", "2023-07-01"), ("2023-09-01", "2024-04-01")],
-    },
-    {
-        "ticker": "RGTI",
-        "name": "Rigetti Computing",
-        "windows": [("2023-01-01", "2023-07-01"), ("2023-09-01", "2024-04-01")],
-    },
-    {
-        "ticker": "AEVA",
-        "name": "Aeva Technologies",
-        "windows": [("2022-09-01", "2023-07-01"), ("2023-07-01", "2024-06-01")],
-    },
-    {
-        "ticker": "JOBY",
-        "name": "Joby Aviation",
-        "windows": [("2022-09-01", "2023-07-01"), ("2023-07-01", "2024-06-01")],
-    },
-    {
-        "ticker": "FCEL",
-        "name": "FuelCell Energy",
-        "windows": [("2024-01-01", "2024-12-31")],
-    },
-]
-
-PATTERN_DAYS = 90
-MIN_OVERLAP = 20
-VOL_MA_WIN = 20
-RETURN_W = 0.8
-VOLUME_W = 0.2
 TOP_N = 20
 
+# 가격 필터
+MIN_PRICE = 0.50    # $0.5 미만은 상장폐지 위험 종목
+MAX_PRICE = 50.0    # $50 초과는 소형주 낙폭 과대 프로필과 거리 멈
 
-# ── 수학 유틸 ──────────────────────────────────────────────────────
+# 핵심 룰 기준값
+MIN_DRAWDOWN = 0.55          # 5개월 고점 대비 55% 이상 하락 (Gold Standard 최소 낙폭 기준)
+MIN_DAYS_SINCE_LOW = 15      # 저점을 갱신하지 않은 기간 ≥ 15 거래일 (매도 소진 신호)
+MIN_VOL_RATIO = 0.70         # 최근 20일 거래량 ÷ 직전 40일 거래량 ≥ 0.70 (거래량 유지, 붕괴 아님)
 
-
-def _z_score(arr: list[float]) -> list[float]:
-    if not arr:
-        return []
-    mean = sum(arr) / len(arr)
-    std = (sum((x - mean) ** 2 for x in arr) / len(arr)) ** 0.5
-    if std < 0.001:
-        return [0.0] * len(arr)
-    return [(x - mean) / std for x in arr]
-
-
-def _normalize_returns(prices: list[float]) -> list[float]:
-    returns = [
-        (prices[i] - prices[i - 1]) / prices[i - 1]
-        for i in range(1, len(prices))
-        if prices[i - 1] != 0
-    ]
-    return _z_score(returns)
+# 부가 기준값
+VOL_TRIGGER_MULTIPLIER = 2.0  # 오늘 거래량이 90일 평균의 2배 이상 → 거래량 트리거
+MIN_DOLLAR_VOL = 300_000      # 일평균 거래대금 $30만 이상 (최소 유동성)
 
 
-def _normalize_volume(volumes: list[float]) -> list[float]:
-    ratios = []
-    for i in range(VOL_MA_WIN, len(volumes)):
-        ma = sum(volumes[i - VOL_MA_WIN : i]) / VOL_MA_WIN
-        ratios.append(volumes[i] / ma if ma > 0 else 1.0)
-    return _z_score(ratios)
-
-
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    n = min(len(a), len(b))
-    if n < MIN_OVERLAP:
-        return 0.0
-    dot = sum(a[i] * b[i] for i in range(n))
-    mag_a = sum(x ** 2 for x in a[:n]) ** 0.5
-    mag_b = sum(x ** 2 for x in b[:n]) ** 0.5
-    if mag_a == 0 or mag_b == 0:
-        return 0.0
-    return dot / (mag_a * mag_b)
-
-
-def _weighted_sim(ref_r: list, ref_v: list, cand_r: list, cand_v: list) -> float:
-    r_sim = _cosine_sim(ref_r, cand_r)
-    v_sim = (
-        _cosine_sim(ref_v, cand_v)
-        if len(ref_v) >= MIN_OVERLAP and len(cand_v) >= MIN_OVERLAP
-        else r_sim
-    )
-    return RETURN_W * r_sim + VOLUME_W * v_sim
-
-
-# ── 필터 함수 ─────────────────────────────────────────────────────
-
-
-def _is_deep_bearish(closes: list[float]) -> bool:
-    if len(closes) < 200:
+def _is_volume_trigger_today(volumes: list[float]) -> bool:
+    if len(volumes) < 2:
         return False
-    sma50 = sum(closes[-50:]) / 50
-    sma200 = sum(closes[-200:]) / 200
-    return sma50 < sma200 * 0.9
+    n = min(90, len(volumes) - 1)
+    baseline_avg = sum(volumes[-n - 1 : -1]) / n
+    return baseline_avg > 0 and volumes[-1] >= baseline_avg * VOL_TRIGGER_MULTIPLIER
 
 
-def _has_volatility_contraction(closes: list[float]) -> bool:
-    if len(closes) < 82:
-        return False
-    rets = [
-        (closes[i] - closes[i - 1]) / closes[i - 1]
-        for i in range(1, len(closes))
-        if closes[i - 1] != 0
-    ]
-    if len(rets) < 80:
-        return False
-    def _std(arr: list[float]) -> float:
-        mean = sum(arr) / len(arr)
-        return (sum((x - mean) ** 2 for x in arr) / len(arr)) ** 0.5
-    std20 = _std(rets[-20:])
-    std60 = _std(rets[-80:-20])
-    return std60 > 0 and std20 < std60 * 0.5
+def _score_candidate(closes: list[float], volumes: list[float]) -> tuple[bool, dict]:
+    """룰 기반 스코어 계산. 조건 미충족 시 (False, {}) 반환."""
+    if len(closes) < 30 or len(volumes) < 30:
+        return False, {}
 
+    current = closes[-1]
 
-def _is_volume_trigger_today(volumes: list[float], multiplier: float = 3.0) -> bool:
-    if len(volumes) < 91:
-        return False
-    baseline_avg = sum(volumes[-91:-1]) / 90
-    return baseline_avg > 0 and volumes[-1] >= baseline_avg * multiplier
+    # 가격 범위 필터
+    if not (MIN_PRICE <= current <= MAX_PRICE):
+        return False, {}
 
+    # 5개월(전 데이터) 고점 대비 하락률
+    high = max(closes)
+    drawdown = (high - current) / high if high > 0 else 0.0
+    if drawdown < MIN_DRAWDOWN:
+        return False, {}
 
-# ── Gold Standard 패턴 로드 ──────────────────────────────────────
+    # 저점 갱신 중단일 수 — list(reversed(...)).index()는 가장 최근 저점을 찾음
+    low_val = min(closes)
+    reversed_idx = list(reversed(closes)).index(low_val)
+    low_idx = len(closes) - 1 - reversed_idx
+    days_since_low = len(closes) - 1 - low_idx
+    if days_since_low < MIN_DAYS_SINCE_LOW:
+        return False, {}
 
+    # 거래량 유지 여부 (최근 20일 vs 직전 40일)
+    if len(volumes) >= 61:
+        recent_vol = sum(volumes[-20:]) / 20
+        baseline_vol = sum(volumes[-60:-20]) / 40
+    elif len(volumes) >= 41:
+        recent_vol = sum(volumes[-20:]) / 20
+        baseline_vol = sum(volumes[-40:-20]) / 20
+    else:
+        n = len(volumes) // 2
+        recent_vol = sum(volumes[-n:]) / n if n > 0 else volumes[-1]
+        baseline_vol = sum(volumes[:-n]) / max(len(volumes) - n, 1)
+    vol_ratio = recent_vol / baseline_vol if baseline_vol > 0 else 1.0
+    if vol_ratio < MIN_VOL_RATIO:
+        return False, {}
 
-def _load_gold_patterns() -> list[dict[str, Any]]:
-    """KIS API로 Gold Standard 종목의 역사적 바닥 패턴 벡터를 계산."""
-    from .prices_us import _fetch_single, _save_exch_cache
+    # 복합 스코어 (0 ~ 1)
+    # drawdown: 0 at 55%, 1.0 at 90%+
+    drawdown_score = min(1.0, (drawdown - MIN_DRAWDOWN) / 0.35)
+    # exhaustion: 0 at 15일, 1.0 at 60일+
+    exhaustion_score = min(1.0, (days_since_low - MIN_DAYS_SINCE_LOW) / 45.0)
+    # vol_score: vol_ratio가 1.0 미만이면 0, 3.0이면 1.0
+    vol_score = min(1.0, max(0.0, (vol_ratio - 1.0) / 2.0))
 
-    patterns: list[dict[str, Any]] = []
-    today = date.today()
-    session = req.Session()
+    score = 0.4 * drawdown_score + 0.4 * exhaustion_score + 0.2 * vol_score
 
-    for gs in GOLD_STANDARDS:
-        earliest = min(w[0] for w in gs["windows"])
-        # 윈도우 시작보다 300일 앞부터 수집 (충분한 컨텍스트 확보)
-        start_dt = pd.Timestamp(earliest) - pd.Timedelta(days=300)
-        lookback_days = (today - start_dt.date()).days + 30
-
-        print(f"  [pattern_discovery] KIS 다운로드: {gs['ticker']} (약 {lookback_days}일)", flush=True)
-        try:
-            df = _fetch_single(gs["ticker"], today, lookback_days, session)
-        except Exception as e:
-            print(f"  [pattern_discovery] {gs['ticker']} 실패: {e}", flush=True)
-            continue
-
-        if df.empty or len(df) < 50:
-            print(f"  [pattern_discovery] {gs['ticker']} 데이터 부족 ({len(df)}행) — 스킵", flush=True)
-            continue
-
-        for win_start, win_end in gs["windows"]:
-            win_mask = (df.index >= win_start) & (df.index <= win_end)
-            win_data = df[win_mask]
-            if len(win_data) < PATTERN_DAYS // 2:
-                continue
-
-            win_prices = win_data["Close"].tolist()
-            min_idx = win_prices.index(min(win_prices))
-            bottom_ts = win_data.index[min_idx]
-
-            idx_list = df.index.tolist()
-            abs_idx = idx_list.index(bottom_ts)
-            pat_start = max(0, abs_idx - PATTERN_DAYS)
-            sliced = df.iloc[pat_start : abs_idx + 1]
-            if len(sliced) < MIN_OVERLAP:
-                continue
-
-            prices = sliced["Close"].tolist()
-            volumes = sliced["Volume"].tolist()
-            return_norm = _normalize_returns(prices)
-            volume_norm = _normalize_volume(volumes)
-            if len(return_norm) < MIN_OVERLAP:
-                continue
-
-            patterns.append(
-                {
-                    "ticker": gs["ticker"],
-                    "name": gs["name"],
-                    "bottom": bottom_ts.strftime("%Y-%m-%d"),
-                    "returnNorm": return_norm,
-                    "volumeNorm": volume_norm,
-                }
-            )
-
-    _save_exch_cache()
-    return patterns
-
-
-# ── 메인 ─────────────────────────────────────────────────────────
+    return True, {
+        "score": score,
+        "drawdown": drawdown,
+        "days_since_low": days_since_low,
+        "vol_ratio": vol_ratio,
+    }
 
 
 def compute_pattern_matches(
     all_histories: dict[str, pd.DataFrame],
     universe: pd.DataFrame,
 ) -> list[dict[str, Any]]:
-    """Gold Standard 바닥 패턴과 현재 가장 유사한 종목 상위 TOP_N 계산.
+    """Gold Standard 바닥 특성에 부합하는 종목 상위 TOP_N 계산.
 
     Parameters
     ----------
-    all_histories : 파이프라인이 KIS로 수집한 전 종목 가격 이력 (ticker → DataFrame)
+    all_histories : 파이프라인이 수집한 전 종목 가격 이력 (ticker → DataFrame)
     universe      : US universe DataFrame (ticker, name, sector 컬럼 포함)
     """
-    print("  [pattern_discovery] Gold Standard 패턴 다운로드 중 (KIS)...", flush=True)
-    gold_patterns = _load_gold_patterns()
-    if not gold_patterns:
-        print("  [pattern_discovery] Gold Standard 패턴 로드 실패 — 스킵", flush=True)
-        return []
-    print(f"  [pattern_discovery] 패턴 {len(gold_patterns)}개 로드 완료", flush=True)
-
-    max_pat_len = max(len(gp["returnNorm"]) for gp in gold_patterns)
-
     universe_map: dict[str, dict] = {}
     for _, row in universe.iterrows():
         universe_map[row["ticker"]] = {
@@ -233,55 +114,32 @@ def compute_pattern_matches(
             "sector": row.get("sector") or None,
         }
 
-    gs_tickers = {gs["ticker"] for gs in GOLD_STANDARDS}
-
-    # 거래대금 하위 20% 제외
-    avg_turnover: dict[str, float] = {
-        t: float((hist["Close"] * hist["Volume"]).mean())
-        for t, hist in all_histories.items()
-        if not hist.empty
-    }
-    if avg_turnover:
-        vals = sorted(avg_turnover.values())
-        bottom20 = vals[int(len(vals) * 0.2)]
-    else:
-        bottom20 = 0.0
-
     results: list[dict[str, Any]] = []
     total = len(all_histories)
-    checked = 0
+    passed = 0
 
     for ticker, hist in all_histories.items():
-        if ticker in gs_tickers or hist.empty:
-            continue
-        if avg_turnover.get(ticker, 0) <= bottom20:
+        if hist.empty:
             continue
 
         closes = hist["Close"].tolist()
         volumes = hist["Volume"].tolist()
 
-        # 심한 역배열 제외 (데이터 200일 미만이면 항상 False → 제외 안 함)
-        if _is_deep_bearish(closes):
-            continue
-        # 변동성 수축 조건
-        if not _has_volatility_contraction(closes):
+        # 최소 유동성 필터
+        avg_dollar_vol = float((hist["Close"] * hist["Volume"]).mean())
+        if avg_dollar_vol < MIN_DOLLAR_VOL:
             continue
 
-        cand_r_full = _normalize_returns(closes[-(max_pat_len + 1) :])
-        cand_v_full = _normalize_volume(volumes[-(max_pat_len + VOL_MA_WIN + 1) :])
-
-        best_sim = 0.0
-        best_gp: dict | None = None
-        for gp in gold_patterns:
-            cand_r = cand_r_full[-len(gp["returnNorm"]) :]
-            cand_v = cand_v_full[-len(gp["volumeNorm"]) :]
-            sim = _weighted_sim(gp["returnNorm"], gp["volumeNorm"], cand_r, cand_v)
-            if sim > best_sim:
-                best_sim = sim
-                best_gp = gp
-
-        if best_sim <= 0 or best_gp is None:
+        qualifies, stats = _score_candidate(closes, volumes)
+        if not qualifies:
             continue
+
+        drawdown_pct = stats["drawdown"] * 100
+        days = stats["days_since_low"]
+        vol_r = stats["vol_ratio"]
+        vol_sign = "+" if vol_r >= 1.0 else "-"
+        vol_pct = abs(vol_r - 1.0) * 100
+        matched_bottom = f"하락률 {drawdown_pct:.0f}% · 저점 유지 {days}일 · 거래량 {vol_sign}{vol_pct:.0f}%"
 
         meta = universe_map.get(ticker, {})
         results.append(
@@ -289,20 +147,20 @@ def compute_pattern_matches(
                 "ticker": ticker,
                 "name": meta.get("name") or ticker,
                 "sector": meta.get("sector"),
-                "similarity": best_sim,
-                "matched_standard": best_gp["name"],
-                "matched_standard_ticker": best_gp["ticker"],
-                "matched_bottom": best_gp["bottom"],
+                "similarity": round(stats["score"], 4),
+                "matched_standard": "Gold Standard 바닥 특성",
+                "matched_standard_ticker": None,
+                "matched_bottom": matched_bottom,
                 "volume_triggered": _is_volume_trigger_today(volumes),
                 "close": closes[-1] if closes else None,
             }
         )
-        checked += 1
+        passed += 1
 
     results.sort(key=lambda x: x["similarity"], reverse=True)
     top = results[:TOP_N]
     print(
-        f"  [pattern_discovery] 완료: {checked}개 후보 → 상위 {len(top)}개 저장",
+        f"  [pattern_discovery] 완료: {total}개 스캔 → {passed}개 조건 충족 → 상위 {len(top)}개 저장",
         flush=True,
     )
     return top
