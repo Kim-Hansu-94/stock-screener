@@ -6,7 +6,10 @@ import { Badge } from '@/components/ui/badge'
 import { StockChart } from '@/components/StockChart'
 import type { SimilarStockResult, SimilarSearchResponse } from '@/lib/types'
 
+const DATA_MIN = '2021-01-01'
+
 export function SimilaritySearch() {
+  const today = new Date().toISOString().slice(0, 10)
   const [ticker, setTicker] = useState('AEVA')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -99,6 +102,8 @@ export function SimilaritySearch() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
+              min={DATA_MIN}
+              max={to || today}
               className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
             />
           </label>
@@ -108,6 +113,8 @@ export function SimilaritySearch() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
+              min={from || DATA_MIN}
+              max={today}
               className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
             />
           </label>
