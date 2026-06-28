@@ -2,6 +2,8 @@ import { getUniverseStocks, getOpportunityDrawdowns, getPriceHistoryByTicker } f
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
+export const dynamic = 'force-dynamic'
+
 const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
 
