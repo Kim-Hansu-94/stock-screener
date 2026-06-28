@@ -46,3 +46,29 @@ create table if not exists stock_universe (
   updated_at        text not null,
   primary key (ticker, market)
 );
+
+-- 3년 고점/현재가/행수를 티커별로 집계 (Supabase 기본 max_rows=1000 우회용 RPC)
+create or replace function get_opp_drawdowns(
+  p_market text,
+  p_tickers text[],
+  p_cutoff date
+)
+returns table(
+  ticker text,
+  high3y double precision,
+  current_close double precision,
+  row_count bigint
+)
+language sql stable
+as $$
+  select
+    ticker,
+    max(close)::double precision          as high3y,
+    (array_agg(close order by date desc))[1]::double precision as current_close,
+    count(*)                              as row_count
+  from stock_price_history
+  where market   = p_market
+    and ticker   = any(p_tickers)
+    and date    >= p_cutoff
+  group by ticker
+$$;

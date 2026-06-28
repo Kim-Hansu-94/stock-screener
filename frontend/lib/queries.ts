@@ -78,59 +78,50 @@ export async function getPriceHistoryByTicker(
   return grouped
 }
 
-export async function getUniverseStocks(market: Market): Promise<UniverseStockRow[]> {
+export async function getUniverseStocks(
+  market: Market,
+  memberships?: string[],
+): Promise<UniverseStockRow[]> {
   'use cache'
   cacheLife('hours')
   const supabase = createServerSupabaseClient()
-  const { data, error } = await supabase
-    .from('stock_universe')
-    .select('ticker, market, name, sector, index_membership, updated_at')
-    .eq('market', market)
+  const { data, error } = memberships?.length
+    ? await supabase
+        .from('stock_universe')
+        .select('ticker, market, name, sector, index_membership, updated_at')
+        .eq('market', market)
+        .in('index_membership', memberships)
+    : await supabase
+        .from('stock_universe')
+        .select('ticker, market, name, sector, index_membership, updated_at')
+        .eq('market', market)
 
   if (error) throw error
   return (data ?? []) as UniverseStockRow[]
 }
 
-const PAGE_SIZE = 10_000
+type DrawdownSummary = {
+  ticker: string
+  high3y: number
+  current_close: number
+  row_count: number
+}
 
-export async function getAllUniversePriceHistory(
+// Computes 3-year high + current close in the DB (one RPC call → bypasses PostgREST max_rows=1000)
+export async function getOpportunityDrawdowns(
   market: Market,
   tickers: string[],
-): Promise<Record<string, PriceHistoryRow[]>> {
+  cutoff: string,
+): Promise<DrawdownSummary[]> {
   'use cache'
   cacheLife('hours')
-  if (tickers.length === 0) return {}
-
-  const cutoff = new Date()
-  cutoff.setFullYear(cutoff.getFullYear() - 3)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-
+  if (tickers.length === 0) return []
   const supabase = createServerSupabaseClient()
-  const allRows: PriceHistoryRow[] = []
-  let from = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('stock_price_history')
-      .select('ticker, market, date, open, high, low, close, volume')
-      .eq('market', market)
-      .in('ticker', tickers)
-      .gte('date', cutoffStr)
-      .order('ticker', { ascending: true })
-      .order('date', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-
-    if (error) throw error
-    if (!data?.length) break
-    allRows.push(...(data as PriceHistoryRow[]))
-    if (data.length < PAGE_SIZE) break
-    from += PAGE_SIZE
-  }
-
-  const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of allRows) {
-    grouped[row.ticker] ??= []
-    grouped[row.ticker].push(row)
-  }
-  return grouped
+  const { data, error } = await supabase.rpc('get_opp_drawdowns', {
+    p_market: market,
+    p_tickers: tickers,
+    p_cutoff: cutoff,
+  })
+  if (error) throw error
+  return (data ?? []) as DrawdownSummary[]
 }
