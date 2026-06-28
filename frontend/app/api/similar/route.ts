@@ -201,25 +201,44 @@ export async function GET(request: NextRequest) {
     (universeData ?? []).map((r) => [r.ticker, { name: r.name, sector: r.sector }]),
   )
 
-  // Paginate to bypass Supabase PostgREST max_rows=1000
-  const allHistData: PriceHistoryRow[] = []
-  {
-    let page = 0
-    const PAGE = 1000
-    while (true) {
-      const { data, error: histErr } = await supabase
-        .from('stock_price_history')
-        .select('ticker, date, close, open, high, low, volume, market')
-        .eq('market', 'US')
-        .gte('date', cutoffStr)
-        .order('ticker', { ascending: true })
-        .order('date', { ascending: true })
-        .range(page * PAGE, (page + 1) * PAGE - 1)
-      if (histErr) return Response.json({ error: histErr.message }, { status: 500 })
-      allHistData.push(...((data ?? []) as PriceHistoryRow[]))
-      if ((data?.length ?? 0) < PAGE) break
-      page++
-    }
+  // Split universe into batches of 50 and query in parallel to bypass max_rows=1000
+  // Sequential pagination per batch + parallel batches keeps total time ~1-2s
+  const universeTickers = [...universeMap.keys()]
+  const BATCH_SIZE = 50
+  const PAGE = 1000
+  const batches: string[][] = []
+  for (let i = 0; i < universeTickers.length; i += BATCH_SIZE) {
+    batches.push(universeTickers.slice(i, i + BATCH_SIZE))
+  }
+
+  let allHistData: PriceHistoryRow[]
+  try {
+    const batchResults = await Promise.all(
+      batches.map(async (batch) => {
+        const rows: PriceHistoryRow[] = []
+        let page = 0
+        while (true) {
+          const { data, error } = await supabase
+            .from('stock_price_history')
+            .select('ticker, date, close, open, high, low, volume, market')
+            .eq('market', 'US')
+            .in('ticker', batch)
+            .gte('date', cutoffStr)
+            .order('ticker', { ascending: true })
+            .order('date', { ascending: true })
+            .range(page * PAGE, (page + 1) * PAGE - 1)
+          if (error) throw new Error(error.message)
+          rows.push(...((data ?? []) as PriceHistoryRow[]))
+          if ((data?.length ?? 0) < PAGE) break
+          page++
+        }
+        return rows
+      }),
+    )
+    allHistData = batchResults.flat()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return Response.json({ error: msg }, { status: 500 })
   }
 
   const grouped: Record<string, PriceHistoryRow[]> = {}
