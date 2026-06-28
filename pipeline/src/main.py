@@ -75,11 +75,29 @@ def main() -> None:
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))
 
-    # S&P500 + NASDAQ100 종목 3년치 히스토리 (기회 종목 스크리너용)
-    print("기회 종목 3년 히스토리 수집 중...", flush=True)
+    # S&P500 + NASDAQ100 종목 히스토리 (기회 종목 스크리너용)
+    print("기회 종목 히스토리 수집 중...", flush=True)
     opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
-    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today)
+
+    # DB 최신 날짜 확인 → 있으면 증분, 없으면 3년 전체
+    latest_resp = (
+        db.client.table("stock_price_history")
+        .select("date")
+        .eq("market", "US")
+        .order("date", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if latest_resp.data:
+        latest_date = date.fromisoformat(latest_resp.data[0]["date"])
+        lookback_days = max((today - latest_date).days + 7, 14)
+        print(f"  증분 업데이트: {latest_date} 이후 {lookback_days}일", flush=True)
+    else:
+        lookback_days = 1095
+        print("  최초 실행: 3년 전체 다운로드", flush=True)
+
+    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=lookback_days)
     opp_rows: list[dict] = []
     for ticker, hist in opp_histories.items():
         for idx, row in hist.iterrows():
