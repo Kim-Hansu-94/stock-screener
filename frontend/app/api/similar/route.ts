@@ -75,15 +75,15 @@ function hasVolatilityContraction(closes: number[]): boolean {
   const ret = dailyReturns(closes)
   const std20 = stdDev(ret.slice(-20))
   const std60 = stdDev(ret.slice(-80, -20))
-  return std60 > 0 && std20 < std60 * 0.5
+  return std60 > 0 && std20 < std60 * 0.7
 }
 
 // 최근 60일 내 직전 90일 평균 거래량 대비 5배 이상인 날이 2회 이상 → 매집봉 신호
 function hasVolumeSpikes(volumes: number[]): boolean {
   const LOOKBACK = 60
   const BASELINE = 90
-  const THRESHOLD = 5
-  const MIN_SPIKES = 2
+  const THRESHOLD = 3
+  const MIN_SPIKES = 1
   if (volumes.length < LOOKBACK + BASELINE) return false
   const baseline = volumes.slice(-(LOOKBACK + BASELINE), -LOOKBACK)
   const baselineAvg = baseline.reduce((a, b) => a + b, 0) / baseline.length
