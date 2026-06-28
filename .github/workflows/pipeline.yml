@@ -43,6 +43,14 @@ jobs:
           restore-keys: |
             kis-cache-
 
+      - name: Restore opportunity history seed marker
+        uses: actions/cache@v4
+        with:
+          path: pipeline/.yfinance_opp_seeded
+          key: opp-seeded-${{ steps.date.outputs.date }}
+          restore-keys: |
+            opp-seeded-
+
       - name: Create .env from secrets
         run: |
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env

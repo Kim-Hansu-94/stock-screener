@@ -75,12 +75,23 @@ def main() -> None:
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))
 
-    # S&P500 + NASDAQ100 종목 3년치 히스토리 (기회 종목 스크리너용)
-    # 매번 전체 다운로드: yfinance 배치는 빠르고 upsert는 멱등이므로 항상 정확
-    print("기회 종목 3년 히스토리 수집 중...", flush=True)
+    # S&P500 + NASDAQ100 종목 히스토리 (기회 종목 스크리너용)
+    # .yfinance_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단
+    print("기회 종목 히스토리 수집 중...", flush=True)
     opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
-    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today)
+
+    from pathlib import Path
+    _seed_file = Path(__file__).parent.parent / ".yfinance_opp_seeded"
+    if _seed_file.exists():
+        seed_date = date.fromisoformat(_seed_file.read_text().strip())
+        lookback_days = max((today - seed_date).days + 7, 14)
+        print(f"  증분 업데이트: {seed_date} 이후 {lookback_days}일", flush=True)
+    else:
+        lookback_days = 1095
+        print("  최초 실행: 3년 전체 다운로드", flush=True)
+
+    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=lookback_days)
     opp_rows: list[dict] = []
     for ticker, hist in opp_histories.items():
         for idx, row in hist.iterrows():
@@ -96,6 +107,7 @@ def main() -> None:
             })
     db.save_price_history(opp_rows)
     print(f"  → {len(opp_rows)}행 저장", flush=True)
+    _seed_file.write_text(today.isoformat())
 
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
     matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
