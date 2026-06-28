@@ -80,22 +80,37 @@ def main() -> None:
     opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
 
-    # DB 최신 날짜 확인 → 있으면 증분, 없으면 3년 전체
-    latest_resp = (
+    # 기회 종목의 가장 오래된 날짜 확인 → 2년치 이상 있으면 증분, 아니면 3년 전체
+    # (KIS 120일치와 혼동 안 되도록 opp_tickers 한정 조회)
+    _sample = opp_tickers[:5]
+    oldest_resp = (
         db.client.table("stock_price_history")
         .select("date")
         .eq("market", "US")
-        .order("date", desc=True)
+        .in_("ticker", _sample)
+        .order("date", desc=False)
         .limit(1)
         .execute()
     )
-    if latest_resp.data:
+    oldest_date = date.fromisoformat(oldest_resp.data[0]["date"]) if oldest_resp.data else None
+    history_ok = oldest_date is not None and (today - oldest_date).days >= 700
+
+    if history_ok:
+        latest_resp = (
+            db.client.table("stock_price_history")
+            .select("date")
+            .eq("market", "US")
+            .in_("ticker", _sample)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
         latest_date = date.fromisoformat(latest_resp.data[0]["date"])
         lookback_days = max((today - latest_date).days + 7, 14)
         print(f"  증분 업데이트: {latest_date} 이후 {lookback_days}일", flush=True)
     else:
         lookback_days = 1095
-        print("  최초 실행: 3년 전체 다운로드", flush=True)
+        print("  3년 전체 다운로드 (데이터 부족)", flush=True)
 
     opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=lookback_days)
     opp_rows: list[dict] = []
