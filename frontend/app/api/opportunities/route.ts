@@ -1,9 +1,10 @@
 import type { NextRequest } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase'
-import type { OpportunityStockRow, PriceHistoryRow } from '@/lib/types'
+import type { OpportunityStockRow } from '@/lib/types'
 
 const DEFAULT_MIN_DRAWDOWN = 20
 const DEFAULT_MAX_DRAWDOWN = 60
+const PAGE_SIZE = 10_000
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -12,7 +13,6 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServerSupabaseClient()
 
-  // NASDAQ100 종목 조회 — S&P500과 중복 시 S&P500으로 태깅되므로 둘 다 포함
   const { data: universeData, error: universeErr } = await supabase
     .from('stock_universe')
     .select('ticker, name, sector, index_membership')
@@ -27,18 +27,29 @@ export async function GET(request: NextRequest) {
   cutoff.setFullYear(cutoff.getFullYear() - 3)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  const { data: histData, error: histErr } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, open, high, low, close, volume, market')
-    .eq('market', 'US')
-    .in('ticker', tickers)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: true })
-  if (histErr) return Response.json({ error: histErr.message }, { status: 500 })
+  // Paginate to bypass Supabase's default 1000-row limit
+  const allRows: { ticker: string; date: string; close: number }[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('stock_price_history')
+      .select('ticker, date, close')
+      .eq('market', 'US')
+      .in('ticker', tickers)
+      .gte('date', cutoffStr)
+      .order('ticker', { ascending: true })
+      .order('date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+    if (!data?.length) break
+    allRows.push(...(data as typeof allRows))
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
 
-  // Group history by ticker
-  const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (histData ?? []) as PriceHistoryRow[]) {
+  // Group by ticker and compute drawdown
+  const grouped: Record<string, { ticker: string; date: string; close: number }[]> = {}
+  for (const row of allRows) {
     grouped[row.ticker] ??= []
     grouped[row.ticker].push(row)
   }
@@ -47,14 +58,13 @@ export async function GET(request: NextRequest) {
     (universeData ?? []).map((r) => [r.ticker, r]),
   )
 
-  // Compute drawdown from 120-day high
   const results: OpportunityStockRow[] = []
   for (const [ticker, rows] of Object.entries(grouped)) {
     if (rows.length < 5) continue
     const closes = rows.map((r) => r.close)
-    const highPeak = Math.max(...closes)
+    const high3y = Math.max(...closes)
     const currentClose = closes[closes.length - 1]
-    const drawdown = ((highPeak - currentClose) / highPeak) * 100
+    const drawdown = ((high3y - currentClose) / high3y) * 100
 
     if (drawdown < minDrawdown || drawdown > maxDrawdown) continue
 
@@ -66,9 +76,9 @@ export async function GET(request: NextRequest) {
       index_membership: meta?.index_membership ?? null,
       market: 'US',
       currentClose,
-      high3y: highPeak,
+      high3y,
       drawdown,
-      history: rows,
+      history: [],
     })
   }
 
