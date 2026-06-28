@@ -36,12 +36,13 @@ function normalizeToReturns(prices: number[]): number[] {
   return zScore(dailyReturns(prices))
 }
 
-// 20일 이동평균 대비 당일 거래량 비율 → Z-score
+// 20일 이동평균 대비 당일 거래량 비율 → log 변환 → Z-score (극단적 스파이크 왜곡 방지)
 function normalizeVolume(volumes: number[]): number[] {
   const ratios: number[] = []
   for (let i = VOL_MA_WINDOW; i < volumes.length; i++) {
     const ma = volumes.slice(i - VOL_MA_WINDOW, i).reduce((a, b) => a + b, 0) / VOL_MA_WINDOW
-    ratios.push(ma > 0 ? volumes[i] / ma : 1)
+    const ratio = ma > 0 ? volumes[i] / ma : 1
+    ratios.push(Math.log1p(ratio))
   }
   return zScore(ratios)
 }
@@ -59,14 +60,46 @@ function cosineSim(a: number[], b: number[]): number {
   return dot / (Math.sqrt(magA) * Math.sqrt(magB))
 }
 
+// ±MAX_LAG일 범위에서 최대 코사인 유사도 반환 (시차 허용)
+const MAX_LAG = 3
+
+function cosineSimWithLag(a: number[], b: number[]): number {
+  let best = 0
+  for (let lag = -MAX_LAG; lag <= MAX_LAG; lag++) {
+    let aSlice: number[]
+    let bSlice: number[]
+    if (lag > 0) {
+      aSlice = a.slice(0, -lag)
+      bSlice = b.slice(lag)
+    } else if (lag < 0) {
+      aSlice = a.slice(-lag)
+      bSlice = b.slice(0, b.length + lag)
+    } else {
+      aSlice = a
+      bSlice = b
+    }
+    const sim = cosineSim(aSlice, bSlice)
+    if (sim > best) best = sim
+  }
+  return best
+}
+
 // ── 필터 함수 ─────────────────────────────────────────────
 
-// SMA50이 SMA200보다 10% 이상 낮으면 심한 역배열로 판단
-function isDeepBearish(closes: number[]): boolean {
-  if (closes.length < 200) return false
-  const sma50 = closes.slice(-50).reduce((a, b) => a + b, 0) / 50
-  const sma200 = closes.slice(-200).reduce((a, b) => a + b, 0) / 200
-  return sma50 < sma200 * 0.9
+// SMA20·SMA60·SMA120이 서로 10% 이내로 수렴 중인지 확인 (이평선 밀집 = 에너지 응축)
+function isMaConverging(closes: number[]): boolean {
+  if (closes.length < 120) return false
+  const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20
+  const sma60 = closes.slice(-60).reduce((a, b) => a + b, 0) / 60
+  const sma120 = closes.slice(-120).reduce((a, b) => a + b, 0) / 120
+  const avg = (sma20 + sma60 + sma120) / 3
+  if (avg <= 0) return false
+  const maxDisp = Math.max(
+    Math.abs(sma20 - avg) / avg,
+    Math.abs(sma60 - avg) / avg,
+    Math.abs(sma120 - avg) / avg,
+  )
+  return maxDisp <= 0.10
 }
 
 // 최근 20일 수익률 표준편차 < 직전 60일 표준편차 × 0.5 → 변동성 수축 (바닥 다지기 신호)
@@ -266,8 +299,8 @@ export async function GET(request: NextRequest) {
     const closes = rows.map((r) => r.close)
     const volumes = rows.map((r) => r.volume)
 
-    // 심한 역배열 제외
-    if (isDeepBearish(closes)) continue
+    // 이평선 미수렴 제외 (SMA20·60·120이 10% 이내로 모여있어야 함)
+    if (!isMaConverging(closes)) continue
 
     // 변동성 수축 조건 (최근 20일 std < 직전 60일 std × 0.5)
     if (!hasVolatilityContraction(closes)) continue
@@ -278,8 +311,8 @@ export async function GET(request: NextRequest) {
     const returnNorm = normalizeToReturns(closes.slice(-windowLen))
     const volNorm = normalizeVolume(volumes.slice(-(windowLen + VOL_MA_WINDOW)))
 
-    const returnSim = cosineSim(refReturnNorm, returnNorm)
-    const volSim = useVolume ? cosineSim(refVolumeNorm, volNorm) : returnSim
+    const returnSim = cosineSimWithLag(refReturnNorm, returnNorm)
+    const volSim = useVolume ? cosineSimWithLag(refVolumeNorm, volNorm) : returnSim
     const sim = RETURN_WEIGHT * returnSim + VOLUME_WEIGHT * volSim
     if (sim <= 0) continue
 
