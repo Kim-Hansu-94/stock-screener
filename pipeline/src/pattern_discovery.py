@@ -211,16 +211,13 @@ def compute_pattern_matches(
         drawdown_pct = stats["drawdown"] * 100
         days = stats["days_since_low"]
         vr = stats["vol_ratio"]
-        vol_str = f"+{(vr - 1) * 100:.0f}%" if vr >= 1.0 else f"-{(1 - vr) * 100:.0f}%"
+        vcp_tag = "VCP ✓" if stats["vcp"] else "VCP ✗"
+        ma_tag = "이평 ✓" if stats["ma_align"] else "이평 ✗"
 
-        extras: list[str] = []
-        if stats["vcp"]:
-            extras.append("VCP")
-        if stats["ma_align"]:
-            extras.append("이평 정배열")
-        extra_str = f" · {', '.join(extras)}" if extras else ""
-
-        matched_bottom = f"하락률 {drawdown_pct:.0f}% · 저점 유지 {days}일 · 거래량 {vol_str}{extra_str}"
+        matched_bottom = (
+            f"하락률 {drawdown_pct:.0f}% · 저점 유지 {days}일 · "
+            f"거래량 {vr:.2f}배 · {vcp_tag} · {ma_tag}"
+        )
 
         meta = universe_map.get(ticker, {})
         results.append(
