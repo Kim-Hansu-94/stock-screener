@@ -201,16 +201,29 @@ export async function GET(request: NextRequest) {
     (universeData ?? []).map((r) => [r.ticker, { name: r.name, sector: r.sector }]),
   )
 
-  const { data: histData, error: histErr } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, close, open, high, low, volume, market')
-    .eq('market', 'US')
-    .gte('date', cutoffStr)
-    .order('date', { ascending: true })
-  if (histErr) return Response.json({ error: histErr.message }, { status: 500 })
+  // Paginate to bypass Supabase PostgREST max_rows=1000
+  const allHistData: PriceHistoryRow[] = []
+  {
+    let page = 0
+    const PAGE = 1000
+    while (true) {
+      const { data, error: histErr } = await supabase
+        .from('stock_price_history')
+        .select('ticker, date, close, open, high, low, volume, market')
+        .eq('market', 'US')
+        .gte('date', cutoffStr)
+        .order('ticker', { ascending: true })
+        .order('date', { ascending: true })
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      if (histErr) return Response.json({ error: histErr.message }, { status: 500 })
+      allHistData.push(...((data ?? []) as PriceHistoryRow[]))
+      if ((data?.length ?? 0) < PAGE) break
+      page++
+    }
+  }
 
   const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (histData ?? []) as PriceHistoryRow[]) {
+  for (const row of allHistData) {
     grouped[row.ticker] ??= []
     grouped[row.ticker].push(row)
   }
