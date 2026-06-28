@@ -91,6 +91,8 @@ export async function getUniverseStocks(market: Market): Promise<UniverseStockRo
   return (data ?? []) as UniverseStockRow[]
 }
 
+const PAGE_SIZE = 10_000
+
 export async function getAllUniversePriceHistory(
   market: Market,
   tickers: string[],
@@ -104,18 +106,29 @@ export async function getAllUniversePriceHistory(
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const supabase = createServerSupabaseClient()
-  const { data, error } = await supabase
-    .from('stock_price_history')
-    .select('ticker, market, date, open, high, low, close, volume')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: true })
+  const allRows: PriceHistoryRow[] = []
+  let from = 0
 
-  if (error) throw error
+  while (true) {
+    const { data, error } = await supabase
+      .from('stock_price_history')
+      .select('ticker, market, date, open, high, low, close, volume')
+      .eq('market', market)
+      .in('ticker', tickers)
+      .gte('date', cutoffStr)
+      .order('ticker', { ascending: true })
+      .order('date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw error
+    if (!data?.length) break
+    allRows.push(...(data as PriceHistoryRow[]))
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
 
   const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (data ?? []) as PriceHistoryRow[]) {
+  for (const row of allRows) {
     grouped[row.ticker] ??= []
     grouped[row.ticker].push(row)
   }

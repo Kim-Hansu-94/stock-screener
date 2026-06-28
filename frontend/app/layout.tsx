@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { NavLinks } from "./NavLinks";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,12 +32,7 @@ export default function RootLayout({
         <header className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur-sm">
           <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
             <span className="text-sm font-bold tracking-tight text-gray-900">StockRadar</span>
-            <Link href="/" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-              눌림목 종목
-            </Link>
-            <Link href="/discover" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-              종목 발굴
-            </Link>
+            <NavLinks />
           </nav>
         </header>
         {children}
