@@ -21,6 +21,22 @@ export async function GET() {
     )
   }
 
+  // sector가 null인 종목은 stock_universe에서 보조 조회 (Russell3000 전용 종목 대응)
+  const nullSectorTickers = matchData.filter((m) => !m.sector).map((m) => m.ticker)
+  if (nullSectorTickers.length > 0) {
+    const { data: sectorData } = await supabase
+      .from('stock_universe')
+      .select('ticker, sector')
+      .eq('market', 'US')
+      .in('ticker', nullSectorTickers)
+    const sectorMap = new Map(
+      (sectorData ?? []).filter((r) => r.sector).map((r) => [r.ticker, r.sector]),
+    )
+    for (const m of matchData) {
+      if (!m.sector) m.sector = sectorMap.get(m.ticker) ?? null
+    }
+  }
+
   const tickers = matchData.map((m) => m.ticker)
 
   const cutoff = new Date()

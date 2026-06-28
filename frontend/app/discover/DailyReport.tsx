@@ -37,24 +37,33 @@ export function DailyReport() {
   if (!data) return null
 
   const { results, generatedAt } = data
-  const triggered = results.filter((r) => r.volumeTriggered)
+  const MIN_SIMILARITY = 0.40
+  const visible = results.filter((r) => r.similarity >= MIN_SIMILARITY)
+  const triggered = visible.filter((r) => r.volumeTriggered)
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-gray-700">
-        {results.length === 0 ? (
-          <p>오늘 전 종목을 스캔한 결과, 변동성 수축 + 매집봉 조건을 충족하는 종목이 없습니다.</p>
+        {visible.length === 0 ? (
+          <p>
+            오늘 전 종목을 스캔한 결과, 유사도 40% 이상인 종목이 없습니다.
+            {results.length > 0 && (
+              <span className="ml-1 text-gray-400">
+                (최고 유사도: {(results[0].similarity * 100).toFixed(1)}% — 기준 미달)
+              </span>
+            )}
+          </p>
         ) : (
           <>
             <p>
               오늘 전 종목을 스캔한 결과,{' '}
-              <strong>{results.length}개</strong> 종목이 Gold Standard 바닥 패턴과 부합했습니다.
-              {results[0] && (
+              <strong>{visible.length}개</strong> 종목이 Gold Standard 바닥 패턴과 부합했습니다.
+              {visible[0] && (
                 <>
                   {' '}최고 매칭은{' '}
-                  <strong>{results[0].ticker}</strong> ({results[0].name})으로,{' '}
-                  <strong>{results[0].matchedStandard}</strong>의 바닥 패턴과
-                  유사도 <strong>{(results[0].similarity * 100).toFixed(1)}%</strong>입니다.
+                  <strong>{visible[0].ticker}</strong> ({visible[0].name})으로,{' '}
+                  <strong>{visible[0].matchedStandard}</strong>의 바닥 패턴과
+                  유사도 <strong>{(visible[0].similarity * 100).toFixed(1)}%</strong>입니다.
                 </>
               )}
             </p>
@@ -71,9 +80,9 @@ export function DailyReport() {
         </p>
       </div>
 
-      {results.length > 0 && (
+      {visible.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
-          {results.map((stock) => (
+          {visible.map((stock) => (
             <DailyResultCard key={stock.ticker} stock={stock} />
           ))}
         </div>
@@ -113,7 +122,7 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
         <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
           <div>
             <dt className="text-xs text-gray-400">섹터</dt>
-            <dd>{stock.sector ?? '-'}</dd>
+            <dd>{stock.sector || '미분류'}</dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400">현재가</dt>
