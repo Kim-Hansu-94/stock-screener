@@ -69,7 +69,7 @@ export function DailyReport() {
             {triggered.length > 0 && (
               <p className="mt-2 text-amber-700">
                 ⚡ <strong>{triggered.map((r) => r.ticker).join(' · ')}</strong>에서
-                오늘 거래량 트리거(평균 대비 3배 이상)가 발동했습니다.
+                오늘 거래량 트리거(90일 평균 대비 2배 이상)가 발동했습니다.
               </p>
             )}
           </>
