@@ -26,7 +26,7 @@ _VOL_KEYS   = ["tvol", "acml_vol", "vol"]
 
 _EXCH_CACHE_FILE  = pathlib.Path(__file__).parent.parent / ".kis_exch_cache.json"
 _PRICE_CACHE_FILE = pathlib.Path(__file__).parent.parent / ".kis_price_cache.pkl"
-_MAX_CACHE_DAYS   = 210  # 캐시 최대 보존 일수 (lookback_days + 여유)
+_MAX_CACHE_DAYS   = 420  # 캐시 최대 보존 일수 (lookback_days + 여유)
 
 _exch_cache: dict[str, str] = {}
 

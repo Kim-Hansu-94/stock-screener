@@ -1,7 +1,7 @@
 """Gold Standard 바닥 특성 기반 후보 종목 발굴 — 파이프라인 사전 계산 모듈 v2.
 
 v2 개선 사항:
-  - 하락률 기준: 5개월 고점 → 52주 최고가 (yfinance 메타데이터 일괄 수집)
+  - 하락률 기준: 5개월 고점 → 52주 최고가 (KIS 1년치 이력 직접 사용, lookback_days=380)
   - 가중치 재조정: 하락률 0.3 / 소진일수 0.4 / 거래량 0.3
   - VCP 보너스: ATR10 / ATR50 ≤ 0.6 이면 +0.10점 (변동성 압축)
   - 이평선 정배열 보너스: 현재가 > SMA5 > SMA10 > SMA20 이면 +0.10점
@@ -14,7 +14,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 # ── 튜닝 상수 (여기서 직접 조정) ────────────────────────────────────
 TOP_N = 20
@@ -47,42 +46,6 @@ MA_SHORT3 = 20
 MA_ALIGN_BONUS = 0.10        # 현재가 > SMA5 > SMA10 > SMA20
 
 VOL_TRIGGER_MULTIPLIER = 2.0  # 오늘 거래량이 90일 평균 2배 이상 → 거래량 트리거
-
-
-# ── 52주 최고가 일괄 수집 ────────────────────────────────────────────
-
-def _fetch_52w_highs(tickers: list[str]) -> dict[str, float]:
-    """yfinance batch download으로 전 종목 52주 최고가를 일괄 수집.
-
-    실패한 종목은 dict에서 누락 → compute_pattern_matches에서 5개월 고점으로 대체.
-    """
-    highs: dict[str, float] = {}
-    chunk_size = 200
-    total_chunks = (len(tickers) + chunk_size - 1) // chunk_size
-
-    for chunk_idx, i in enumerate(range(0, len(tickers), chunk_size), 1):
-        batch = tickers[i : i + chunk_size]
-        print(f"  [pattern_discovery] 52주 최고가: {chunk_idx}/{total_chunks}", flush=True)
-        try:
-            raw = yf.download(batch, period="1y", auto_adjust=True, progress=False)
-            if raw.empty:
-                continue
-
-            if isinstance(raw.columns, pd.MultiIndex):
-                high_df = raw["High"]   # columns = ticker (level 1)
-                for ticker in high_df.columns:
-                    val = high_df[ticker].max()
-                    if pd.notna(val) and val > 0:
-                        highs[str(ticker)] = float(val)
-            else:
-                if "High" in raw.columns and len(batch) == 1:
-                    val = raw["High"].max()
-                    if pd.notna(val) and val > 0:
-                        highs[batch[0]] = float(val)
-        except Exception as exc:
-            print(f"  [pattern_discovery] 52주 최고가 오류 chunk {chunk_idx}: {exc}", flush=True)
-
-    return highs
 
 
 # ── 기술 지표 (NumPy 벡터 연산) ─────────────────────────────────────
@@ -142,7 +105,7 @@ def _score_candidate(
     if not (MIN_PRICE <= current <= MAX_PRICE):
         return False, {}
 
-    # 52주 최고가 기준 하락률 (yfinance 실패 시 5개월 고점 대체)
+    # KIS 1년치 이력에서 계산된 52주 최고가 기준 하락률
     ref_high = high_52w if high_52w > 0 else float(high.max())
     drawdown = (ref_high - current) / ref_high if ref_high > 0 else 0.0
     if drawdown < MIN_DRAWDOWN:
@@ -220,10 +183,6 @@ def compute_pattern_matches(
         for t, n, s in zip(uni["ticker"], uni["name"], uni["sector"])
     }
 
-    # 52주 최고가 일괄 수집
-    all_tickers = list(all_histories.keys())
-    highs_52w = _fetch_52w_highs(all_tickers)
-
     results: list[dict[str, Any]] = []
     total = len(all_histories)
     passed = 0
@@ -242,7 +201,9 @@ def compute_pattern_matches(
         if (close * vol).mean() < MIN_DOLLAR_VOL:
             continue
 
-        qualifies, stats = _score_candidate(high, low, close, vol, highs_52w.get(ticker, 0.0))
+        # KIS 1년치 이력(lookback_days=380)에서 52주 최고가 직접 계산
+        high_52w = float(high.max())
+        qualifies, stats = _score_candidate(high, low, close, vol, high_52w)
         if not qualifies or stats["score"] < MIN_SCORE:
             continue
 

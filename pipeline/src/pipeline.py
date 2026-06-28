@@ -13,9 +13,8 @@ from .screener import passes_pullback_filter
 
 SECTOR_DETECTION_LOOKBACK_DAYS = 45
 FULL_HISTORY_LOOKBACK_DAYS = 200
-# 140 calendar days ≈ 97 trading days — fits in one KIS API call (100-row limit), satisfies
-# screener (MIN_HISTORY_DAYS=85) and SMA60. Reduces from 180 days to halve KIS call count.
-US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 140
+# 380 calendar days ≈ 263 trading days — covers full 52-week high via KIS pagination.
+US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 380
 INDEX_LOOKBACK_DAYS = 400
 KR_MIN_MARKET_CAP = 300_000_000_000
 US_MIN_MARKET_CAP = 200_000_000
