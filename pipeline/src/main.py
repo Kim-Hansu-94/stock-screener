@@ -114,6 +114,27 @@ def main() -> None:
     matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
     db.save_pattern_matches(matches, today.isoformat())
 
+    # 패턴 매칭 종목 3년 히스토리 보강 (월봉 Bollinger/RSI 렌더링용)
+    if matches:
+        matched_tickers = list({m["ticker"] for m in matches})
+        print(f"패턴 매칭 종목 3년 히스토리 보강 중... ({len(matched_tickers)}개)", flush=True)
+        matched_histories = prices_us.get_opportunity_histories(matched_tickers, today, lookback_days=1095)
+        matched_rows: list[dict] = []
+        for ticker, hist in matched_histories.items():
+            for idx, row in hist.iterrows():
+                matched_rows.append({
+                    "ticker": ticker,
+                    "market": "US",
+                    "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
+                    "open": float(row.get("Open", 0)),
+                    "high": float(row.get("High", 0)),
+                    "low": float(row.get("Low", 0)),
+                    "close": float(row.get("Close", 0)),
+                    "volume": int(row.get("Volume", 0)),
+                })
+        db.save_price_history(matched_rows)
+        print(f"  → {len(matched_rows)}행 저장", flush=True)
+
 
 if __name__ == "__main__":
     main()

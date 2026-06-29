@@ -52,7 +52,7 @@ export async function GET() {
   )
 
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 380)
+  cutoff.setDate(cutoff.getDate() - 1095)
 
   const { data: histData, error: histErr } = await supabase
     .from('stock_price_history')
