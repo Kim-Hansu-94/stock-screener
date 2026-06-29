@@ -97,7 +97,7 @@ export async function getUniverseStocks(
         .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
         .eq('market', market)
 
-  if (error) throw error
+  if (error) return []
   return (data ?? []) as UniverseStockRow[]
 }
 
@@ -114,7 +114,7 @@ export async function getUniverseNameMap(
     .select('ticker, name_kr')
     .eq('market', market)
     .in('ticker', tickers)
-  if (error) throw error
+  if (error) return {}
   const map: Record<string, string> = {}
   for (const row of (data ?? []) as { ticker: string; name_kr: string | null }[]) {
     if (row.name_kr) map[row.ticker] = row.name_kr
