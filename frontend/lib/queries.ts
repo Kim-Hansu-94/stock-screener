@@ -89,16 +89,37 @@ export async function getUniverseStocks(
   const { data, error } = memberships?.length
     ? await supabase
         .from('stock_universe')
-        .select('ticker, market, name, sector, index_membership, updated_at')
+        .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
         .eq('market', market)
         .in('index_membership', memberships)
     : await supabase
         .from('stock_universe')
-        .select('ticker, market, name, sector, index_membership, updated_at')
+        .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
         .eq('market', market)
 
   if (error) throw error
   return (data ?? []) as UniverseStockRow[]
+}
+
+export async function getUniverseNameMap(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, string>> {
+  'use cache'
+  cacheLife('hours')
+  if (tickers.length === 0) return {}
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_universe')
+    .select('ticker, name_kr')
+    .eq('market', market)
+    .in('ticker', tickers)
+  if (error) throw error
+  const map: Record<string, string> = {}
+  for (const row of (data ?? []) as { ticker: string; name_kr: string | null }[]) {
+    if (row.name_kr) map[row.ticker] = row.name_kr
+  }
+  return map
 }
 
 type DrawdownSummary = {

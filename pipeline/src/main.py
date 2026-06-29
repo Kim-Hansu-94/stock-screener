@@ -48,6 +48,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
                 "ticker": row["ticker"],
                 "market": result.market,
                 "name": row.get("name", ""),
+                "name_kr": row.get("name_kr", ""),
                 "sector": row.get("sector", ""),
                 "index_membership": row.get("index_membership", ""),
                 "updated_at": today.isoformat(),

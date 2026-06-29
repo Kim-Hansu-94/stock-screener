@@ -56,9 +56,15 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
   return (
     <Card>
       <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((current) => !current)}>
-        <CardTitle className="flex items-center justify-between text-base">
+        <CardTitle className="flex items-start justify-between text-base">
           <span>
-            {stock.name} <span className="text-gray-400">({stock.ticker})</span>
+            <span className="block">
+              {stock.name_kr ?? stock.name}{' '}
+              <span className="text-gray-400">({stock.ticker})</span>
+            </span>
+            {stock.name_kr && (
+              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
+            )}
           </span>
           <Badge variant={changePercent !== null && changePercent < 0 ? 'destructive' : 'default'}>
             {changePercent === null ? '등락률 없음' : `${changePercent.toFixed(2)}%`}

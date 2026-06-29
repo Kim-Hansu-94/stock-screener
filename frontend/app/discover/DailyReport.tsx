@@ -61,7 +61,7 @@ export function DailyReport() {
               {visible[0] && (
                 <>
                   {' '}최고 점수는{' '}
-                  <strong>{visible[0].ticker}</strong> ({visible[0].name})으로,{' '}
+                  <strong>{visible[0].ticker}</strong> ({visible[0].name_kr ?? visible[0].name})으로,{' '}
                   <strong>{(visible[0].similarity * 100).toFixed(1)}%</strong>입니다.
                 </>
               )}
@@ -99,8 +99,13 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between text-base">
           <span>
-            {stock.name}{' '}
-            <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+            <span className="block">
+              {stock.name_kr ?? stock.name}{' '}
+              <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+            </span>
+            {stock.name_kr && (
+              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
+            )}
           </span>
           <div className="ml-2 flex flex-shrink-0 gap-1.5">
             {stock.volumeTriggered && (

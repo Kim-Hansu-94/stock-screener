@@ -19,6 +19,7 @@ export interface ScreenedStockRow {
   market: Market
   ticker: string
   name: string
+  name_kr?: string
   sector: string
   close: number
   market_cap: number
@@ -40,6 +41,7 @@ export interface UniverseStockRow {
   ticker: string
   market: Market
   name: string
+  name_kr?: string
   sector: string | null
   index_membership: string | null
   updated_at: string
@@ -74,6 +76,7 @@ export interface OpportunityStockRow {
 export interface DailyReportResult {
   ticker: string
   name: string
+  name_kr?: string | null
   sector: string | null
   similarity: number
   matchedStandard: string        // e.g. "Gold Standard 바닥 특성"

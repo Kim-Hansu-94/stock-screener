@@ -39,6 +39,18 @@ export async function GET() {
 
   const tickers = matchData.map((m) => m.ticker)
 
+  // 한글명 보조 조회 (stock_universe에서)
+  const { data: nameKrData } = await supabase
+    .from('stock_universe')
+    .select('ticker, name_kr')
+    .eq('market', 'US')
+    .in('ticker', tickers)
+  const nameKrMap = new Map(
+    (nameKrData ?? [])
+      .filter((r): r is { ticker: string; name_kr: string } => !!r.name_kr)
+      .map((r) => [r.ticker, r.name_kr]),
+  )
+
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 380)
 
@@ -61,6 +73,7 @@ export async function GET() {
   const results: DailyReportResult[] = matchData.map((m) => ({
     ticker: m.ticker,
     name: m.name,
+    name_kr: nameKrMap.get(m.ticker) ?? null,
     sector: m.sector ?? null,
     similarity: m.similarity,
     matchedStandard: m.matched_standard,

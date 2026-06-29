@@ -41,11 +41,14 @@ create table if not exists stock_universe (
   ticker            text not null,
   market            text not null check (market in ('KR', 'US')),
   name              text,
+  name_kr           text,
   sector            text,
   index_membership  text,
   updated_at        text not null,
   primary key (ticker, market)
 );
+-- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
+-- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS name_kr text;
 
 -- 3년 고점/현재가/행수를 티커별로 집계 (Supabase 기본 max_rows=1000 우회용 RPC)
 create or replace function get_opp_drawdowns(

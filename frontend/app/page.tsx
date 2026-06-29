@@ -6,6 +6,7 @@ import {
   getLeadingSectors,
   getPriceHistoryByTicker,
   getScreenedStocks,
+  getUniverseNameMap,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 
@@ -50,7 +51,13 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
     ])
     const priceHistory = await getPriceHistoryByTicker(market, stocks.map((stock) => stock.ticker))
 
-    return { market, label, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks, priceHistory, error: null }
+    let enrichedStocks = stocks
+    if (market === 'US' && stocks.length > 0) {
+      const nameKrMap = await getUniverseNameMap('US', stocks.map((s) => s.ticker))
+      enrichedStocks = stocks.map((s) => ({ ...s, name_kr: nameKrMap[s.ticker] }))
+    }
+
+    return { market, label, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, error: null }
   } catch (cause) {
     return {
       market,
