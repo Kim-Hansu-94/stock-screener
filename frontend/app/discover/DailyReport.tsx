@@ -125,7 +125,7 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
           </div>
         </dl>
         <div className="mt-4">
-          <StockChart monthly history={stock.history} />
+          <StockChart monthly bollinger rsi history={stock.history} />
         </div>
       </CardContent>
     </Card>

@@ -1,13 +1,15 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { createChart, CrosshairMode } from 'lightweight-charts'
-import { simpleMovingAverage } from '@/lib/calculations'
+import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts'
+import { simpleMovingAverage, bollingerBands, relativeStrengthIndex } from '@/lib/calculations'
 import type { PriceHistoryRow } from '@/lib/types'
 
 interface StockChartProps {
   history: PriceHistoryRow[]
   monthly?: boolean
+  bollinger?: boolean
+  rsi?: boolean
 }
 
 const DAILY_MOVING_AVERAGES: Array<{ window: number; color: string }> = [
@@ -41,18 +43,21 @@ function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
     }))
 }
 
-export function StockChart({ history, monthly = false }: StockChartProps) {
+export function StockChart({ history, monthly = false, bollinger = false, rsi = false }: StockChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const rsiRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!containerRef.current || history.length === 0) return
 
     const data = monthly ? toMonthlyOHLCV(history) : history
     const maSet = monthly ? MONTHLY_MOVING_AVERAGES : DAILY_MOVING_AVERAGES
+    const bbWindow = monthly ? 10 : 20
+    const rsiWindow = monthly ? 6 : 14
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
-      height: 300,
+      height: rsi ? 240 : 300,
       crosshair: { mode: CrosshairMode.Normal },
     })
 
@@ -71,7 +76,7 @@ export function StockChart({ history, monthly = false }: StockChartProps) {
 
     for (const { window, color } of maSet) {
       const maValues = simpleMovingAverage(closes, window)
-      const lineSeries = chart.addLineSeries({ color, lineWidth: 1 })
+      const lineSeries = chart.addLineSeries({ color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false })
       lineSeries.setData(
         data
           .map((row, index) => ({ time: row.date, value: maValues[index] }))
@@ -79,22 +84,73 @@ export function StockChart({ history, monthly = false }: StockChartProps) {
       )
     }
 
+    if (bollinger) {
+      const bbValues = bollingerBands(closes, bbWindow)
+      const bbColor = '#93c5fd'
+      const bbOpts = { color: bbColor, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false }
+
+      const upperSeries = chart.addLineSeries(bbOpts)
+      upperSeries.setData(
+        data
+          .map((row, index) => ({ time: row.date, value: bbValues[index].upper }))
+          .filter((p): p is { time: string; value: number } => p.value !== null),
+      )
+
+      const lowerSeries = chart.addLineSeries(bbOpts)
+      lowerSeries.setData(
+        data
+          .map((row, index) => ({ time: row.date, value: bbValues[index].lower }))
+          .filter((p): p is { time: string; value: number } => p.value !== null),
+      )
+    }
+
+    let rsiChart: ReturnType<typeof createChart> | null = null
+
+    if (rsi && rsiRef.current) {
+      rsiChart = createChart(rsiRef.current, {
+        width: rsiRef.current.clientWidth,
+        height: 80,
+        crosshair: { mode: CrosshairMode.Normal },
+        rightPriceScale: { scaleMargins: { top: 0.15, bottom: 0.15 } },
+      })
+
+      const rsiValues = relativeStrengthIndex(closes, rsiWindow)
+      const rsiSeries = rsiChart.addLineSeries({
+        color: '#7c3aed',
+        lineWidth: 1,
+        lastValueVisible: true,
+        priceLineVisible: false,
+      })
+      rsiSeries.setData(
+        data
+          .map((row, index) => ({ time: row.date, value: rsiValues[index] }))
+          .filter((p): p is { time: string; value: number } => p.value !== null),
+      )
+      rsiSeries.createPriceLine({ price: 70, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
+      rsiSeries.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
+    }
+
     const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth })
-      }
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth })
+      if (rsiChart && rsiRef.current) rsiChart.applyOptions({ width: rsiRef.current.clientWidth })
     }
     window.addEventListener('resize', handleResize)
 
     return () => {
       window.removeEventListener('resize', handleResize)
       chart.remove()
+      rsiChart?.remove()
     }
-  }, [history, monthly])
+  }, [history, monthly, bollinger, rsi])
 
   if (history.length === 0) {
     return <p className="text-sm text-gray-500">차트 데이터가 없습니다.</p>
   }
 
-  return <div ref={containerRef} />
+  return (
+    <div>
+      <div ref={containerRef} />
+      {rsi && <div ref={rsiRef} className="mt-1" />}
+    </div>
+  )
 }

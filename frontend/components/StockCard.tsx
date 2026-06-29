@@ -94,7 +94,7 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
         </dl>
         {isExpanded && (
           <div className="mt-4">
-            <StockChart history={history} />
+            <StockChart history={history} bollinger rsi />
           </div>
         )}
       </CardContent>
