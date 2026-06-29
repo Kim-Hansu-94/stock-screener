@@ -77,7 +77,7 @@ class ScreenerDB:
                 "sector": m.get("sector"),
                 "similarity": m["similarity"],
                 "matched_standard": m["matched_standard"],
-                "matched_standard_ticker": m["matched_standard_ticker"],
+                "matched_standard_ticker": m["matched_standard_ticker"] or "",
                 "matched_bottom": m["matched_bottom"],
                 "volume_triggered": m["volume_triggered"],
                 "close": m.get("close"),
