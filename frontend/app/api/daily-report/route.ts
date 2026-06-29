@@ -1,6 +1,26 @@
 import { createServerSupabaseClient } from '@/lib/supabase'
 import type { PriceHistoryRow, DailyReportResult, DailyReportResponse } from '@/lib/types'
 
+function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
+  const months: Record<string, PriceHistoryRow[]> = {}
+  for (const row of daily) {
+    const key = row.date.slice(0, 7)
+    ;(months[key] ??= []).push(row)
+  }
+  return Object.entries(months)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, rows]) => ({
+      ticker: rows[0].ticker,
+      market: rows[0].market,
+      date: rows[rows.length - 1].date,
+      open: rows[0].open,
+      high: Math.max(...rows.map((r) => r.high)),
+      low: Math.min(...rows.map((r) => r.low)),
+      close: rows[rows.length - 1].close,
+      volume: rows.reduce((sum, r) => sum + r.volume, 0),
+    }))
+}
+
 export async function GET() {
   const supabase = createServerSupabaseClient()
 
@@ -80,7 +100,7 @@ export async function GET() {
     matchedStandardTicker: m.matched_standard_ticker,
     matchedBottom: m.matched_bottom,
     volumeTriggered: m.volume_triggered,
-    history: histByTicker[m.ticker] ?? [],
+    history: toMonthlyOHLCV(histByTicker[m.ticker] ?? []),
   }))
 
   return Response.json({

@@ -10,6 +10,7 @@ interface StockChartProps {
   monthly?: boolean
   bollinger?: boolean
   rsi?: boolean
+  preAggregated?: boolean
 }
 
 const DAILY_MOVING_AVERAGES: Array<{ window: number; color: string }> = [
@@ -43,14 +44,14 @@ function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
     }))
 }
 
-export function StockChart({ history, monthly = false, bollinger = false, rsi = false }: StockChartProps) {
+export function StockChart({ history, monthly = false, bollinger = false, rsi = false, preAggregated = false }: StockChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rsiRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!containerRef.current || history.length === 0) return
 
-    const data = monthly ? toMonthlyOHLCV(history) : history
+    const data = monthly && !preAggregated ? toMonthlyOHLCV(history) : history
     const maSet = monthly ? MONTHLY_MOVING_AVERAGES : DAILY_MOVING_AVERAGES
     const bbWindow = monthly ? 10 : 20
     const rsiWindow = monthly ? 6 : 14
@@ -104,6 +105,8 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       )
     }
 
+    chart.timeScale().fitContent()
+
     let rsiChart: ReturnType<typeof createChart> | null = null
 
     if (rsi && rsiRef.current) {
@@ -128,6 +131,7 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       )
       rsiSeries.createPriceLine({ price: 70, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
       rsiSeries.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
+      rsiChart.timeScale().fitContent()
     }
 
     const handleResize = () => {

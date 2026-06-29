@@ -150,7 +150,7 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
           </div>
         </dl>
         <div className="mt-4">
-          <StockChart monthly bollinger rsi history={stock.history} />
+          <StockChart monthly bollinger rsi preAggregated history={stock.history} />
         </div>
       </CardContent>
     </Card>

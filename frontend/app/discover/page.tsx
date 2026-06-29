@@ -1,6 +1,26 @@
 import { getUniverseStocks, getOpportunityDrawdowns, getPriceHistoryByTicker } from '@/lib/queries'
-import type { Market, OpportunityStockRow } from '@/lib/types'
+import type { Market, OpportunityStockRow, PriceHistoryRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
+
+function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
+  const months: Record<string, PriceHistoryRow[]> = {}
+  for (const row of daily) {
+    const key = row.date.slice(0, 7)
+    ;(months[key] ??= []).push(row)
+  }
+  return Object.entries(months)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, rows]) => ({
+      ticker: rows[0].ticker,
+      market: rows[0].market,
+      date: rows[rows.length - 1].date,
+      open: rows[0].open,
+      high: Math.max(...rows.map((r) => r.high)),
+      low: Math.min(...rows.map((r) => r.low)),
+      close: rows[rows.length - 1].close,
+      volume: rows.reduce((sum, r) => sum + r.volume, 0),
+    }))
+}
 
 const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
@@ -41,7 +61,7 @@ async function computeOpportunities(
       currentClose: s.current_close,
       high3y: s.high3y,
       drawdown,
-      history: history[s.ticker] ?? [],
+      history: toMonthlyOHLCV(history[s.ticker] ?? []),
     }
   })
 }
