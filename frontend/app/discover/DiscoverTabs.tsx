@@ -6,6 +6,7 @@ import { SimilaritySearch } from './SimilaritySearch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { translateSector } from '@/lib/sectorMap'
+import { StockChart } from '@/components/StockChart'
 import type { OpportunityStockRow } from '@/lib/types'
 
 type Tab = 'report' | 'search' | 'opportunity'
@@ -148,6 +149,9 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
             <dd>{formatPrice(stock.high3y)}</dd>
           </div>
         </dl>
+        <div className="mt-4">
+          <StockChart monthly history={stock.history} />
+        </div>
       </CardContent>
     </Card>
   )

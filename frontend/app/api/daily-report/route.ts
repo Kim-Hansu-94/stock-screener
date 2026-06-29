@@ -40,7 +40,7 @@ export async function GET() {
   const tickers = matchData.map((m) => m.ticker)
 
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 200)
+  cutoff.setDate(cutoff.getDate() - 380)
 
   const { data: histData, error: histErr } = await supabase
     .from('stock_price_history')

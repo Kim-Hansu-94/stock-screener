@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StockChart } from '@/components/StockChart'
@@ -91,16 +91,12 @@ export function DailyReport() {
 }
 
 function DailyResultCard({ stock }: { stock: DailyReportResult }) {
-  const [expanded, setExpanded] = useState(false)
   const simPct = (stock.similarity * 100).toFixed(1)
   const latestClose = stock.history[stock.history.length - 1]?.close
 
   return (
     <Card className={stock.volumeTriggered ? 'border-amber-300' : ''}>
-      <CardHeader
-        className="cursor-pointer pb-2"
-        onClick={() => setExpanded((v) => !v)}
-      >
+      <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between text-base">
           <span>
             {stock.name}{' '}
@@ -128,11 +124,9 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
             <dd>{latestClose != null ? `$${latestClose.toFixed(2)}` : '-'}</dd>
           </div>
         </dl>
-        {expanded && stock.history.length > 0 && (
-          <div className="mt-4">
-            <StockChart history={stock.history} />
-          </div>
-        )}
+        <div className="mt-4">
+          <StockChart monthly history={stock.history} />
+        </div>
       </CardContent>
     </Card>
   )

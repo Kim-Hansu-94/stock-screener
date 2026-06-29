@@ -50,13 +50,14 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
 export async function getPriceHistoryByTicker(
   market: Market,
   tickers: string[],
+  days = 120,
 ): Promise<Record<string, PriceHistoryRow[]>> {
   'use cache'
   cacheLife('hours')
   if (tickers.length === 0) return {}
 
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 120)
+  cutoff.setDate(cutoff.getDate() - days)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const supabase = createServerSupabaseClient()
