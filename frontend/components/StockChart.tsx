@@ -79,13 +79,6 @@ export function StockChart({ history, monthly = false }: StockChartProps) {
       )
     }
 
-    const volumeSeries = chart.addHistogramSeries({
-      color: '#94a3b8',
-      priceFormat: { type: 'volume' },
-      priceScaleId: '',
-    })
-    volumeSeries.setData(data.map((row) => ({ time: row.date, value: row.volume })))
-
     const handleResize = () => {
       if (containerRef.current) {
         chart.applyOptions({ width: containerRef.current.clientWidth })

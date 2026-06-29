@@ -25,7 +25,7 @@ async function computeOpportunities(
   const history = await getPriceHistoryByTicker(
     market,
     passing.map((s) => s.ticker),
-    380,
+    1095,
   )
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
