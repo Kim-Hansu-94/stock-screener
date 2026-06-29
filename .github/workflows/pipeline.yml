@@ -4,7 +4,12 @@ on:
   schedule:
     # 08:00 KST = 23:00 UTC (전날). 월~금 KST = 일~목 UTC
     - cron: '0 23 * * 0-4'
-  workflow_dispatch: # 수동 실행용
+  workflow_dispatch:
+    inputs:
+      force_backfill:
+        description: '기회 종목 3년 전체 재다운로드 (seed 파일 삭제)'
+        type: boolean
+        default: false
 
 jobs:
   run-pipeline:
@@ -50,6 +55,10 @@ jobs:
           key: opp-seeded-v2-${{ steps.date.outputs.date }}
           restore-keys: |
             opp-seeded-v2-
+
+      - name: Force full backfill (seed 파일 삭제)
+        if: ${{ github.event.inputs.force_backfill == 'true' }}
+        run: rm -f pipeline/.yfinance_opp_seeded
 
       - name: Create .env from secrets
         run: |
