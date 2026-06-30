@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DailyReport } from './DailyReport'
 import { SimilaritySearch } from './SimilaritySearch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -105,6 +105,25 @@ export function DiscoverTabs({
 }
 
 function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [chartReady, setChartReady] = useState(false)
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setChartReady(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '300px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   const drawdownStr = stock.drawdown.toFixed(1)
   const variant =
     stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
@@ -149,8 +168,10 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
             <dd>{formatPrice(stock.high3y)}</dd>
           </div>
         </dl>
-        <div className="mt-4">
-          <StockChart monthly bollinger rsi preAggregated history={stock.history} />
+        <div ref={sentinelRef} className="mt-4 min-h-80">
+          {chartReady && (
+            <StockChart monthly bollinger rsi preAggregated history={stock.history} />
+          )}
         </div>
       </CardContent>
     </Card>

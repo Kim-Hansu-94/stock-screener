@@ -11,10 +11,22 @@ def rsi(series: pd.Series, window: int = 14) -> pd.Series:
     delta = series.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
+
+    result = pd.Series(float('nan'), index=series.index)
+    if len(series) <= window:
+        return result
+
+    # Wilder's smoothed RSI: SMA seed, then SMMA — matches frontend calculations.ts
+    avg_gain = float(gain.iloc[1:window + 1].mean())
+    avg_loss = float(loss.iloc[1:window + 1].mean())
+    result.iloc[window] = 100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+
+    for i in range(window + 1, len(series)):
+        avg_gain = (avg_gain * (window - 1) + float(gain.iloc[i])) / window
+        avg_loss = (avg_loss * (window - 1) + float(loss.iloc[i])) / window
+        result.iloc[i] = 100.0 if avg_loss == 0 else 100 - 100 / (1 + avg_gain / avg_loss)
+
+    return result
 
 
 def is_trending_up(ma_series: pd.Series, lookback: int = 5) -> bool:

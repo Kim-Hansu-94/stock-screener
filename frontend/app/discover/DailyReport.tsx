@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StockChart } from '@/components/StockChart'
@@ -91,6 +91,25 @@ export function DailyReport() {
 }
 
 function DailyResultCard({ stock }: { stock: DailyReportResult }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [chartReady, setChartReady] = useState(false)
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setChartReady(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '300px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   const simPct = (stock.similarity * 100).toFixed(1)
   const latestClose = stock.history[stock.history.length - 1]?.close
 
@@ -129,8 +148,10 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
             <dd>{latestClose != null ? `$${latestClose.toFixed(2)}` : '-'}</dd>
           </div>
         </dl>
-        <div className="mt-4">
-          <StockChart monthly bollinger rsi preAggregated history={stock.history} />
+        <div ref={sentinelRef} className="mt-4 min-h-80">
+          {chartReady && (
+            <StockChart monthly bollinger rsi preAggregated history={stock.history} />
+          )}
         </div>
       </CardContent>
     </Card>
