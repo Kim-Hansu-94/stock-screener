@@ -52,8 +52,6 @@ export async function getPriceHistoryByTicker(
   tickers: string[],
   days = 120,
 ): Promise<Record<string, PriceHistoryRow[]>> {
-  'use cache'
-  cacheLife('hours')
   if (tickers.length === 0) return {}
 
   const cutoff = new Date()
@@ -129,14 +127,36 @@ type DrawdownSummary = {
   row_count: number
 }
 
+// Monthly OHLCV via SQL aggregation — bypasses PostgREST max_rows=1000 (daily rows far exceed limit)
+export async function getMonthlyPriceHistory(
+  market: Market,
+  tickers: string[],
+  days = 1095,
+): Promise<Record<string, PriceHistoryRow[]>> {
+  if (tickers.length === 0) return {}
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase.rpc('get_monthly_ohlcv', {
+    p_market: market,
+    p_tickers: tickers,
+    p_cutoff: cutoffStr,
+  })
+  if (error) throw error
+  const grouped: Record<string, PriceHistoryRow[]> = {}
+  for (const row of (data ?? []) as PriceHistoryRow[]) {
+    grouped[row.ticker] ??= []
+    grouped[row.ticker].push(row)
+  }
+  return grouped
+}
+
 // Computes 3-year high + current close in the DB (one RPC call → bypasses PostgREST max_rows=1000)
-// new Date() lives here (inside 'use cache') — Next.js 16 cacheComponents mode requires this
 export async function getOpportunityDrawdowns(
   market: Market,
   tickers: string[],
 ): Promise<DrawdownSummary[]> {
-  'use cache'
-  cacheLife('hours')
   if (tickers.length === 0) return []
   const cutoff = new Date()
   cutoff.setFullYear(cutoff.getFullYear() - 3)

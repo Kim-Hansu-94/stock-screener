@@ -1,25 +1,6 @@
 import { createServerSupabaseClient } from '@/lib/supabase'
-import type { PriceHistoryRow, DailyReportResult, DailyReportResponse } from '@/lib/types'
-
-function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
-  const months: Record<string, PriceHistoryRow[]> = {}
-  for (const row of daily) {
-    const key = row.date.slice(0, 7)
-    ;(months[key] ??= []).push(row)
-  }
-  return Object.entries(months)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, rows]) => ({
-      ticker: rows[0].ticker,
-      market: rows[0].market,
-      date: rows[rows.length - 1].date,
-      open: rows[0].open,
-      high: Math.max(...rows.map((r) => r.high)),
-      low: Math.min(...rows.map((r) => r.low)),
-      close: rows[rows.length - 1].close,
-      volume: rows.reduce((sum, r) => sum + r.volume, 0),
-    }))
-}
+import { getMonthlyPriceHistory } from '@/lib/queries'
+import type { DailyReportResult, DailyReportResponse } from '@/lib/types'
 
 export async function GET() {
   const supabase = createServerSupabaseClient()
@@ -71,24 +52,7 @@ export async function GET() {
       .map((r) => [r.ticker, r.name_kr]),
   )
 
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 1095)
-
-  const { data: histData, error: histErr } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, close, open, high, low, volume, market')
-    .eq('market', 'US')
-    .in('ticker', tickers)
-    .gte('date', cutoff.toISOString().slice(0, 10))
-    .order('date', { ascending: true })
-
-  if (histErr) return Response.json({ error: histErr.message }, { status: 500 })
-
-  const histByTicker: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (histData ?? []) as PriceHistoryRow[]) {
-    histByTicker[row.ticker] ??= []
-    histByTicker[row.ticker].push(row)
-  }
+  const histByTicker = await getMonthlyPriceHistory('US', tickers)
 
   const results: DailyReportResult[] = matchData.map((m) => ({
     ticker: m.ticker,
@@ -100,7 +64,7 @@ export async function GET() {
     matchedStandardTicker: m.matched_standard_ticker,
     matchedBottom: m.matched_bottom,
     volumeTriggered: m.volume_triggered,
-    history: toMonthlyOHLCV(histByTicker[m.ticker] ?? []),
+    history: histByTicker[m.ticker] ?? [],
   }))
 
   return Response.json({
