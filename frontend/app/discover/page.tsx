@@ -8,7 +8,7 @@ const MIN_DRAWDOWN = 20
 const MAX_DRAWDOWN = 60
 
 async function computeOpportunities(
-  universe: { ticker: string; name: string; sector: string | null; index_membership: string | null }[],
+  universe: { ticker: string; name: string; name_kr?: string; sector: string | null; index_membership: string | null }[],
   market: Market,
 ): Promise<OpportunityStockRow[]> {
   if (universe.length === 0) return []
@@ -33,6 +33,7 @@ async function computeOpportunities(
     return {
       ticker: s.ticker,
       name: meta?.name ?? s.ticker,
+      name_kr: meta?.name_kr,
       sector: meta?.sector ?? null,
       index_membership: meta?.index_membership ?? null,
       market,

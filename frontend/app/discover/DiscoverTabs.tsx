@@ -141,10 +141,15 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between text-base">
+        <CardTitle className="flex items-start justify-between text-base">
           <span>
-            {stock.name}{' '}
-            <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+            <span className="block">
+              {stock.name_kr ?? stock.name}{' '}
+              <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+            </span>
+            {stock.name_kr && (
+              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
+            )}
           </span>
           <Badge variant={variant}>-{drawdownStr}%</Badge>
         </CardTitle>

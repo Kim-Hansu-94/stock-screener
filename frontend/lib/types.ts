@@ -64,6 +64,7 @@ export interface SimilarSearchResponse {
 export interface OpportunityStockRow {
   ticker: string
   name: string
+  name_kr?: string
   sector: string | null
   index_membership: string | null
   market: Market
