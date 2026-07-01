@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory } from '@/lib/queries'
 import type { Market, OpportunityStockRow } from '@/lib/types'
@@ -57,7 +58,7 @@ async function loadOpportunities(): Promise<OpportunityStockRow[]> {
   return [...usOpps, ...krOpps].sort((a, b) => b.drawdown - a.drawdown)
 }
 
-export default async function DiscoverPage() {
+async function DiscoverContent() {
   await connection()
   let opportunities: OpportunityStockRow[] = []
   let opportunityError: string | null = null
@@ -66,10 +67,15 @@ export default async function DiscoverPage() {
   } catch (err) {
     opportunityError = err instanceof Error ? err.message : '데이터를 불러오지 못했습니다.'
   }
+  return <DiscoverTabs opportunities={opportunities} opportunityError={opportunityError} />
+}
 
+export default function DiscoverPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <DiscoverTabs opportunities={opportunities} opportunityError={opportunityError} />
+      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+        <DiscoverContent />
+      </Suspense>
     </main>
   )
 }
