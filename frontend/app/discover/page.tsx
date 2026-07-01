@@ -34,7 +34,7 @@ async function computeOpportunities(
       sector: meta?.sector ?? null,
       index_membership: meta?.index_membership ?? null,
       market,
-      currentClose: s.current_close,
+      currentClose: history[s.ticker]?.at(-1)?.close ?? s.current_close,
       high3y: s.high3y,
       drawdown,
       history: history[s.ticker] ?? [],
