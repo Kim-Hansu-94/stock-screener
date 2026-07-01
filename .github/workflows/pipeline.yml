@@ -51,14 +51,16 @@ jobs:
       - name: Restore opportunity history seed marker
         uses: actions/cache@v4
         with:
-          path: pipeline/.yfinance_opp_seeded
+          path: |
+            pipeline/.yfinance_opp_seeded
+            pipeline/.yfinance_opp_seeded_tickers
           key: opp-seeded-v2-${{ steps.date.outputs.date }}
           restore-keys: |
             opp-seeded-v2-
 
       - name: Force full backfill (seed 파일 삭제)
         if: ${{ github.event.inputs.force_backfill == 'true' }}
-        run: rm -f pipeline/.yfinance_opp_seeded
+        run: rm -f pipeline/.yfinance_opp_seeded pipeline/.yfinance_opp_seeded_tickers
 
       - name: Create .env from secrets
         run: |

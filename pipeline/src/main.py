@@ -83,16 +83,37 @@ def main() -> None:
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
 
     from pathlib import Path
+    import json
     _seed_file = Path(__file__).parent.parent / ".yfinance_opp_seeded"
+    _seeded_tickers_file = Path(__file__).parent.parent / ".yfinance_opp_seeded_tickers"
+
     if _seed_file.exists():
         seed_date = date.fromisoformat(_seed_file.read_text().strip())
-        lookback_days = max((today - seed_date).days + 7, 14)
-        print(f"  증분 업데이트: {seed_date} 이후 {lookback_days}일", flush=True)
-    else:
-        lookback_days = 1095
-        print("  최초 실행: 3년 전체 다운로드", flush=True)
+        incremental_days = max((today - seed_date).days + 7, 14)
+        # 파일 없으면 빈 set → 모든 티커를 신규로 처리해 3년 전체 재시드 (1회성 마이그레이션)
+        seeded_tickers = (
+            set(json.loads(_seeded_tickers_file.read_text()))
+            if _seeded_tickers_file.exists()
+            else set()
+        )
+        new_tickers = [t for t in opp_tickers if t not in seeded_tickers]
+        existing_tickers = [t for t in opp_tickers if t in seeded_tickers]
 
-    opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=lookback_days)
+        opp_histories: dict = {}
+        if new_tickers:
+            print(f"  신규/미시드 {len(new_tickers)}개 3년 전체 다운로드...", flush=True)
+            opp_histories.update(
+                prices_us.get_opportunity_histories(new_tickers, today, lookback_days=1095)
+            )
+        if existing_tickers:
+            print(f"  기존 {len(existing_tickers)}개 증분 ({incremental_days}일)...", flush=True)
+            opp_histories.update(
+                prices_us.get_opportunity_histories(existing_tickers, today, lookback_days=incremental_days)
+            )
+    else:
+        print("  최초 실행: 3년 전체 다운로드", flush=True)
+        opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=1095)
+
     opp_rows: list[dict] = []
     for ticker, hist in opp_histories.items():
         for idx, row in hist.iterrows():
@@ -109,6 +130,7 @@ def main() -> None:
     db.save_price_history(opp_rows)
     print(f"  → {len(opp_rows)}행 저장", flush=True)
     _seed_file.write_text(today.isoformat())
+    _seeded_tickers_file.write_text(json.dumps(opp_tickers))
 
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
     matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
