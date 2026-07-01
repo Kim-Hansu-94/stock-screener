@@ -1,3 +1,4 @@
+import { connection } from 'next/server'
 import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory } from '@/lib/queries'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
@@ -57,6 +58,7 @@ async function loadOpportunities(): Promise<OpportunityStockRow[]> {
 }
 
 export default async function DiscoverPage() {
+  await connection()
   let opportunities: OpportunityStockRow[] = []
   let opportunityError: string | null = null
   try {
