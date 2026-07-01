@@ -34,7 +34,7 @@ DIP_THRESHOLDS = [0.05, 0.10, 0.15, 0.20, 0.25]
 
 def download_spy() -> pd.Series:
     end = pd.Timestamp.today().normalize()
-    raw = yf.download("SPY", start=START_DATE, end=end.isoformat(), auto_adjust=True, progress=False)
+    raw = yf.download("SPY", start=START_DATE, end=end.strftime('%Y-%m-%d'), auto_adjust=True, progress=False)
     close = raw["Close"].squeeze()
     close.name = "SPY"
     return close.dropna()
@@ -42,7 +42,9 @@ def download_spy() -> pd.Series:
 
 def get_monthly_first_dates(close: pd.Series) -> pd.DatetimeIndex:
     """매월 첫 거래일 반환."""
-    return close.groupby([close.index.year, close.index.month]).first().index
+    periods = close.index.to_period('M')
+    mask = ~periods.duplicated(keep='first')
+    return close.index[mask]
 
 
 # ── 전략 A: 정기 적립식 ───────────────────────────────────────────────

@@ -121,15 +121,19 @@ def get_us_korean_names() -> dict[str, str]:
             resp = requests.get(url, timeout=60)
             resp.raise_for_status()
             with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                raw = zf.read(filename)
+                actual = zf.namelist()[0]
+                raw = zf.read(actual)
             count = 0
             for line in raw.split(b"\n"):
                 line = line.rstrip(b"\r")
-                if len(line) < 58:
+                if not line:
                     continue
                 try:
-                    ticker = line[0:6].decode("ascii", errors="replace").strip()
-                    kr_name = line[18:58].decode("euc-kr", errors="replace").strip()
+                    parts = line.decode("euc-kr", errors="replace").split("\t")
+                    if len(parts) < 7:
+                        continue
+                    ticker = parts[4].strip()
+                    kr_name = parts[6].strip()
                 except Exception:
                     continue
                 if not ticker or not _KR_RE.search(kr_name):
