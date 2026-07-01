@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic'
-
 import { createServerSupabaseClient } from '@/lib/supabase'
 import { getMonthlyPriceHistory } from '@/lib/queries'
 import type { DailyReportResult, DailyReportResponse } from '@/lib/types'
