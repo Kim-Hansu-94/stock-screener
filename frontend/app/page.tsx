@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+import { connection } from 'next/server'
 import { cacheLife } from 'next/cache'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
@@ -110,21 +112,15 @@ function RegimeCriteria({ regime }: { regime: Regime | null }) {
   )
 }
 
-export default async function HomePage() {
+async function HomeContent() {
+  await connection()
   const [sections, usdKrwRate] = await Promise.all([
     Promise.all(MARKETS.map(({ market, label }) => loadMarketSection(market, label))),
     fetchUsdKrwRate(),
   ])
 
   return (
-    <main className="mx-auto max-w-3xl space-y-5 px-4 py-8">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">눌림목 매수 스크리너</h1>
-        <p className="text-sm text-gray-500">
-          상승장에서 주도 섹터의 눌림목 구간에 있는 종목을 매일 추려 드립니다.
-        </p>
-      </div>
-
+    <>
       {sections.map((section) => (
         <section key={section.market} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div>
@@ -200,6 +196,23 @@ export default async function HomePage() {
         </table>
         <p className="mt-3 text-xs text-gray-400">매일 오전 8:30 (KST) 전날 데이터 기준으로 실행됩니다.</p>
       </div>
+    </>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <main className="mx-auto max-w-3xl space-y-5 px-4 py-8">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">눌림목 매수 스크리너</h1>
+        <p className="text-sm text-gray-500">
+          상승장에서 주도 섹터의 눌림목 구간에 있는 종목을 매일 추려 드립니다.
+        </p>
+      </div>
+
+      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+        <HomeContent />
+      </Suspense>
     </main>
   )
 }
