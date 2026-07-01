@@ -127,7 +127,10 @@ type DrawdownSummary = {
   row_count: number
 }
 
-// Monthly OHLCV via SQL aggregation — bypasses PostgREST max_rows=1000 (daily rows far exceed limit)
+// Monthly OHLCV via SQL aggregation. Batched to stay under PostgREST max_rows=1000
+// (36 bars × 25 tickers = 900 rows per batch; batches run in parallel).
+const MONTHLY_BATCH_SIZE = 25
+
 export async function getMonthlyPriceHistory(
   market: Market,
   tickers: string[],
@@ -138,16 +141,30 @@ export async function getMonthlyPriceHistory(
   cutoff.setDate(cutoff.getDate() - days)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
   const supabase = createServerSupabaseClient()
-  const { data, error } = await supabase.rpc('get_monthly_ohlcv', {
-    p_market: market,
-    p_tickers: tickers,
-    p_cutoff: cutoffStr,
-  })
-  if (error) throw error
+
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += MONTHLY_BATCH_SIZE) {
+    batches.push(tickers.slice(i, i + MONTHLY_BATCH_SIZE))
+  }
+
+  const batchResults = await Promise.all(
+    batches.map(async (batch) => {
+      const { data, error } = await supabase.rpc('get_monthly_ohlcv', {
+        p_market: market,
+        p_tickers: batch,
+        p_cutoff: cutoffStr,
+      })
+      if (error) throw error
+      return (data ?? []) as PriceHistoryRow[]
+    }),
+  )
+
   const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (data ?? []) as PriceHistoryRow[]) {
-    grouped[row.ticker] ??= []
-    grouped[row.ticker].push(row)
+  for (const rows of batchResults) {
+    for (const row of rows) {
+      grouped[row.ticker] ??= []
+      grouped[row.ticker].push(row)
+    }
   }
   return grouped
 }
