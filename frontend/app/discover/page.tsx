@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory } from '@/lib/queries'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
