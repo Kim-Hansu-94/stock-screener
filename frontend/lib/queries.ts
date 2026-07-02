@@ -14,7 +14,7 @@ export async function getLatestRegime(market: Market): Promise<MarketRegimeRow |
     .limit(1)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return data as MarketRegimeRow | null
 }
 
@@ -29,7 +29,7 @@ export async function getLeadingSectors(market: Market, date: string): Promise<L
     .eq('date', date)
     .order('rank', { ascending: true })
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return (data ?? []) as LeadingSectorRow[]
 }
 
@@ -43,7 +43,7 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
     .eq('market', market)
     .eq('date', date)
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return (data ?? []) as ScreenedStockRow[]
 }
 
@@ -67,7 +67,7 @@ export async function getPriceHistoryByTicker(
     .gte('date', cutoffStr)
     .order('date', { ascending: true })
 
-  if (error) throw error
+  if (error) throw new Error(error.message)
 
   const grouped: Record<string, PriceHistoryRow[]> = {}
   for (const row of (data ?? []) as PriceHistoryRow[]) {
@@ -154,7 +154,7 @@ export async function getMonthlyPriceHistory(
         p_tickers: batch,
         p_cutoff: cutoffStr,
       })
-      if (error) throw error
+      if (error) throw new Error(error.message)
       return (data ?? []) as PriceHistoryRow[]
     }),
   )
@@ -191,7 +191,7 @@ export async function getScreenedStockPerformance(
     .gte('date', cutoffStr)
     .order('date', { ascending: false })
 
-  if (recsError) throw recsError
+  if (recsError) throw new Error(recsError.message)
   if (!recs?.length) return []
 
   const tickers = [...new Set(recs.map((r: { ticker: string }) => r.ticker))]
@@ -205,7 +205,7 @@ export async function getScreenedStockPerformance(
     .gte('date', oldestDate)
     .order('date', { ascending: true })
 
-  if (priceError) throw priceError
+  if (priceError) throw new Error(priceError.message)
 
   const priceMap: Record<string, { date: string; close: number }[]> = {}
   for (const row of (priceData ?? []) as { ticker: string; date: string; close: number }[]) {
@@ -251,6 +251,6 @@ export async function getOpportunityDrawdowns(
     p_tickers: tickers,
     p_cutoff: cutoffStr,
   })
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return (data ?? []) as DrawdownSummary[]
 }

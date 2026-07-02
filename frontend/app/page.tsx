@@ -12,9 +12,9 @@ import {
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 
-const MARKETS: { market: Market; label: string }[] = [
-  { market: 'KR', label: '한국' },
-  { market: 'US', label: '미국' },
+const MARKETS: { market: Market; label: string; universe: string }[] = [
+  { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
+  { market: 'US', label: '미국', universe: 'S&P 500 · NASDAQ 100' },
 ]
 
 async function fetchUsdKrwRate(): Promise<number> {
@@ -32,6 +32,7 @@ async function fetchUsdKrwRate(): Promise<number> {
 interface MarketSectionData {
   market: Market
   label: string
+  universe: string
   date: string | null
   regime: Regime | null
   sectors: LeadingSectorRow[]
@@ -40,11 +41,11 @@ interface MarketSectionData {
   error: string | null
 }
 
-async function loadMarketSection(market: Market, label: string): Promise<MarketSectionData> {
+async function loadMarketSection(market: Market, label: string, universe: string): Promise<MarketSectionData> {
   try {
     const regimeRow = await getLatestRegime(market)
     if (!regimeRow) {
-      return { market, label, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, error: null }
+      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, error: null }
     }
 
     const [sectors, stocks] = await Promise.all([
@@ -59,11 +60,12 @@ async function loadMarketSection(market: Market, label: string): Promise<MarketS
       enrichedStocks = stocks.map((s) => ({ ...s, name_kr: nameKrMap[s.ticker] }))
     }
 
-    return { market, label, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, error: null }
+    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, error: null }
   } catch (cause) {
     return {
       market,
       label,
+      universe,
       date: null,
       regime: null,
       sectors: [],
@@ -115,7 +117,7 @@ function RegimeCriteria({ regime }: { regime: Regime | null }) {
 async function HomeContent() {
   await connection()
   const [sections, usdKrwRate] = await Promise.all([
-    Promise.all(MARKETS.map(({ market, label }) => loadMarketSection(market, label))),
+    Promise.all(MARKETS.map(({ market, label, universe }) => loadMarketSection(market, label, universe))),
     fetchUsdKrwRate(),
   ])
 
@@ -128,6 +130,7 @@ async function HomeContent() {
               <h2 className="text-base font-semibold text-gray-900">{section.label} 시장</h2>
               <RegimePill regime={section.regime} />
             </div>
+            <p className="mt-0.5 text-xs text-gray-400">{section.universe} 탐색</p>
             <RegimeCriteria regime={section.regime} />
             {section.date && (
               <p className="mt-0.5 text-xs text-gray-400">기준: {section.date}</p>

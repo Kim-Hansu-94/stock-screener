@@ -82,7 +82,7 @@ export function DiscoverTabs({
           <div className="mb-4">
             <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
             <p className="mt-0.5 text-xs text-gray-400">
-              NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
+              코스피 · 코스닥 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
             </p>
           </div>
           {opportunityError ? (
