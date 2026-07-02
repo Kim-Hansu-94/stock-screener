@@ -6,6 +6,7 @@ from .indicators import is_trending_up, rsi, sma, volume_ratio
 
 MIN_HISTORY_DAYS = 85
 LONG_TERM_WINDOW = 60
+SMA200_WINDOW = 200
 SHORT_TERM_WINDOW = 5
 MID_TERM_WINDOW = 20
 PULLBACK_UPPER_WINDOW = 10
@@ -16,7 +17,12 @@ RSI_DIRECTION_LOOKBACK = 3
 CONSECUTIVE_DOWN_THRESHOLD = 0.01  # 1% per day — minor noise is allowed, sustained drops are not
 
 
-def passes_pullback_filter(close: pd.Series, volume: pd.Series) -> bool:
+def passes_pullback_filter(
+    close: pd.Series,
+    volume: pd.Series,
+    *,
+    require_sma200: bool = False,
+) -> bool:
     if len(close) < MIN_HISTORY_DAYS:
         return False
 
@@ -33,6 +39,13 @@ def passes_pullback_filter(close: pd.Series, volume: pd.Series) -> bool:
 
     if pd.isna(latest_sma60) or pd.isna(latest_rsi) or pd.isna(latest_sma10) or pd.isna(latest_sma20):
         return False
+
+    # US-only: require close above 200-day MA to exclude long-term downtrend stocks.
+    if require_sma200:
+        sma200 = sma(close, SMA200_WINDOW)
+        latest_sma200 = sma200.iloc[-1]
+        if pd.isna(latest_sma200) or latest_close <= latest_sma200:
+            return False
 
     long_term_up = is_trending_up(sma60, lookback=SHORT_TERM_WINDOW) and latest_close > latest_sma60
     pullback = latest_sma20 <= latest_close <= latest_sma10

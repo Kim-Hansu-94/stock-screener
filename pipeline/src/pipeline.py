@@ -56,14 +56,16 @@ def _build_sector_frame(universe: pd.DataFrame, recent_histories: dict[str, pd.D
 
 
 def _screen_candidates(
-    candidates: pd.DataFrame, fetch_full_history: Callable[[str], pd.DataFrame],
+    candidates: pd.DataFrame,
+    fetch_full_history: Callable[[str], pd.DataFrame],
+    require_sma200: bool = False,
 ) -> tuple[list[ScreenedStock], dict[str, pd.DataFrame]]:
     screened: list[ScreenedStock] = []
     price_history: dict[str, pd.DataFrame] = {}
     for _, row in candidates.iterrows():
         ticker = row["ticker"]
         hist = fetch_full_history(ticker)
-        if hist.empty or not passes_pullback_filter(hist["Close"], hist["Volume"]):
+        if hist.empty or not passes_pullback_filter(hist["Close"], hist["Volume"], require_sma200=require_sma200):
             continue
         screened.append(ScreenedStock(
             ticker=ticker,
@@ -126,9 +128,12 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
 
     # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
+    # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단
     if regime == "bull":
         candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
-        screened, _ = _screen_candidates(candidates, lambda t: all_histories.get(t, pd.DataFrame()))
+        screened, _ = _screen_candidates(
+            candidates, lambda t: all_histories.get(t, pd.DataFrame()), require_sma200=True,
+        )
     else:
         screened = []
 
