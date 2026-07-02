@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: '유효하지 않은 티커' }, { status: 400 })
   }
 
-  const rssUrl = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${ticker}&region=US&lang=en-US`
+  const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(ticker)}&hl=ko&gl=KR&ceid=KR:ko`
 
   try {
     const resp = await fetch(rssUrl, {
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
       },
       next: { revalidate: 3600 },
     })
-    if (!resp.ok) throw new Error(`Yahoo RSS ${resp.status}`)
+    if (!resp.ok) throw new Error(`Google News RSS ${resp.status}`)
 
     const xml = await resp.text()
     const news = parseRssItems(xml).slice(0, 3)
