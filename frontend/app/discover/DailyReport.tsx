@@ -8,15 +8,12 @@ import type {
   DailyReportResult,
   DailyReportResponse,
   NewsArticle,
-  RecommendationPerformanceResponse,
-  RecommendationPerformanceDate,
 } from '@/lib/types'
 
 export function DailyReport() {
   const [data, setData] = useState<DailyReportResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [perfData, setPerfData] = useState<RecommendationPerformanceDate[] | null>(null)
 
   useEffect(() => {
     fetch('/api/daily-report')
@@ -30,11 +27,6 @@ export function DailyReport() {
       })
       .catch(() => setError('서버에 연결하지 못했습니다.'))
       .finally(() => setLoading(false))
-
-    fetch('/api/recommendation-performance')
-      .then((r) => r.json())
-      .then((d: RecommendationPerformanceResponse) => setPerfData(d.dates ?? []))
-      .catch(() => setPerfData([]))
   }, [])
 
   if (loading) {
@@ -55,9 +47,6 @@ export function DailyReport() {
 
   return (
     <div className="space-y-4">
-      {perfData !== null && perfData.length > 0 && (
-        <PerformanceTracker dates={perfData} />
-      )}
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-gray-700">
         {visible.length === 0 ? (
           <p>
@@ -210,64 +199,3 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
   )
 }
 
-function PerformanceTracker({ dates }: { dates: RecommendationPerformanceDate[] }) {
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })
-
-  const colorClass = (pct: number | null) => {
-    if (pct === null) return 'text-gray-400'
-    if (pct > 0) return 'text-green-600 font-medium'
-    if (pct < 0) return 'text-red-600 font-medium'
-    return 'text-gray-500'
-  }
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 className="mb-3 text-sm font-semibold text-gray-800">추천 종목 3일 성과 추적</h3>
-      <div className="space-y-4">
-        {dates.map((d) => (
-          <div key={d.date}>
-            <p className="mb-2 text-xs font-medium text-gray-400">
-              {formatDate(d.date)} 추천 ({d.stocks.length}종목)
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left text-gray-400">
-                    <th className="py-1 pr-3 font-normal">종목</th>
-                    <th className="py-1 pr-3 font-normal text-right">매수가</th>
-                    <th className="py-1 pr-3 font-normal text-right">D+1</th>
-                    <th className="py-1 pr-3 font-normal text-right">D+2</th>
-                    <th className="py-1 font-normal text-right">D+3</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.stocks.map((s) => (
-                    <tr key={s.ticker} className="border-b border-gray-50">
-                      <td className="py-1.5 pr-3">
-                        <span className="font-medium text-gray-800">{s.ticker}</span>
-                      </td>
-                      <td className="py-1.5 pr-3 text-right text-gray-500">
-                        {s.entryPrice != null ? `$${s.entryPrice.toFixed(2)}` : '-'}
-                      </td>
-                      {[1, 2, 3].map((day) => {
-                        const r = s.returns.find((x) => x.day === day)
-                        return (
-                          <td key={day} className={`py-1.5 pr-3 text-right last:pr-0 ${colorClass(r?.returnPct ?? null)}`}>
-                            {r
-                              ? `${r.returnPct !== null ? (r.returnPct > 0 ? '+' : '') + r.returnPct.toFixed(1) + '%' : '-'}`
-                              : <span className="text-gray-300">-</span>}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}

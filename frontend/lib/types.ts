@@ -99,31 +99,6 @@ export interface NewsArticle {
   publishedAt: string
 }
 
-export interface RecommendationReturn {
-  day: number
-  date: string
-  closePrice: number
-  returnPct: number | null
-}
-
-export interface RecommendationPerformanceStock {
-  ticker: string
-  name: string
-  sector: string | null
-  entryPrice: number | null
-  rank: number
-  returns: RecommendationReturn[]
-}
-
-export interface RecommendationPerformanceDate {
-  date: string
-  stocks: RecommendationPerformanceStock[]
-}
-
-export interface RecommendationPerformanceResponse {
-  dates: RecommendationPerformanceDate[]
-}
-
 export interface DayReturn {
   date: string
   close: number
