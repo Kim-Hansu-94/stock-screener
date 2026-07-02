@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { StockChart } from '@/components/StockChart'
-import type { DailyReportResult, DailyReportResponse } from '@/lib/types'
+import type { DailyReportResult, DailyReportResponse, NewsArticle } from '@/lib/types'
 
 export function DailyReport() {
   const [data, setData] = useState<DailyReportResponse | null>(null)
@@ -90,9 +90,19 @@ export function DailyReport() {
   )
 }
 
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffH = Math.floor(diffMs / 3_600_000)
+  if (diffH < 1) return '방금 전'
+  if (diffH < 24) return `${diffH}시간 전`
+  const diffD = Math.floor(diffH / 24)
+  return `${diffD}일 전`
+}
+
 function DailyResultCard({ stock }: { stock: DailyReportResult }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
+  const [news, setNews] = useState<NewsArticle[] | null>(null)
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -101,6 +111,10 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
       ([entry]) => {
         if (entry.isIntersecting) {
           setChartReady(true)
+          fetch(`/api/stock-news?ticker=${stock.ticker}`)
+            .then((r) => r.json())
+            .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
+            .catch(() => setNews([]))
           observer.disconnect()
         }
       },
@@ -108,7 +122,7 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [stock.ticker])
 
   const simPct = (stock.similarity * 100).toFixed(1)
   const latestClose = stock.history[stock.history.length - 1]?.close
@@ -153,6 +167,29 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
             <StockChart monthly bollinger rsi preAggregated history={stock.history} />
           )}
         </div>
+
+        {news === null ? null : news.length === 0 ? null : (
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+            <ul className="space-y-2.5">
+              {news.map((article, i) => (
+                <li key={i}>
+                  <a
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                  >
+                    {article.title}
+                  </a>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {article.publisher} · {formatRelativeTime(article.publishedAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

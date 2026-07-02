@@ -91,3 +91,10 @@ export interface DailyReportResponse {
   generatedAt: string
   results: DailyReportResult[]
 }
+
+export interface NewsArticle {
+  title: string
+  publisher: string
+  url: string
+  publishedAt: string
+}
