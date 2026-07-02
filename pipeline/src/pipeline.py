@@ -90,10 +90,14 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
     sector_df = _build_sector_frame(universe, recent_histories)
     top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
 
-    candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
-    screened, price_history = _screen_candidates(
-        candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
-    )
+    # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
+    if regime == "bull":
+        candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
+        screened, price_history = _screen_candidates(
+            candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
+        )
+    else:
+        screened, price_history = [], {}
 
     return MarketPipelineResult(
         market="KR", regime=regime, leading_sectors=top_sectors,
