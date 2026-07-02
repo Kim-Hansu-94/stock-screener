@@ -38,11 +38,18 @@ function parseRssItems(xml: string): ParsedNewsItem[] {
 
 export async function GET(req: NextRequest) {
   const ticker = req.nextUrl.searchParams.get('ticker')
-  if (!ticker || !/^[A-Z]{1,6}(-[A-Z])?$/.test(ticker)) {
-    return Response.json({ error: '유효하지 않은 티커' }, { status: 400 })
+  const q = req.nextUrl.searchParams.get('q')?.trim()
+
+  let searchQuery: string
+  if (q && q.length > 0 && q.length <= 100) {
+    searchQuery = q
+  } else if (ticker && /^[A-Z]{1,6}(-[A-Z])?$/.test(ticker)) {
+    searchQuery = ticker
+  } else {
+    return Response.json({ error: '유효하지 않은 파라미터' }, { status: 400 })
   }
 
-  const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(ticker)}&hl=ko&gl=KR&ceid=KR:ko`
+  const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=ko&gl=KR&ceid=KR:ko`
 
   try {
     const resp = await fetch(rssUrl, {

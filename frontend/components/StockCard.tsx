@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from './StockChart'
-import type { Market, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
+import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
 import { translateSector } from '@/lib/sectorMap'
 
 interface StockCardProps {
@@ -15,11 +15,24 @@ interface StockCardProps {
   usdKrwRate: number
 }
 
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffH = Math.floor(diffMs / 3_600_000)
+  if (diffH < 1) return '방금 전'
+  if (diffH < 24) return `${diffH}시간 전`
+  const diffD = Math.floor(diffH / 24)
+  return `${diffD}일 전`
+}
+
 export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [livePrice, setLivePrice] = useState<number | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
+  const [news, setNews] = useState<NewsArticle[] | null>(null)
+  const [newsLoading, setNewsLoading] = useState(false)
   const changePercent = calculateChangePercent(history.map((row) => row.close))
+
+  const newsQuery = market === 'KR' ? (stock.name_kr ?? stock.name) : stock.ticker
 
   useEffect(() => {
     const load = async () => {
@@ -36,6 +49,16 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
     }
     load()
   }, [stock.ticker, market])
+
+  useEffect(() => {
+    if (!isExpanded || news !== null) return
+    setNewsLoading(true)
+    fetch(`/api/stock-news?q=${encodeURIComponent(newsQuery)}`)
+      .then((r) => r.json())
+      .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
+      .catch(() => setNews([]))
+      .finally(() => setNewsLoading(false))
+  }, [isExpanded, newsQuery, news])
 
   const displayPrice = livePrice ?? stock.close
   const isLive = livePrice !== null
@@ -101,6 +124,31 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
         {isExpanded && (
           <div className="mt-4">
             <StockChart history={history} bollinger rsi />
+            {newsLoading && (
+              <p className="mt-4 text-xs text-gray-400">뉴스 불러오는 중...</p>
+            )}
+            {!newsLoading && news && news.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-3">
+                <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+                <ul className="space-y-2.5">
+                  {news.map((article, i) => (
+                    <li key={i}>
+                      <a
+                        href={article.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                      >
+                        {article.title}
+                      </a>
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        {article.publisher} · {formatRelativeTime(article.publishedAt)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
