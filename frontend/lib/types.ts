@@ -123,3 +123,21 @@ export interface RecommendationPerformanceDate {
 export interface RecommendationPerformanceResponse {
   dates: RecommendationPerformanceDate[]
 }
+
+export interface DayReturn {
+  date: string
+  close: number
+  returnPct: number
+}
+
+export interface ScreenedStockPerf {
+  date: string
+  market: Market
+  ticker: string
+  name: string
+  sector: string
+  entryPrice: number
+  day1: DayReturn | null
+  day2: DayReturn | null
+  day3: DayReturn | null
+}

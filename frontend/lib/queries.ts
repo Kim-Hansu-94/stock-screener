@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
-import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow, UniverseStockRow } from './types'
+import type { DayReturn, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -167,6 +167,73 @@ export async function getMonthlyPriceHistory(
     }
   }
   return grouped
+}
+
+export async function getScreenedStockPerformance(
+  market: Market,
+  days = 30,
+): Promise<ScreenedStockPerf[]> {
+  'use cache'
+  cacheLife('hours')
+
+  const supabase = createServerSupabaseClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  // Past recommendations only (exclude today since day1 would be today's close, not yet settled)
+  const { data: recs, error: recsError } = await supabase
+    .from('screened_stocks')
+    .select('date, market, ticker, name, sector, close')
+    .eq('market', market)
+    .lt('date', today)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: false })
+
+  if (recsError) throw recsError
+  if (!recs?.length) return []
+
+  const tickers = [...new Set(recs.map((r: { ticker: string }) => r.ticker))]
+  const oldestDate = (recs as { date: string }[]).at(-1)!.date
+
+  const { data: priceData, error: priceError } = await supabase
+    .from('stock_price_history')
+    .select('ticker, date, close')
+    .eq('market', market)
+    .in('ticker', tickers)
+    .gte('date', oldestDate)
+    .order('date', { ascending: true })
+
+  if (priceError) throw priceError
+
+  const priceMap: Record<string, { date: string; close: number }[]> = {}
+  for (const row of (priceData ?? []) as { ticker: string; date: string; close: number }[]) {
+    priceMap[row.ticker] ??= []
+    priceMap[row.ticker].push({ date: row.date, close: row.close })
+  }
+
+  return (recs as { date: string; market: string; ticker: string; name: string; sector: string; close: number }[]).map(
+    (rec) => {
+      const future = (priceMap[rec.ticker] ?? []).filter((p) => p.date > rec.date)
+      const makeReturn = (i: number): DayReturn | null => {
+        const row = future[i]
+        if (!row) return null
+        return { date: row.date, close: row.close, returnPct: ((row.close - rec.close) / rec.close) * 100 }
+      }
+      return {
+        date: rec.date,
+        market: rec.market as Market,
+        ticker: rec.ticker,
+        name: rec.name,
+        sector: rec.sector,
+        entryPrice: rec.close,
+        day1: makeReturn(0),
+        day2: makeReturn(1),
+        day3: makeReturn(2),
+      }
+    },
+  )
 }
 
 // Computes 3-year high + current close in the DB (one RPC call → bypasses PostgREST max_rows=1000)
