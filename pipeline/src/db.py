@@ -65,6 +65,18 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "stock_price_history", rows)
 
+    def get_recently_screened_tickers(self, market: str, days: int = 5) -> list[str]:
+        from datetime import date, timedelta
+        cutoff = (date.today() - timedelta(days=days)).isoformat()
+        result = (
+            self.client.table("screened_stocks")
+            .select("ticker")
+            .eq("market", market)
+            .gte("date", cutoff)
+            .execute()
+        )
+        return list({row["ticker"] for row in (result.data or [])})
+
     def save_pattern_matches(self, matches: list[dict], computed_at: str) -> None:
         if not matches:
             return

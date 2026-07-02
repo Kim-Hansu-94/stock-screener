@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
-from . import prices_us
+from . import prices_kr, prices_us
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
@@ -65,6 +65,43 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
     )
 
 
+def _supplement_kr_price_history(
+    db: ScreenerDB,
+    kr_result: MarketPipelineResult,
+    today: date,
+) -> None:
+    recently = db.get_recently_screened_tickers("KR", days=7)
+    covered = set(kr_result.price_history.keys())
+    targets = [t for t in recently if t not in covered]
+    if not targets:
+        return
+
+    print(f"  KR 보완 히스토리 수집 ({len(targets)}개)...", flush=True)
+    rows: list[dict] = []
+    for ticker in targets:
+        try:
+            hist = prices_kr.get_kr_stock_history(ticker, today, 10)
+        except Exception:
+            continue
+        if hist.empty:
+            continue
+        clean = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        for idx, row in clean.iterrows():
+            rows.append({
+                "ticker": ticker,
+                "market": "KR",
+                "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"]),
+            })
+    if rows:
+        db.save_price_history(rows)
+        print(f"  → {len(rows)}행 저장", flush=True)
+
+
 def main() -> None:
     load_dotenv()
     today = _today_kst()
@@ -72,6 +109,10 @@ def main() -> None:
 
     kr_result = run_kr_pipeline(today)
     db.save_pipeline_result(_to_db_result(kr_result, today))
+
+    # 최근 추천 종목 중 오늘 스크리너를 통과하지 못한 종목의 가격 보완
+    # (통과하지 못하면 당일 종가가 stock_price_history에 누락되어 +1~+3일 수익률 계산 불가)
+    _supplement_kr_price_history(db, kr_result, today)
 
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))
