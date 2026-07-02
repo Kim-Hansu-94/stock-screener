@@ -87,3 +87,27 @@ class ScreenerDB:
             for i, m in enumerate(matches)
         ]
         self.client.table("pattern_match_results").insert(rows).execute()
+
+    def save_recommendation_history(self, matches: list[dict], recommended_date: str) -> None:
+        if not matches:
+            return
+        existing = self.client.table("recommendation_history") \
+            .select("ticker", count="exact") \
+            .eq("recommended_date", recommended_date) \
+            .execute()
+        if existing.count and existing.count > 0:
+            print(f"  [history] {recommended_date} 이미 저장됨, 건너뜀", flush=True)
+            return
+        rows = [
+            {
+                "ticker": m["ticker"],
+                "name": m["name"],
+                "sector": m.get("sector"),
+                "entry_price": m.get("close"),
+                "recommended_date": recommended_date,
+                "rank": i + 1,
+            }
+            for i, m in enumerate(matches)
+        ]
+        self.client.table("recommendation_history").insert(rows).execute()
+        print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)

@@ -135,6 +135,7 @@ def main() -> None:
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
     matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
     db.save_pattern_matches(matches, today.isoformat())
+    db.save_recommendation_history(matches, today.isoformat())
 
     # 패턴 매칭 종목 3년 히스토리 보강 (월봉 Bollinger/RSI 렌더링용)
     if matches:

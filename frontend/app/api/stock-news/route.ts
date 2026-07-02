@@ -1,16 +1,39 @@
 import { NextRequest } from 'next/server'
 
-interface YahooNewsItem {
-  uuid: string
+interface ParsedNewsItem {
   title: string
+  url: string
   publisher: string
-  link: string
-  providerPublishTime: number
-  type: string
+  publishedAt: string
 }
 
-interface YahooSearchResponse {
-  news?: YahooNewsItem[]
+function parseRssItems(xml: string): ParsedNewsItem[] {
+  const items: ParsedNewsItem[] = []
+  const matches = xml.matchAll(/<item>([\s\S]*?)<\/item>/g)
+  for (const match of matches) {
+    const content = match[1]
+
+    const titleRaw = content.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/)?.[1]?.trim()
+    if (!titleRaw) continue
+
+    const linkMatch = content.match(/<link>\s*(https?:\/\/[^\s<]+)\s*<\/link>/)
+    const url = linkMatch?.[1]?.trim() ?? ''
+    if (!url) continue
+
+    const pubDateStr = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1]?.trim() ?? ''
+    let publishedAt: string
+    try {
+      publishedAt = pubDateStr ? new Date(pubDateStr).toISOString() : new Date().toISOString()
+    } catch {
+      publishedAt = new Date().toISOString()
+    }
+
+    const sourceMatch = content.match(/<source[^>]*>([\s\S]*?)<\/source>/)
+    const publisher = sourceMatch?.[1]?.trim() ?? 'Yahoo Finance'
+
+    items.push({ title: titleRaw, url, publisher, publishedAt })
+  }
+  return items
 }
 
 export async function GET(req: NextRequest) {
@@ -19,31 +42,21 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: '유효하지 않은 티커' }, { status: 400 })
   }
 
-  const url =
-    `https://query1.finance.yahoo.com/v1/finance/search` +
-    `?q=${ticker}&newsCount=5&enableFuzzyQuery=false&enableCb=false` +
-    `&enableNavLinks=false&enableEnhancedTrivialQuery=true`
+  const rssUrl = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${ticker}&region=US&lang=en-US`
 
   try {
-    const resp = await fetch(url, {
+    const resp = await fetch(rssUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        Accept: 'application/rss+xml, application/xml, text/xml, */*',
       },
       next: { revalidate: 3600 },
     })
-    if (!resp.ok) throw new Error(`Yahoo Finance ${resp.status}`)
+    if (!resp.ok) throw new Error(`Yahoo RSS ${resp.status}`)
 
-    const data: YahooSearchResponse = await resp.json()
-    const news = (data.news ?? [])
-      .filter((n) => n.type === 'STORY')
-      .slice(0, 3)
-      .map((n) => ({
-        title: n.title,
-        publisher: n.publisher,
-        url: n.link,
-        publishedAt: new Date(n.providerPublishTime * 1000).toISOString(),
-      }))
+    const xml = await resp.text()
+    const news = parseRssItems(xml).slice(0, 3)
 
     return Response.json(
       { ticker, news },

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { translateSector } from '@/lib/sectorMap'
 import { StockChart } from '@/components/StockChart'
-import type { OpportunityStockRow } from '@/lib/types'
+import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
 type Tab = 'report' | 'search' | 'opportunity'
 
@@ -104,9 +104,18 @@ export function DiscoverTabs({
   )
 }
 
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffH = Math.floor(diffMs / 3_600_000)
+  if (diffH < 1) return '방금 전'
+  if (diffH < 24) return `${diffH}시간 전`
+  return `${Math.floor(diffH / 24)}일 전`
+}
+
 function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
+  const [news, setNews] = useState<NewsArticle[] | null>(null)
 
   useEffect(() => {
     const el = sentinelRef.current
@@ -115,6 +124,12 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
       ([entry]) => {
         if (entry.isIntersecting) {
           setChartReady(true)
+          if (stock.market === 'US') {
+            fetch(`/api/stock-news?ticker=${stock.ticker}`)
+              .then((r) => r.json())
+              .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
+              .catch(() => setNews([]))
+          }
           observer.disconnect()
         }
       },
@@ -122,7 +137,7 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [stock.ticker, stock.market])
 
   const drawdownStr = stock.drawdown.toFixed(1)
   const variant =
@@ -178,6 +193,29 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
             <StockChart monthly bollinger rsi preAggregated history={stock.history} />
           )}
         </div>
+
+        {news !== null && news.length > 0 && (
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+            <ul className="space-y-2.5">
+              {news.map((article, i) => (
+                <li key={i}>
+                  <a
+                    href={article.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                  >
+                    {article.title}
+                  </a>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {article.publisher} · {formatRelativeTime(article.publishedAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
