@@ -1,16 +1,22 @@
 """
-S&P 500 + NASDAQ 100 합산 유니버스.
-Russell 3000(소형주)은 노이즈 증가로 제외 — S&P500·NASDAQ100 (~600종목)만 유지.
+S&P 500 + NASDAQ 100 + Russell 3000 합산 유니버스.
+Russell 3000 (Vanguard VTHR API)은 중소형주 커버리지 확장용.
+VTHR 수집 실패 시 S&P 400 + S&P 600 으로 폴백 (S&P 500·NASDAQ100은 항상 시도).
 """
 from __future__ import annotations
 
 import io
 import re
+import time
 import zipfile
 
 import FinanceDataReader as fdr
 import pandas as pd
 import requests
+
+VANGUARD_VTHR_BASE = (
+    "https://investor.vanguard.com/investment-products/etfs/profile/api/VTHR/portfolio-holding/stock"
+)
 
 _KIS_MASTER_BASE = "https://new.real.download.dws.co.kr/common/master/"
 _KIS_MASTER_FILES = {"NAS": "nasmst.cod", "NYS": "nysmst.cod", "AMS": "amsmst.cod"}
@@ -45,6 +51,40 @@ def _read_html(url: str) -> list[pd.DataFrame]:
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
     resp.raise_for_status()
     return pd.read_html(io.StringIO(resp.text))
+
+
+def _fetch_vthr_holdings() -> pd.DataFrame:
+    """Vanguard VTHR (Russell 3000 ETF) API에서 미국 주식 티커 목록 반환."""
+    all_entities: list[dict] = []
+    start = 1
+    total_size: int | None = None
+    while True:
+        resp = requests.get(
+            f"{VANGUARD_VTHR_BASE}?start={start}&count=500",
+            headers=_HEADERS,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if total_size is None:
+            total_size = data.get("size", 0)
+        entities = data.get("fund", {}).get("entity", [])
+        if not entities:
+            break
+        all_entities.extend(entities)
+        if len(all_entities) >= total_size:
+            break
+        start += 500
+        time.sleep(0.2)
+
+    result = pd.DataFrame({
+        "ticker": [str(e.get("ticker", "")).strip() for e in all_entities],
+        "name": [e.get("longName", "") for e in all_entities],
+        "sector": None,
+    })
+    result["ticker"] = result["ticker"].str.replace(".", "-", regex=False)
+    result = result[result["ticker"].notna() & ~result["ticker"].isin(["-", "", "nan"])]
+    return result
 
 
 def _fetch_sp_index(wiki_url: str, membership_label: str) -> pd.DataFrame:
@@ -109,11 +149,7 @@ def get_us_korean_names() -> dict[str, str]:
 
 
 def get_us_universe() -> pd.DataFrame:
-    """S&P 500 + NASDAQ 100 합산 유니버스를 반환.
-
-    Russell 3000 (소형주 포함)은 제외 — 소형주가 들어오면 눌림목 필터의 노이즈가
-    크게 증가해 수익률이 악화되는 것이 확인됨.
-    """
+    """S&P 500 + NASDAQ 100 + Russell 3000 합산 유니버스를 반환."""
     parts: list[pd.DataFrame] = []
 
     # 1. S&P 500 (FinanceDataReader – sector 정보 풍부하여 앞에 배치)
@@ -134,6 +170,26 @@ def get_us_universe() -> pd.DataFrame:
         print(f"  NASDAQ 100: {len(ndx)}개")
     except Exception as e:
         print(f"  NASDAQ 100 실패: {e}")
+
+    # 3. Russell 3000 (Vanguard VTHR) – 중소형주 커버리지 확장
+    try:
+        vthr = _fetch_vthr_holdings()
+        vthr["index_membership"] = "Russell3000"
+        parts.append(vthr)
+        print(f"  Russell 3000 (Vanguard VTHR): {len(vthr)}개")
+    except Exception as e:
+        print(f"  Russell 3000 수집 실패 ({e})")
+        # 폴백: S&P 400 + S&P 600으로 중소형주 커버리지 확보
+        for label, url in [
+            ("S&P400", "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"),
+            ("S&P600", "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"),
+        ]:
+            try:
+                df = _fetch_sp_index(url, label)
+                parts.append(df)
+                print(f"    {label}: {len(df)}개")
+            except Exception as ex:
+                print(f"    {label} 실패: {ex}")
 
     if not parts:
         raise RuntimeError("유니버스 수집 완전 실패")

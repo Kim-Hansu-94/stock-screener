@@ -173,8 +173,23 @@ def main() -> None:
     _seed_file.write_text(today.isoformat())
     _seeded_tickers_file.write_text(json.dumps(opp_tickers))
 
+    # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.
+    # KIS API(순차)는 S&P500+NASDAQ100만 받으므로 Russell 3000은 여기서 별도 처리.
+    russell_tickers = us_result.universe_df.loc[
+        ~us_result.universe_df["index_membership"].isin(["S&P500", "NASDAQ100"]),
+        "ticker",
+    ].tolist()
+    if russell_tickers:
+        print(f"Russell 3000 히스토리 수집 중... ({len(russell_tickers)}개, yfinance 배치)", flush=True)
+        russell_histories = prices_us.get_opportunity_histories(
+            russell_tickers, today, lookback_days=380
+        )
+        pattern_histories = {**us_result.price_history, **russell_histories}
+    else:
+        pattern_histories = us_result.price_history
+
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
-    matches = compute_pattern_matches(us_result.price_history, us_result.universe_df)
+    matches = compute_pattern_matches(pattern_histories, us_result.universe_df)
     db.save_pattern_matches(matches, today.isoformat())
     db.save_recommendation_history(matches, today.isoformat())
 
