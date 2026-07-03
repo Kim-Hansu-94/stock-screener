@@ -22,7 +22,7 @@ function ReturnCell({ value }: { value: DayReturn | null }) {
 
 function formatPrice(price: number, market: Market) {
   return market === 'KR'
-    ? `${price.toLocaleString('ko-KR')}원`
+    ? `${Math.round(price).toLocaleString('ko-KR')}원`
     : `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 

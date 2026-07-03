@@ -132,13 +132,13 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           {stop !== null && (
             <div>
               <dt className="text-gray-400">손절가</dt>
-              <dd className="text-red-500">{market === 'KR' ? `${stop.toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}</dd>
+              <dd className="text-red-500">{market === 'KR' ? `${Math.round(stop).toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}</dd>
             </div>
           )}
           {target !== null && (
             <div>
               <dt className="text-gray-400">목표가</dt>
-              <dd className="text-green-600">{market === 'KR' ? `${target.toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}</dd>
+              <dd className="text-green-600">{market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}</dd>
             </div>
           )}
         </dl>
