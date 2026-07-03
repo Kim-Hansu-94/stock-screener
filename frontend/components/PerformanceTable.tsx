@@ -98,14 +98,13 @@ export function PerformanceTable({ items, market, regimes }: Props) {
               <RegimePill regime={regimes?.[date]} />
             </p>
             <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full min-w-[340px] text-sm">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-xs text-gray-400">
                     <th className="px-2 py-1.5 text-left font-medium">종목</th>
-                    <th className="px-2 py-1.5 text-right font-medium whitespace-nowrap">진입가</th>
-                    <th className="w-12 px-1 py-1.5 text-center font-medium whitespace-nowrap">+1일</th>
-                    <th className="w-12 px-1 py-1.5 text-center font-medium whitespace-nowrap">+2일</th>
-                    <th className="w-12 px-1 py-1.5 text-center font-medium whitespace-nowrap">+3일</th>
+                    <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+1일</th>
+                    <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+2일</th>
+                    <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+3일</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -113,11 +112,12 @@ export function PerformanceTable({ items, market, regimes }: Props) {
                     <tr key={stock.ticker} className="hover:bg-gray-50/50">
                       <td className="px-2 py-1.5">
                         <span className="block text-sm font-medium text-gray-800">{stock.name}</span>
-                        <span className="text-xs text-gray-400">{stock.ticker}</span>
+                        <span className="text-xs text-gray-400">
+                          {stock.ticker}
+                          <span className="mx-1.5 text-gray-200">·</span>
+                          <span className="font-mono whitespace-nowrap text-gray-500">{formatPrice(stock.entryPrice, market)}</span>
+                        </span>
                         <StopTargetLine stock={stock} market={market} />
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap text-gray-600">
-                        {formatPrice(stock.entryPrice, market)}
                       </td>
                       <ReturnCell value={stock.day1} />
                       <ReturnCell value={stock.day2} />
