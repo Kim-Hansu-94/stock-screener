@@ -20,10 +20,51 @@ function ReturnCell({ value }: { value: DayReturn | null }) {
   )
 }
 
-function formatEntry(price: number, market: Market) {
+function formatPrice(price: number, market: Market) {
   return market === 'KR'
     ? `${price.toLocaleString('ko-KR')}원`
     : `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatPct(ratio: number) {
+  const pct = (ratio * 100).toFixed(1)
+  return ratio >= 0 ? `+${pct}%` : `${pct}%`
+}
+
+function RRColor(rr: number) {
+  if (rr >= 2.0) return 'text-green-600'
+  if (rr >= 1.5) return 'text-amber-500'
+  return 'text-red-500'
+}
+
+function StopTargetLine({
+  stock,
+  market,
+}: {
+  stock: ScreenedStockPerf
+  market: Market
+}) {
+  const { stop, target, riskReward, entryPrice } = stock
+  if (stop === null || target === null || riskReward === null) return null
+
+  const stopPct = (stop - entryPrice) / entryPrice
+  const targetPct = (target - entryPrice) / entryPrice
+
+  return (
+    <span className="mt-0.5 block text-xs">
+      <span className="text-red-500">
+        손절 {formatPrice(stop, market)} ({formatPct(stopPct)})
+      </span>
+      <span className="mx-1 text-gray-300">·</span>
+      <span className="text-green-600">
+        목표 {formatPrice(target, market)} ({formatPct(targetPct)})
+      </span>
+      <span className="mx-1 text-gray-300">·</span>
+      <span className={`font-medium ${RRColor(riskReward)}`}>
+        손익비 {riskReward.toFixed(1)}x
+      </span>
+    </span>
+  )
 }
 
 function RegimePill({ regime }: { regime: string | undefined }) {
@@ -77,9 +118,10 @@ export function PerformanceTable({ items, market, regimes }: Props) {
                       <td className="px-2 py-2">
                         <span className="block font-medium text-gray-800">{stock.name}</span>
                         <span className="text-xs text-gray-400">{stock.ticker}</span>
+                        <StopTargetLine stock={stock} market={market} />
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-sm text-gray-700">
-                        {formatEntry(stock.entryPrice, market)}
+                        {formatPrice(stock.entryPrice, market)}
                       </td>
                       <ReturnCell value={stock.day1} />
                       <ReturnCell value={stock.day2} />

@@ -190,6 +190,22 @@ export async function getRegimesInRange(
   return map
 }
 
+type PriceBar = { date: string; high: number; low: number; close: number }
+
+function computeATR(bars: PriceBar[], period = 14): number {
+  if (bars.length < 2) return 0
+  const trs: number[] = []
+  for (let i = 1; i < bars.length; i++) {
+    trs.push(Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close),
+    ))
+  }
+  const slice = trs.slice(-period)
+  return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
+}
+
 export async function getScreenedStockPerformance(
   market: Market,
   days = 30,
@@ -218,30 +234,64 @@ export async function getScreenedStockPerformance(
   const tickers = [...new Set(recs.map((r: { ticker: string }) => r.ticker))]
   const oldestDate = (recs as { date: string }[]).at(-1)!.date
 
+  // Extend 40 calendar days before oldest rec date for ATR + swing level calculation
+  const prePeriodDate = new Date(oldestDate)
+  prePeriodDate.setDate(prePeriodDate.getDate() - 40)
+  const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
+
   const { data: priceData, error: priceError } = await supabase
     .from('stock_price_history')
-    .select('ticker, date, close')
+    .select('ticker, date, high, low, close')
     .eq('market', market)
     .in('ticker', tickers)
-    .gte('date', oldestDate)
+    .gte('date', prePeriodStr)
     .order('date', { ascending: true })
 
   if (priceError) throw new Error(priceError.message)
 
-  const priceMap: Record<string, { date: string; close: number }[]> = {}
-  for (const row of (priceData ?? []) as { ticker: string; date: string; close: number }[]) {
+  const priceMap: Record<string, PriceBar[]> = {}
+  for (const row of (priceData ?? []) as (PriceBar & { ticker: string })[]) {
     priceMap[row.ticker] ??= []
-    priceMap[row.ticker].push({ date: row.date, close: row.close })
+    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
   }
 
   return (recs as { date: string; market: string; ticker: string; name: string; sector: string; close: number }[]).map(
     (rec) => {
-      const future = (priceMap[rec.ticker] ?? []).filter((p) => p.date > rec.date)
+      const allBars = priceMap[rec.ticker] ?? []
+      const future = allBars.filter((p) => p.date > rec.date)
+      const preBars = allBars.filter((p) => p.date <= rec.date)
+
       const makeReturn = (i: number): DayReturn | null => {
         const row = future[i]
         if (!row) return null
         return { date: row.date, close: row.close, returnPct: ((row.close - rec.close) / rec.close) * 100 }
       }
+
+      let stop: number | null = null
+      let target: number | null = null
+      let riskReward: number | null = null
+
+      if (preBars.length >= 10) {
+        const recent20 = preBars.slice(-20)
+        const recent30 = preBars.slice(-30)
+
+        const swingLow = Math.min(...recent20.map((p) => p.low))
+        const swingHigh = Math.max(...recent30.map((p) => p.high))
+        const atr = computeATR(recent20)
+
+        const atrStop = atr > 0 ? rec.close - 1.5 * atr : swingLow
+        // Take the tighter (higher) of the two stops
+        const rawStop = Math.max(swingLow, atrStop)
+
+        if (rawStop < rec.close) {
+          stop = rawStop
+          const risk = rec.close - stop
+          // Target = previous swing high (pullback thesis: reclaim the prior peak)
+          target = swingHigh > rec.close ? swingHigh : rec.close + 2 * risk
+          riskReward = (target - rec.close) / risk
+        }
+      }
+
       return {
         date: rec.date,
         market: rec.market as Market,
@@ -252,6 +302,9 @@ export async function getScreenedStockPerformance(
         day1: makeReturn(0),
         day2: makeReturn(1),
         day3: makeReturn(2),
+        stop,
+        target,
+        riskReward,
       }
     },
   )

@@ -115,4 +115,7 @@ export interface ScreenedStockPerf {
   day1: DayReturn | null
   day2: DayReturn | null
   day3: DayReturn | null
+  stop: number | null
+  target: number | null
+  riskReward: number | null
 }
