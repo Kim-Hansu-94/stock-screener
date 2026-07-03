@@ -7,22 +7,27 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { translateSector } from '@/lib/sectorMap'
 import { StockChart } from '@/components/StockChart'
-import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
+import type { NewsArticle, OpportunityStockRow, ScreenedStockWithRisk } from '@/lib/types'
 
-type Tab = 'report' | 'search' | 'opportunity'
+type Tab = 'report' | 'search' | 'pullback' | 'opportunity'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'report', label: '오늘의 추천' },
   { id: 'search', label: '패턴 검색' },
-  { id: 'opportunity', label: '횡보 조정 종목' },
+  { id: 'pullback', label: '눌림목' },
+  { id: 'opportunity', label: '횡보 조정' },
 ]
 
 export function DiscoverTabs({
   opportunities,
   opportunityError,
+  pullbackKR,
+  pullbackUS,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
+  pullbackKR: ScreenedStockWithRisk[]
+  pullbackUS: ScreenedStockWithRisk[]
 }) {
   const [tab, setTab] = useState<Tab>('report')
 
@@ -77,6 +82,35 @@ export function DiscoverTabs({
         </section>
       )}
 
+      {tab === 'pullback' && (
+        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-gray-900">눌림목 종목</h2>
+            <p className="mt-0.5 text-xs text-gray-400">
+              20일선과 10일선 사이에서 눌리는 중, RSI 40-60 상승 중, 거래량 감소 — 손익비 높은 순으로 정렬됩니다.
+            </p>
+          </div>
+          {pullbackKR.length === 0 && pullbackUS.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              스크리너 데이터가 없습니다. 파이프라인 실행 후 데이터가 채워집니다.
+            </p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[...pullbackKR, ...pullbackUS]
+                .sort((a, b) => {
+                  if (a.riskReward === null && b.riskReward === null) return 0
+                  if (a.riskReward === null) return 1
+                  if (b.riskReward === null) return -1
+                  return b.riskReward - a.riskReward
+                })
+                .map((stock) => (
+                  <PullbackCard key={`${stock.market}-${stock.ticker}`} stock={stock} />
+                ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {tab === 'opportunity' && (
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="mb-4">
@@ -101,6 +135,96 @@ export function DiscoverTabs({
         </section>
       )}
     </div>
+  )
+}
+
+function rrColor(rr: number | null): string {
+  if (rr === null) return 'text-gray-400'
+  if (rr >= 2.0) return 'text-green-600'
+  if (rr >= 1.5) return 'text-amber-500'
+  return 'text-red-500'
+}
+
+function PullbackCard({ stock }: { stock: ScreenedStockWithRisk }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [chartReady, setChartReady] = useState(false)
+
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setChartReady(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '300px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [stock.ticker])
+
+  const fmt = (price: number) =>
+    stock.market === 'KR'
+      ? `${price.toLocaleString('ko-KR')}원`
+      : `$${price.toFixed(2)}`
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-start justify-between text-base">
+          <span>
+            {stock.name}{' '}
+            <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+          </span>
+          <Badge variant="outline">{stock.market}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+          <div>
+            <dt className="text-xs text-gray-400">섹터</dt>
+            <dd>{translateSector(stock.sector)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">RSI</dt>
+            <dd>{stock.rsi.toFixed(1)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">진입가</dt>
+            <dd>{fmt(stock.entryPrice)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">손익비</dt>
+            <dd className={`font-semibold ${rrColor(stock.riskReward)}`}>
+              {stock.riskReward !== null ? `${stock.riskReward.toFixed(2)}R` : '—'}
+            </dd>
+          </div>
+          {stock.stop !== null && (
+            <div>
+              <dt className="text-xs text-gray-400">손절가</dt>
+              <dd className="text-red-500">{fmt(stock.stop)}</dd>
+            </div>
+          )}
+          {stock.target !== null && (
+            <div>
+              <dt className="text-xs text-gray-400">목표가</dt>
+              <dd className="text-green-600">{fmt(stock.target)}</dd>
+            </div>
+          )}
+        </dl>
+        <div ref={sentinelRef} className="mt-4 min-h-64">
+          {chartReady && (
+            <StockChart
+              history={stock.history}
+              stopPrice={stock.stop ?? undefined}
+              targetPrice={stock.target ?? undefined}
+            />
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

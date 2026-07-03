@@ -11,6 +11,8 @@ interface StockChartProps {
   bollinger?: boolean
   rsi?: boolean
   preAggregated?: boolean
+  stopPrice?: number
+  targetPrice?: number
 }
 
 const DAILY_MOVING_AVERAGES: Array<{ window: number; color: string }> = [
@@ -44,7 +46,7 @@ function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
     }))
 }
 
-export function StockChart({ history, monthly = false, bollinger = false, rsi = false, preAggregated = false }: StockChartProps) {
+export function StockChart({ history, monthly = false, bollinger = false, rsi = false, preAggregated = false, stopPrice, targetPrice }: StockChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rsiRef = useRef<HTMLDivElement>(null)
 
@@ -105,6 +107,13 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       )
     }
 
+    if (stopPrice !== undefined) {
+      candleSeries.createPriceLine({ price: stopPrice, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '손절' })
+    }
+    if (targetPrice !== undefined) {
+      candleSeries.createPriceLine({ price: targetPrice, color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '목표' })
+    }
+
     chart.timeScale().fitContent()
 
     let rsiChart: ReturnType<typeof createChart> | null = null
@@ -145,7 +154,7 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       chart.remove()
       rsiChart?.remove()
     }
-  }, [history, monthly, bollinger, rsi])
+  }, [history, monthly, bollinger, rsi, stopPrice, targetPrice])
 
   if (history.length === 0) {
     return <p className="text-sm text-gray-500">차트 데이터가 없습니다.</p>

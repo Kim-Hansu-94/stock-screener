@@ -105,6 +105,20 @@ export interface DayReturn {
   returnPct: number
 }
 
+export interface ScreenedStockWithRisk {
+  date: string
+  market: Market
+  ticker: string
+  name: string
+  sector: string
+  entryPrice: number
+  rsi: number
+  stop: number | null
+  target: number | null
+  riskReward: number | null
+  history: PriceHistoryRow[]
+}
+
 export interface ScreenedStockPerf {
   date: string
   market: Market

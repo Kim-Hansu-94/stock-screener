@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
-import type { DayReturn, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, UniverseStockRow } from './types'
+import type { DayReturn, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -305,6 +305,109 @@ export async function getScreenedStockPerformance(
         stop,
         target,
         riskReward,
+      }
+    },
+  )
+}
+
+export async function getPullbackScreenerWithRisk(
+  market: Market,
+): Promise<ScreenedStockWithRisk[]> {
+  'use cache'
+  cacheLife('hours')
+
+  const supabase = createServerSupabaseClient()
+
+  // Get the latest screened date for this market
+  const { data: latestRow } = await supabase
+    .from('screened_stocks')
+    .select('date')
+    .eq('market', market)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!latestRow) return []
+  const latestDate = (latestRow as { date: string }).date
+
+  const { data: stocks, error } = await supabase
+    .from('screened_stocks')
+    .select('date, market, ticker, name, sector, close, rsi')
+    .eq('market', market)
+    .eq('date', latestDate)
+
+  if (error) throw new Error(error.message)
+  if (!stocks?.length) return []
+
+  const tickers = (stocks as { ticker: string }[]).map((s) => s.ticker)
+
+  // 120 days of daily OHLCV — used for both ATR/swing calculation and chart display
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 120)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  const { data: priceData, error: priceError } = await supabase
+    .from('stock_price_history')
+    .select('ticker, market, date, open, high, low, close, volume')
+    .eq('market', market)
+    .in('ticker', tickers)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: true })
+
+  if (priceError) throw new Error(priceError.message)
+
+  const priceMap: Record<string, PriceHistoryRow[]> = {}
+  for (const row of (priceData ?? []) as PriceHistoryRow[]) {
+    priceMap[row.ticker] ??= []
+    priceMap[row.ticker].push(row)
+  }
+
+  return (stocks as { date: string; market: string; ticker: string; name: string; sector: string; close: number; rsi: number }[]).map(
+    (stock) => {
+      const history = priceMap[stock.ticker] ?? []
+      const bars: PriceBar[] = history.map((r) => ({
+        date: r.date,
+        high: r.high,
+        low: r.low,
+        close: r.close,
+      }))
+
+      const entry = stock.close
+      let stop: number | null = null
+      let target: number | null = null
+      let riskReward: number | null = null
+
+      if (bars.length >= 10) {
+        const recent20 = bars.slice(-20)
+        const recent30 = bars.slice(-30)
+
+        const swingLow = Math.min(...recent20.map((p) => p.low))
+        const swingHigh = Math.max(...recent30.map((p) => p.high))
+        const atr = computeATR(recent20)
+
+        const atrStop = atr > 0 ? entry - 1.5 * atr : swingLow
+        const rawStop = Math.max(swingLow, atrStop)
+
+        if (rawStop < entry) {
+          stop = rawStop
+          const risk = entry - stop
+          target = swingHigh > entry ? swingHigh : entry + 2 * risk
+          riskReward = (target - entry) / risk
+        }
+      }
+
+      return {
+        date: stock.date,
+        market: stock.market as Market,
+        ticker: stock.ticker,
+        name: stock.name,
+        sector: stock.sector,
+        entryPrice: entry,
+        rsi: stock.rsi,
+        stop,
+        target,
+        riskReward,
+        history,
       }
     },
   )
