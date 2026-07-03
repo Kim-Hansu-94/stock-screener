@@ -15,6 +15,7 @@ RSI_LOW = 40
 RSI_HIGH = 60  # raised from 55: 10-20MA zone stocks haven't cooled as far as 20MA-zone stocks
 RSI_DIRECTION_LOOKBACK = 3
 CONSECUTIVE_DOWN_THRESHOLD = 0.01  # 1% per day — minor noise is allowed, sustained drops are not
+VOLUME_DECLINE_THRESHOLD = 0.85  # recent 5d avg vol must drop to 85% of prior 20d avg (was <1.0)
 
 
 def passes_pullback_filter(
@@ -51,7 +52,10 @@ def passes_pullback_filter(
     pullback = latest_sma20 <= latest_close <= latest_sma10
     rsi_ok = RSI_LOW <= latest_rsi <= RSI_HIGH
     rsi_rising = latest_rsi > rsi14.iloc[-1 - RSI_DIRECTION_LOOKBACK]
-    volume_declining = volume_ratio(volume, recent_window=SHORT_TERM_WINDOW, baseline_window=MID_TERM_WINDOW) < 1
+    volume_declining = (
+        volume_ratio(volume, recent_window=SHORT_TERM_WINDOW, baseline_window=MID_TERM_WINDOW)
+        < VOLUME_DECLINE_THRESHOLD
+    )
 
     # Block only when both consecutive down days AND each drop exceeds threshold.
     # Trivial noise (<1%/day) in a pullback is normal; sustained selling pressure is not.
