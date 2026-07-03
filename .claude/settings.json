@@ -3,6 +3,8 @@
     "allow": [
       "Bash(bash \"/c/Users/김한수/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief\" *)",
       "Bash(bash \"/c/Users/김한수/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package\" *)",
+      "Bash(bash \"/home/codespace/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief\" *)",
+      "Bash(bash \"/home/codespace/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package\" *)",
       "Bash(pytest *)",
       "Bash(python -m pytest *)"
     ]

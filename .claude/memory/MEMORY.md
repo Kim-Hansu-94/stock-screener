@@ -1,0 +1,7 @@
+- [Stock Screener Project Status](project_stock_screener.md) — pipeline + Next.js frontend both built and merged to master; user still needs to manually connect Vercel
+- [Korean Text Encoding Feedback](feedback_korean_text_encoding.md) — Korean text in tool calls (esp. AskUserQuestion) sometimes garbles; go slow, double-check
+- [Show Files Inline Feedback](feedback_show_files_inline.md) — paste file content in chat for review instead of telling user to open it themselves
+- [Task Completion Feedback](feedback_task_completion.md) — signal completion clearly (user can't see terminal), but NEVER use "시킬 일" phrasing — sounds off
+- [Korean Speech Level](feedback_korean_speech_level.md) — always use 존댓말 (-요/습니다), never 반말
+- [Git Push After Commit](feedback_git_push.md) — always push to GitHub after committing; do not report task done until push is confirmed
+- [Pipeline Run Notice](feedback_pipeline_notice.md) — always state whether pipeline needs to run or not after every task

@@ -31,4 +31,36 @@ claude plugins marketplace add obra/superpowers-marketplace
 claude plugins install superpowers@superpowers-marketplace
 claude plugins install superpowers-chrome@superpowers-marketplace
 
+echo "=== Setting up Claude Code user environment ==="
+
+# Write user-level Claude settings (autoCompact, dark theme, plugins)
+mkdir -p "$HOME/.claude"
+cat > "$HOME/.claude/settings.json" << 'CLAUDE_SETTINGS'
+{
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true,
+    "superpowers-chrome@superpowers-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      }
+    }
+  },
+  "theme": "dark",
+  "remoteControlAtStartup": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "autoCompactEnabled": true,
+  "autoCompactWindow": 100000
+}
+CLAUDE_SETTINGS
+
+# Copy memory files to Claude's project memory directory for this Codespace
+MEMORY_DIR="$HOME/.claude/projects/-workspaces-stock-screener/memory"
+mkdir -p "$MEMORY_DIR"
+cp .claude/memory/* "$MEMORY_DIR/"
+
 echo "=== Setup complete! Run 'cd frontend && npm run dev' to start ==="
