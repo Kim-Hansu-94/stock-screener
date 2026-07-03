@@ -24,10 +24,30 @@ def _uptrend_with_pullback(drop_pct: float, volume_pullback) -> tuple[pd.Series,
     return close, volume
 
 
+def _uptrend_with_recovering_pullback(drop_pct: float, volume_pullback) -> tuple[pd.Series, pd.Series]:
+    # Trough on day 2, then a genuine recovery into days 3-5, so RSI is actually
+    # ticking back up (not just less-steeply-declining) by the time it's evaluated.
+    base = 100 + np.linspace(0, 100, N_UP_DAYS)
+    peak = base[-1]
+    total_drop = peak * drop_pct
+    trough = peak - total_drop
+    pullback_days = [
+        peak - total_drop * 0.5,
+        trough,
+        trough + total_drop * 0.2,
+        trough + total_drop * 0.6,
+        trough + total_drop * 0.5,
+    ]
+    close = pd.Series(list(base) + pullback_days)
+    volume = pd.Series([1_000_000.0] * N_UP_DAYS + list(volume_pullback))
+    return close, volume
+
+
 def test_passes_when_healthy_pullback_in_uptrend():
-    # 3.3% drop: price (193.4) sits just above sma20 (193.26), RSI ~59 (within 40-60)
-    close, volume = _uptrend_with_pullback(
-        drop_pct=0.033,
+    # Price dips to a trough then genuinely recovers (not just decelerates its fall),
+    # so RSI is higher than 3 days ago while still sitting in the 40-60 pullback zone.
+    close, volume = _uptrend_with_recovering_pullback(
+        drop_pct=0.07,
         volume_pullback=[600_000, 550_000, 500_000, 480_000, 450_000],
     )
     assert passes_pullback_filter(close, volume) is True
@@ -50,9 +70,9 @@ def test_fails_when_no_pullback_rsi_too_high():
 
 
 def test_fails_when_volume_increasing_during_pullback():
-    # same drop_pct as the "passes" test so only volume blocks it
-    close, volume = _uptrend_with_pullback(
-        drop_pct=0.033,
+    # same shape as the "passes" test so only volume blocks it
+    close, volume = _uptrend_with_recovering_pullback(
+        drop_pct=0.07,
         volume_pullback=[1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000],
     )
     assert passes_pullback_filter(close, volume) is False
