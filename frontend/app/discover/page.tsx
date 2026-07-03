@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getPullbackScreenerWithRisk } from '@/lib/queries'
-import type { Market, OpportunityStockRow, ScreenedStockWithRisk } from '@/lib/types'
+import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory } from '@/lib/queries'
+import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
 const MIN_DRAWDOWN = 20
@@ -63,29 +63,17 @@ async function DiscoverContent() {
   await connection()
   let opportunities: OpportunityStockRow[] = []
   let opportunityError: string | null = null
-  let pullbackKR: ScreenedStockWithRisk[] = []
-  let pullbackUS: ScreenedStockWithRisk[] = []
 
-  const [oppsResult, krResult, usResult] = await Promise.allSettled([
-    loadOpportunities(),
-    getPullbackScreenerWithRisk('KR'),
-    getPullbackScreenerWithRisk('US'),
-  ])
-
-  if (oppsResult.status === 'fulfilled') {
-    opportunities = oppsResult.value
-  } else {
-    opportunityError = oppsResult.reason instanceof Error ? oppsResult.reason.message : '데이터를 불러오지 못했습니다.'
+  try {
+    opportunities = await loadOpportunities()
+  } catch (cause) {
+    opportunityError = cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.'
   }
-  if (krResult.status === 'fulfilled') pullbackKR = krResult.value
-  if (usResult.status === 'fulfilled') pullbackUS = usResult.value
 
   return (
     <DiscoverTabs
       opportunities={opportunities}
       opportunityError={opportunityError}
-      pullbackKR={pullbackKR}
-      pullbackUS={pullbackUS}
     />
   )
 }

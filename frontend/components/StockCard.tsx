@@ -13,6 +13,9 @@ interface StockCardProps {
   history: PriceHistoryRow[]
   market: Market
   usdKrwRate: number
+  stop: number | null
+  target: number | null
+  riskReward: number | null
 }
 
 function formatRelativeTime(iso: string): string {
@@ -24,7 +27,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [livePrice, setLivePrice] = useState<number | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
@@ -120,10 +123,34 @@ export function StockCard({ stock, history, market, usdKrwRate }: StockCardProps
             <dt className="text-gray-400">RSI</dt>
             <dd>{stock.rsi.toFixed(1)}</dd>
           </div>
+          <div>
+            <dt className="text-gray-400">손익비</dt>
+            <dd className={`font-semibold ${riskReward === null ? 'text-gray-400' : riskReward >= 2.0 ? 'text-green-600' : riskReward >= 1.5 ? 'text-amber-500' : 'text-red-500'}`}>
+              {riskReward !== null ? `${riskReward.toFixed(2)}R` : '—'}
+            </dd>
+          </div>
+          {stop !== null && (
+            <div>
+              <dt className="text-gray-400">손절가</dt>
+              <dd className="text-red-500">{market === 'KR' ? `${stop.toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}</dd>
+            </div>
+          )}
+          {target !== null && (
+            <div>
+              <dt className="text-gray-400">목표가</dt>
+              <dd className="text-green-600">{market === 'KR' ? `${target.toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}</dd>
+            </div>
+          )}
         </dl>
         {isExpanded && (
           <div className="mt-4">
-            <StockChart history={history} bollinger rsi />
+            <StockChart
+              history={history}
+              bollinger
+              rsi
+              stopPrice={stop ?? undefined}
+              targetPrice={target ?? undefined}
+            />
             {newsLoading && (
               <p className="mt-4 text-xs text-gray-400">뉴스 불러오는 중...</p>
             )}

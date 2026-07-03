@@ -12,6 +12,41 @@ import {
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 
+type PriceBar = { date: string; high: number; low: number; close: number }
+
+function computeATR(bars: PriceBar[], period = 14): number {
+  if (bars.length < 2) return 0
+  const trs: number[] = []
+  for (let i = 1; i < bars.length; i++) {
+    trs.push(Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close),
+    ))
+  }
+  const slice = trs.slice(-period)
+  return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
+}
+
+function computeStopTarget(
+  bars: PriceBar[],
+  entry: number,
+): { stop: number | null; target: number | null; riskReward: number | null } {
+  if (bars.length < 10) return { stop: null, target: null, riskReward: null }
+  const recent20 = bars.slice(-20)
+  const recent30 = bars.slice(-30)
+  const swingLow = Math.min(...recent20.map((p) => p.low))
+  const swingHigh = Math.max(...recent30.map((p) => p.high))
+  const atr = computeATR(recent20)
+  const atrStop = atr > 0 ? entry - 1.5 * atr : swingLow
+  const rawStop = Math.max(swingLow, atrStop)
+  if (rawStop >= entry) return { stop: null, target: null, riskReward: null }
+  const stop = rawStop
+  const risk = entry - stop
+  const target = swingHigh > entry ? swingHigh : entry + 2 * risk
+  return { stop, target, riskReward: (target - entry) / risk }
+}
+
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
   { market: 'US', label: '미국', universe: 'S&P 500 · NASDAQ 100' },
@@ -29,6 +64,8 @@ async function fetchUsdKrwRate(): Promise<number> {
   }
 }
 
+type RiskInfo = { stop: number | null; target: number | null; riskReward: number | null }
+
 interface MarketSectionData {
   market: Market
   label: string
@@ -38,6 +75,7 @@ interface MarketSectionData {
   sectors: LeadingSectorRow[]
   stocks: ScreenedStockRow[]
   priceHistory: Record<string, PriceHistoryRow[]>
+  riskMap: Record<string, RiskInfo>
   error: string | null
 }
 
@@ -45,7 +83,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
   try {
     const regimeRow = await getLatestRegime(market)
     if (!regimeRow) {
-      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, error: null }
+      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, riskMap: {}, error: null }
     }
 
     const [sectors, stocks] = await Promise.all([
@@ -60,7 +98,12 @@ async function loadMarketSection(market: Market, label: string, universe: string
       enrichedStocks = stocks.map((s) => ({ ...s, name_kr: nameKrMap[s.ticker] }))
     }
 
-    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, error: null }
+    const riskMap: Record<string, RiskInfo> = {}
+    for (const stock of enrichedStocks) {
+      riskMap[stock.ticker] = computeStopTarget(priceHistory[stock.ticker] ?? [], stock.close)
+    }
+
+    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }
   } catch (cause) {
     return {
       market,
@@ -71,6 +114,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
       sectors: [],
       stocks: [],
       priceHistory: {},
+      riskMap: {},
       error: cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.',
     }
   }
@@ -154,6 +198,9 @@ async function HomeContent() {
                       history={section.priceHistory[stock.ticker] ?? []}
                       market={section.market}
                       usdKrwRate={usdKrwRate}
+                      stop={section.riskMap[stock.ticker]?.stop ?? null}
+                      target={section.riskMap[stock.ticker]?.target ?? null}
+                      riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
                     />
                   ))}
                 </div>
