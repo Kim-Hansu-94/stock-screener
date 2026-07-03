@@ -169,6 +169,27 @@ export async function getMonthlyPriceHistory(
   return grouped
 }
 
+export async function getRegimesInRange(
+  market: Market,
+  cutoffStr: string,
+): Promise<Record<string, string>> {
+  'use cache'
+  cacheLife('hours')
+  const supabase = createServerSupabaseClient()
+  const { data } = await supabase
+    .from('market_regime')
+    .select('date, regime')
+    .eq('market', market)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: false })
+
+  const map: Record<string, string> = {}
+  for (const row of (data ?? []) as { date: string; regime: string }[]) {
+    map[row.date] = row.regime
+  }
+  return map
+}
+
 export async function getScreenedStockPerformance(
   market: Market,
   days = 30,

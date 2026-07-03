@@ -1,14 +1,20 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getScreenedStockPerformance } from '@/lib/queries'
+import { getScreenedStockPerformance, getRegimesInRange } from '@/lib/queries'
 import { PerformanceTable } from '@/components/PerformanceTable'
 
 async function HistoryContent() {
   await connection()
 
-  const [krPerf, usPerf] = await Promise.all([
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 30)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  const [krPerf, usPerf, krRegimes, usRegimes] = await Promise.all([
     getScreenedStockPerformance('KR', 30),
     getScreenedStockPerformance('US', 30),
+    getRegimesInRange('KR', cutoffStr),
+    getRegimesInRange('US', cutoffStr),
   ])
 
   const hasData = krPerf.length > 0 || usPerf.length > 0
@@ -22,14 +28,14 @@ async function HistoryContent() {
       {krPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">한국 시장</h2>
-          <PerformanceTable items={krPerf} market="KR" />
+          <PerformanceTable items={krPerf} market="KR" regimes={krRegimes} />
         </section>
       )}
 
       {usPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">미국 시장</h2>
-          <PerformanceTable items={usPerf} market="US" />
+          <PerformanceTable items={usPerf} market="US" regimes={usRegimes} />
         </section>
       )}
     </>
