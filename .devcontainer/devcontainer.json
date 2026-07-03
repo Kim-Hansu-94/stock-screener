@@ -2,6 +2,7 @@
   "name": "Stock Screener",
   "image": "mcr.microsoft.com/devcontainers/universal:2",
   "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postAttachCommand": "cd frontend && npm run dev",
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
