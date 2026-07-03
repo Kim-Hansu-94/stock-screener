@@ -8,12 +8,12 @@ interface Props {
 
 function ReturnCell({ value }: { value: DayReturn | null }) {
   if (!value) {
-    return <td className="px-2 py-2 text-center text-gray-300">—</td>
+    return <td className="w-14 px-2 py-2 text-center text-gray-300">—</td>
   }
   const pct = value.returnPct
   const color = pct > 0 ? 'text-green-600' : pct < 0 ? 'text-red-500' : 'text-gray-500'
   return (
-    <td className={`px-2 py-2 text-center font-mono text-sm ${color}`}>
+    <td className={`w-14 px-2 py-2 text-center font-mono text-xs ${color}`}>
       {pct > 0 ? '+' : ''}
       {pct.toFixed(2)}%
     </td>
@@ -37,13 +37,7 @@ function RRColor(rr: number) {
   return 'text-red-500'
 }
 
-function StopTargetLine({
-  stock,
-  market,
-}: {
-  stock: ScreenedStockPerf
-  market: Market
-}) {
+function StopTargetLine({ stock, market }: { stock: ScreenedStockPerf; market: Market }) {
   const { stop, target, riskReward, entryPrice } = stock
   if (stop === null || target === null || riskReward === null) return null
 
@@ -51,19 +45,21 @@ function StopTargetLine({
   const targetPct = (target - entryPrice) / entryPrice
 
   return (
-    <span className="mt-0.5 block text-xs">
-      <span className="text-red-500">
-        손절 {formatPrice(stop, market)} ({formatPct(stopPct)})
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+      <span className="whitespace-nowrap text-red-500">
+        손절 {formatPrice(stop, market)}
+        <span className="ml-0.5 text-red-400">({formatPct(stopPct)})</span>
       </span>
-      <span className="mx-1 text-gray-300">·</span>
-      <span className="text-green-600">
-        목표 {formatPrice(target, market)} ({formatPct(targetPct)})
+      <span className="text-gray-300">·</span>
+      <span className="whitespace-nowrap text-green-600">
+        목표 {formatPrice(target, market)}
+        <span className="ml-0.5 text-green-500">({formatPct(targetPct)})</span>
       </span>
-      <span className="mx-1 text-gray-300">·</span>
-      <span className={`font-medium ${RRColor(riskReward)}`}>
+      <span className="text-gray-300">·</span>
+      <span className={`whitespace-nowrap font-semibold ${RRColor(riskReward)}`}>
         손익비 {riskReward.toFixed(1)}x
       </span>
-    </span>
+    </div>
   )
 }
 
@@ -102,14 +98,14 @@ export function PerformanceTable({ items, market, regimes }: Props) {
               <RegimePill regime={regimes?.[date]} />
             </p>
             <div className="overflow-x-auto rounded-lg border border-gray-100">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[360px] text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-xs text-gray-400">
                     <th className="px-2 py-2 text-left font-medium">종목</th>
-                    <th className="px-2 py-2 text-right font-medium">진입가</th>
-                    <th className="px-2 py-2 text-center font-medium">+1일</th>
-                    <th className="px-2 py-2 text-center font-medium">+2일</th>
-                    <th className="px-2 py-2 text-center font-medium">+3일</th>
+                    <th className="px-2 py-2 text-right font-medium whitespace-nowrap">진입가</th>
+                    <th className="w-14 px-2 py-2 text-center font-medium whitespace-nowrap">+1일</th>
+                    <th className="w-14 px-2 py-2 text-center font-medium whitespace-nowrap">+2일</th>
+                    <th className="w-14 px-2 py-2 text-center font-medium whitespace-nowrap">+3일</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -120,7 +116,7 @@ export function PerformanceTable({ items, market, regimes }: Props) {
                         <span className="text-xs text-gray-400">{stock.ticker}</span>
                         <StopTargetLine stock={stock} market={market} />
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-sm text-gray-700">
+                      <td className="px-2 py-2 text-right font-mono text-xs text-gray-600">
                         {formatPrice(stock.entryPrice, market)}
                       </td>
                       <ReturnCell value={stock.day1} />
