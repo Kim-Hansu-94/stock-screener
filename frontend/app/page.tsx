@@ -11,41 +11,7 @@ import {
   getUniverseNameMap,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
-
-type PriceBar = { date: string; high: number; low: number; close: number }
-
-function computeATR(bars: PriceBar[], period = 14): number {
-  if (bars.length < 2) return 0
-  const trs: number[] = []
-  for (let i = 1; i < bars.length; i++) {
-    trs.push(Math.max(
-      bars[i].high - bars[i].low,
-      Math.abs(bars[i].high - bars[i - 1].close),
-      Math.abs(bars[i].low - bars[i - 1].close),
-    ))
-  }
-  const slice = trs.slice(-period)
-  return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
-}
-
-function computeStopTarget(
-  bars: PriceBar[],
-  entry: number,
-): { stop: number | null; target: number | null; riskReward: number | null } {
-  if (bars.length < 10) return { stop: null, target: null, riskReward: null }
-  const recent20 = bars.slice(-20)
-  const recent30 = bars.slice(-30)
-  const swingLow = Math.min(...recent20.map((p) => p.low))
-  const swingHigh = Math.max(...recent30.map((p) => p.high))
-  const atr = computeATR(recent20)
-  const atrStop = atr > 0 ? entry - 1.5 * atr : swingLow
-  const rawStop = Math.max(swingLow, atrStop)
-  if (rawStop >= entry) return { stop: null, target: null, riskReward: null }
-  const stop = rawStop
-  const risk = entry - stop
-  const target = swingHigh > entry ? swingHigh : entry + 2 * risk
-  return { stop, target, riskReward: (target - entry) / risk }
-}
+import { computeStopTarget } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },

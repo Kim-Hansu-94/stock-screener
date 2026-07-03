@@ -1,5 +1,6 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
+import { computeStopTarget, type PriceBar } from './risk'
 import type { DayReturn, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
@@ -50,7 +51,7 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
 export async function getPriceHistoryByTicker(
   market: Market,
   tickers: string[],
-  days = 120,
+  days = 150,
 ): Promise<Record<string, PriceHistoryRow[]>> {
   if (tickers.length === 0) return {}
 
@@ -190,42 +191,6 @@ export async function getRegimesInRange(
   return map
 }
 
-type PriceBar = { date: string; high: number; low: number; close: number }
-
-function computeATR(bars: PriceBar[], period = 14): number {
-  if (bars.length < 2) return 0
-  const trs: number[] = []
-  for (let i = 1; i < bars.length; i++) {
-    trs.push(Math.max(
-      bars[i].high - bars[i].low,
-      Math.abs(bars[i].high - bars[i - 1].close),
-      Math.abs(bars[i].low - bars[i - 1].close),
-    ))
-  }
-  const slice = trs.slice(-period)
-  return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
-}
-
-const TREND_SMA_PERIOD = 20
-const TREND_LOOKBACK = 5
-
-function computeSMA(bars: PriceBar[], period: number): number | null {
-  if (bars.length < period) return null
-  const slice = bars.slice(-period)
-  return slice.reduce((sum, b) => sum + b.close, 0) / period
-}
-
-// Requires price above a rising SMA20 so a downtrending stock's tight ATR stop
-// doesn't produce a misleadingly high risk-reward ratio (RR ignores trend direction otherwise)
-function isUptrend(bars: PriceBar[]): boolean {
-  if (bars.length < TREND_SMA_PERIOD + TREND_LOOKBACK) return false
-  const smaNow = computeSMA(bars, TREND_SMA_PERIOD)
-  const smaPrior = computeSMA(bars.slice(0, -TREND_LOOKBACK), TREND_SMA_PERIOD)
-  if (smaNow === null || smaPrior === null) return false
-  const latestClose = bars.at(-1)!.close
-  return latestClose > smaNow && smaNow > smaPrior
-}
-
 export async function getScreenedStockPerformance(
   market: Market,
   days = 30,
@@ -255,9 +220,10 @@ export async function getScreenedStockPerformance(
   const oldestDate = (recs as { date: string }[]).at(-1)!.date
   const nameKrMap = await getUniverseNameMap(market, tickers)
 
-  // Extend 40 calendar days before oldest rec date for ATR + swing level calculation
+  // Extend 150 calendar days before oldest rec date for ATR + resistance-level calculation
+  // (covers the ~90-trading-day pivot-high lookback plus holiday/weekend buffer)
   const prePeriodDate = new Date(oldestDate)
-  prePeriodDate.setDate(prePeriodDate.getDate() - 40)
+  prePeriodDate.setDate(prePeriodDate.getDate() - 150)
   const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
 
   const { data: priceData, error: priceError } = await supabase
@@ -288,30 +254,7 @@ export async function getScreenedStockPerformance(
         return { date: row.date, close: row.close, returnPct: ((row.close - rec.close) / rec.close) * 100 }
       }
 
-      let stop: number | null = null
-      let target: number | null = null
-      let riskReward: number | null = null
-
-      if (preBars.length >= 10 && isUptrend(preBars)) {
-        const recent20 = preBars.slice(-20)
-        const recent30 = preBars.slice(-30)
-
-        const swingLow = Math.min(...recent20.map((p) => p.low))
-        const swingHigh = Math.max(...recent30.map((p) => p.high))
-        const atr = computeATR(recent20)
-
-        const atrStop = atr > 0 ? rec.close - 1.5 * atr : swingLow
-        // Take the tighter (higher) of the two stops
-        const rawStop = Math.max(swingLow, atrStop)
-
-        if (rawStop < rec.close) {
-          stop = rawStop
-          const risk = rec.close - stop
-          // Target = previous swing high (pullback thesis: reclaim the prior peak)
-          target = swingHigh > rec.close ? swingHigh : rec.close + 2 * risk
-          riskReward = (target - rec.close) / risk
-        }
-      }
+      const { stop, target, riskReward } = computeStopTarget(preBars, rec.close)
 
       return {
         date: rec.date,
@@ -364,9 +307,9 @@ export async function getPullbackScreenerWithRisk(
   const tickers = (stocks as { ticker: string }[]).map((s) => s.ticker)
   const nameKrMap = await getUniverseNameMap(market, tickers)
 
-  // 120 days of daily OHLCV — used for both ATR/swing calculation and chart display
+  // 150 days of daily OHLCV — used for both ATR/resistance calculation and chart display
   const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - 120)
+  cutoff.setDate(cutoff.getDate() - 150)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const { data: priceData, error: priceError } = await supabase
@@ -396,28 +339,7 @@ export async function getPullbackScreenerWithRisk(
       }))
 
       const entry = stock.close
-      let stop: number | null = null
-      let target: number | null = null
-      let riskReward: number | null = null
-
-      if (bars.length >= 10 && isUptrend(bars)) {
-        const recent20 = bars.slice(-20)
-        const recent30 = bars.slice(-30)
-
-        const swingLow = Math.min(...recent20.map((p) => p.low))
-        const swingHigh = Math.max(...recent30.map((p) => p.high))
-        const atr = computeATR(recent20)
-
-        const atrStop = atr > 0 ? entry - 1.5 * atr : swingLow
-        const rawStop = Math.max(swingLow, atrStop)
-
-        if (rawStop < entry) {
-          stop = rawStop
-          const risk = entry - stop
-          target = swingHigh > entry ? swingHigh : entry + 2 * risk
-          riskReward = (target - entry) / risk
-        }
-      }
+      const { stop, target, riskReward } = computeStopTarget(bars, entry)
 
       return {
         date: stock.date,
