@@ -253,6 +253,7 @@ export async function getScreenedStockPerformance(
 
   const tickers = [...new Set(recs.map((r: { ticker: string }) => r.ticker))]
   const oldestDate = (recs as { date: string }[]).at(-1)!.date
+  const nameKrMap = await getUniverseNameMap(market, tickers)
 
   // Extend 40 calendar days before oldest rec date for ATR + swing level calculation
   const prePeriodDate = new Date(oldestDate)
@@ -317,6 +318,7 @@ export async function getScreenedStockPerformance(
         market: rec.market as Market,
         ticker: rec.ticker,
         name: rec.name,
+        name_kr: nameKrMap[rec.ticker],
         sector: rec.sector,
         entryPrice: rec.close,
         day1: makeReturn(0),
@@ -360,6 +362,7 @@ export async function getPullbackScreenerWithRisk(
   if (!stocks?.length) return []
 
   const tickers = (stocks as { ticker: string }[]).map((s) => s.ticker)
+  const nameKrMap = await getUniverseNameMap(market, tickers)
 
   // 120 days of daily OHLCV — used for both ATR/swing calculation and chart display
   const cutoff = new Date()
@@ -421,6 +424,7 @@ export async function getPullbackScreenerWithRisk(
         market: stock.market as Market,
         ticker: stock.ticker,
         name: stock.name,
+        name_kr: nameKrMap[stock.ticker],
         sector: stock.sector,
         entryPrice: entry,
         rsi: stock.rsi,

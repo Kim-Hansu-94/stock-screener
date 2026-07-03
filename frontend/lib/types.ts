@@ -110,6 +110,7 @@ export interface ScreenedStockWithRisk {
   market: Market
   ticker: string
   name: string
+  name_kr?: string
   sector: string
   entryPrice: number
   rsi: number
@@ -124,6 +125,7 @@ export interface ScreenedStockPerf {
   market: Market
   ticker: string
   name: string
+  name_kr?: string
   sector: string
   entryPrice: number
   day1: DayReturn | null
