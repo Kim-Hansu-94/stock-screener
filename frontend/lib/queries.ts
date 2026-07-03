@@ -206,6 +206,26 @@ function computeATR(bars: PriceBar[], period = 14): number {
   return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
 }
 
+const TREND_SMA_PERIOD = 20
+const TREND_LOOKBACK = 5
+
+function computeSMA(bars: PriceBar[], period: number): number | null {
+  if (bars.length < period) return null
+  const slice = bars.slice(-period)
+  return slice.reduce((sum, b) => sum + b.close, 0) / period
+}
+
+// Requires price above a rising SMA20 so a downtrending stock's tight ATR stop
+// doesn't produce a misleadingly high risk-reward ratio (RR ignores trend direction otherwise)
+function isUptrend(bars: PriceBar[]): boolean {
+  if (bars.length < TREND_SMA_PERIOD + TREND_LOOKBACK) return false
+  const smaNow = computeSMA(bars, TREND_SMA_PERIOD)
+  const smaPrior = computeSMA(bars.slice(0, -TREND_LOOKBACK), TREND_SMA_PERIOD)
+  if (smaNow === null || smaPrior === null) return false
+  const latestClose = bars.at(-1)!.close
+  return latestClose > smaNow && smaNow > smaPrior
+}
+
 export async function getScreenedStockPerformance(
   market: Market,
   days = 30,
@@ -271,7 +291,7 @@ export async function getScreenedStockPerformance(
       let target: number | null = null
       let riskReward: number | null = null
 
-      if (preBars.length >= 10) {
+      if (preBars.length >= 10 && isUptrend(preBars)) {
         const recent20 = preBars.slice(-20)
         const recent30 = preBars.slice(-30)
 
@@ -377,7 +397,7 @@ export async function getPullbackScreenerWithRisk(
       let target: number | null = null
       let riskReward: number | null = null
 
-      if (bars.length >= 10) {
+      if (bars.length >= 10 && isUptrend(bars)) {
         const recent20 = bars.slice(-20)
         const recent30 = bars.slice(-30)
 
