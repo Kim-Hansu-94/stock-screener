@@ -49,15 +49,30 @@ export function isUptrend(bars: PriceBar[]): boolean {
 const RESISTANCE_LOOKBACK = 90
 // Bars required on each side to confirm a local high as a genuine pivot (not just noise).
 const PIVOT_WINDOW = 3
+// A pivot only counts as real resistance if price pulled back at least this much (as a
+// fraction of the peak) on BOTH sides — filters out shallow multi-bar wiggles that
+// technically qualify as a local max but were never actually defended as resistance,
+// which were producing unrealistically close targets (and unrealistically low RR).
+const PIVOT_MIN_PROMINENCE = 0.03
 
-// Local pivot highs: a bar whose high is the max within PIVOT_WINDOW bars on each side.
-// Sorted ascending so callers can pick the nearest one above entry.
-function findPivotHighs(bars: PriceBar[], window = PIVOT_WINDOW): number[] {
+// Local pivot highs: a bar whose high is the max within PIVOT_WINDOW bars on each side,
+// AND whose surrounding lows retrace at least PIVOT_MIN_PROMINENCE below it on both sides.
+// Sorted ascending so callers can pick the nearest genuinely significant one above entry.
+function findPivotHighs(
+  bars: PriceBar[],
+  window = PIVOT_WINDOW,
+  minProminence = PIVOT_MIN_PROMINENCE,
+): number[] {
   const pivots: number[] = []
   for (let i = window; i < bars.length - window; i++) {
     const h = bars[i].high
-    const isPivot = bars.slice(i - window, i + window + 1).every((b) => b.high <= h)
-    if (isPivot) pivots.push(h)
+    const isLocalMax = bars.slice(i - window, i + window + 1).every((b) => b.high <= h)
+    if (!isLocalMax) continue
+
+    const leftLow = Math.min(...bars.slice(i - window, i).map((b) => b.low))
+    const rightLow = Math.min(...bars.slice(i + 1, i + window + 1).map((b) => b.low))
+    const prominence = Math.min(h - leftLow, h - rightLow) / h
+    if (prominence >= minProminence) pivots.push(h)
   }
   return pivots.sort((a, b) => a - b)
 }

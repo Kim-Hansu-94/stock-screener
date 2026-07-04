@@ -57,3 +57,42 @@ describe('computeStopTarget entry-date bounding regression', () => {
     expect(correctResult.riskReward).not.toBeNull()
   })
 })
+
+describe('computeStopTarget pivot significance', () => {
+  it('ignores a shallow noise pivot and targets the nearest genuinely significant swing high', () => {
+    const bars: PriceBar[] = []
+    let idx = 0
+    const push = (close: number, high?: number, low?: number) => {
+      bars.push({ date: dayLabel(idx++), high: high ?? close + 0.5, low: low ?? close - 0.5, close })
+    }
+
+    // 60-bar steady base uptrend (101 -> 160), satisfies the SMA60+5 trend check.
+    for (let i = 1; i <= 60; i++) push(100 + i)
+
+    // Genuine swing high: sharp spike to a high of 180, then a real ~13% pullback.
+    push(175, 180, 174)
+    push(168); push(162); push(157)
+
+    // Recovery back up, staying below the 180 spike.
+    push(160); push(163); push(166); push(169); push(170)
+
+    // Shallow noise bump: local max under a 3-bar window, but only a ~1% pullback
+    // on either side — not a level price ever actually defended.
+    push(172, 172.5, 171.5)
+    push(171.6, 172.1, 171.1)
+    push(171.3, 171.8, 170.8)
+    push(171.5, 172.0, 171.0)
+
+    // Entry sits below both the noise bump (172.5) and the real pivot (180).
+    push(172)
+    const entry = bars.at(-1)!.close
+
+    const result = computeStopTarget(bars, entry)
+
+    // Old behavior (nearest pivot of any size) would have targeted the 172.5 noise
+    // bump, producing a reward of ~0.5 and a near-zero riskReward. The fix should
+    // skip that bump for lacking prominence and target the real 180 swing high.
+    expect(result.target).toBeCloseTo(180, 5)
+    expect(result.riskReward).toBeGreaterThan(1)
+  })
+})
