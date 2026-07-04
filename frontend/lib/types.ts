@@ -135,3 +135,24 @@ export interface ScreenedStockPerf {
   target: number | null
   riskReward: number | null
 }
+
+export type ExitStatus = 'open' | 'stopped_out' | 'target_hit'
+
+export interface ExitCheckResult {
+  date: string
+  market: Market
+  ticker: string
+  name: string
+  name_kr?: string
+  sector: string
+  entryPrice: number
+  currentPrice: number
+  currentReturnPct: number
+  stop: number | null
+  target: number | null
+  riskReward: number | null
+  status: ExitStatus
+  exitDate: string | null
+  exitReasons: string[]
+  recommendation: 'sell' | 'hold'
+}

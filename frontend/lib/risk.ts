@@ -44,6 +44,16 @@ export function isUptrend(bars: PriceBar[]): boolean {
   return latestClose > smaNow && smaNow > smaPrior
 }
 
+// Plain "still above its 60-day average" check, for re-evaluating a position already
+// taken — deliberately looser than isUptrend's rising-SMA entry gate, since a held
+// position should only be flagged once the trend it was bought on actually breaks,
+// not merely because the SMA stopped climbing.
+export function isBelowTrend(bars: PriceBar[]): boolean {
+  const sma = computeSMA(bars, TREND_SMA_PERIOD)
+  if (sma === null) return false
+  return bars.at(-1)!.close < sma
+}
+
 // Resistance search window: wide enough to catch prior swing highs that a 30-bar
 // window would miss, so the target isn't silently replaced by the arbitrary 2R fallback.
 const RESISTANCE_LOOKBACK = 90
