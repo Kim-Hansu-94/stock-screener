@@ -211,7 +211,10 @@ async function HomeContent() {
             </tr>
           </tbody>
         </table>
-        <p className="mt-3 text-xs text-gray-400">매일 오전 8:30 (KST) 전날 데이터 기준으로 실행됩니다.</p>
+        <p className="mt-3 text-xs text-gray-400">
+          매일 오전 8:00 (KST)에 실행되며, 국내 개장(오전 9시) 이전이라 전 영업일 종가를 기준으로 스크리닝합니다.
+          (시가·장중가 아님, GitHub Actions 스케줄 특성상 몇 분 정도 지연될 수 있습니다.)
+        </p>
       </div>
     </>
   )
