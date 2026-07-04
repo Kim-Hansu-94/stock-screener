@@ -11,7 +11,7 @@ import {
   getUniverseNameMap,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
-import { computeStopTarget } from '@/lib/risk'
+import { computeStopTarget, filterBarsAsOf } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
@@ -66,7 +66,8 @@ async function loadMarketSection(market: Market, label: string, universe: string
 
     const riskMap: Record<string, RiskInfo> = {}
     for (const stock of enrichedStocks) {
-      riskMap[stock.ticker] = computeStopTarget(priceHistory[stock.ticker] ?? [], stock.close)
+      const barsAsOfEntry = filterBarsAsOf(priceHistory[stock.ticker] ?? [], regimeRow.date)
+      riskMap[stock.ticker] = computeStopTarget(barsAsOfEntry, stock.close)
     }
 
     return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }

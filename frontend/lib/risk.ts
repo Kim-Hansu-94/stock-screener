@@ -1,5 +1,12 @@
 export type PriceBar = { date: string; high: number; low: number; close: number }
 
+// Bounds a bar series to a point in time, so callers computing risk for a past
+// entry never leak in bars from after that date (which would mix the entry's
+// own subsequent price action into its own risk figure).
+export function filterBarsAsOf(bars: PriceBar[], asOfDate: string): PriceBar[] {
+  return bars.filter((bar) => bar.date <= asOfDate)
+}
+
 export function computeATR(bars: PriceBar[], period = 14): number {
   if (bars.length < 2) return 0
   const trs: number[] = []
@@ -14,7 +21,10 @@ export function computeATR(bars: PriceBar[], period = 14): number {
   return slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : 0
 }
 
-const TREND_SMA_PERIOD = 20
+// Matches pipeline/src/screener.py's long_term_up gate exactly (LONG_TERM_WINDOW=60,
+// SHORT_TERM_WINDOW=5) so a stock's risk display never claims "uptrend" under a looser
+// or stricter test than the one that actually admitted it into the screener.
+const TREND_SMA_PERIOD = 60
 const TREND_LOOKBACK = 5
 
 function computeSMA(bars: PriceBar[], period: number): number | null {
@@ -23,7 +33,7 @@ function computeSMA(bars: PriceBar[], period: number): number | null {
   return slice.reduce((sum, b) => sum + b.close, 0) / period
 }
 
-// Requires price above a rising SMA20 so a downtrending stock's tight ATR stop
+// Requires price above a rising SMA60 so a downtrending stock's tight ATR stop
 // doesn't produce a misleadingly high risk-reward ratio (RR ignores trend direction otherwise)
 export function isUptrend(bars: PriceBar[]): boolean {
   if (bars.length < TREND_SMA_PERIOD + TREND_LOOKBACK) return false

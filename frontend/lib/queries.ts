@@ -1,6 +1,6 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
-import { computeStopTarget, type PriceBar } from './risk'
+import { computeStopTarget, filterBarsAsOf, type PriceBar } from './risk'
 import type { DayReturn, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
@@ -339,7 +339,8 @@ export async function getPullbackScreenerWithRisk(
       }))
 
       const entry = stock.close
-      const { stop, target, riskReward } = computeStopTarget(bars, entry)
+      const barsAsOfEntry = filterBarsAsOf(bars, stock.date)
+      const { stop, target, riskReward } = computeStopTarget(barsAsOfEntry, entry)
 
       return {
         date: stock.date,
