@@ -12,7 +12,8 @@ from .market_regime import determine_market_regime
 from .screener import passes_pullback_filter
 
 SECTOR_DETECTION_LOOKBACK_DAYS = 45
-FULL_HISTORY_LOOKBACK_DAYS = 200
+# 380 calendar days ≈ 263 trading days — 200일 SMA 계산에 필요한 최소 거래일을 확보.
+FULL_HISTORY_LOOKBACK_DAYS = 380
 # 380 calendar days ≈ 263 trading days — covers full 52-week high via KIS pagination.
 US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 380
 INDEX_LOOKBACK_DAYS = 400
@@ -101,13 +102,15 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
         for ticker in universe["ticker"]
     }
     sector_df = _build_sector_frame(universe, recent_histories)
-    top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
+    top_sectors = sectors.leading_sectors(sector_df, top_n=5) if not sector_df.empty else []
 
     # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
+    # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단 (US와 동일)
     if regime == "bull":
         candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
         screened, price_history = _screen_candidates(
             candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
+            require_sma200=True,
         )
     else:
         screened, price_history = [], {}
@@ -138,7 +141,7 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
         sp_ndx_tickers, today, US_UNIVERSE_HISTORY_LOOKBACK_DAYS,
     )
     sector_df = _build_sector_frame(universe[sp_ndx_mask], all_histories)
-    top_sectors = sectors.leading_sectors(sector_df, top_n=3) if not sector_df.empty else []
+    top_sectors = sectors.leading_sectors(sector_df, top_n=5) if not sector_df.empty else []
 
     # 눌림목 스크리너: S&P500+NASDAQ100만 대상 (Russell 3000 소형주 제외)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단

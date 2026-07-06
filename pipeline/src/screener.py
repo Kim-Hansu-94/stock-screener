@@ -18,6 +18,8 @@ CONSECUTIVE_DOWN_THRESHOLD = 0.01  # 1% per day — minor noise is allowed, sust
 VOLUME_DECLINE_THRESHOLD = 0.85  # recent 5d avg vol must drop to 85% of prior 20d avg (was <1.0)
 IMPULSE_LOOKBACK_DAYS = 60
 IMPULSE_MIN_GAIN = 0.15  # 선행 임팩트: 최근 60거래일 수익률 +15% 이상인 종목만
+PULLBACK_LOWER_TOLERANCE = 0.05  # sma20 대비 5%까지 하회 허용 — 대형주는 변동성이 낮아
+# 좁은 눌림목 구간(sma20~sma10)에 잘 걸리지 않아 하한을 sma20 아래로 넓힌다.
 
 
 def passes_pullback_filter(
@@ -52,7 +54,8 @@ def passes_pullback_filter(
             return False
 
     long_term_up = is_trending_up(sma60, lookback=SHORT_TERM_WINDOW) and latest_close > latest_sma60
-    pullback = latest_sma20 <= latest_close <= latest_sma10
+    pullback_lower_bound = latest_sma20 * (1 - PULLBACK_LOWER_TOLERANCE)
+    pullback = pullback_lower_bound <= latest_close <= latest_sma10
     rsi_ok = RSI_LOW <= latest_rsi <= RSI_HIGH
     rsi_rising = latest_rsi > rsi14.iloc[-1 - RSI_DIRECTION_LOOKBACK]
     volume_declining = (
