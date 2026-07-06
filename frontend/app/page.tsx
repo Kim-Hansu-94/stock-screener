@@ -187,7 +187,7 @@ async function HomeContent() {
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">주도 섹터</td>
-              <td className="py-1.5">최근 5일 거래대금 기준 상위 3개 섹터에 속한 종목</td>
+              <td className="py-1.5">최근 5일 거래대금 기준 상위 5개 섹터에 속한 종목</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시가총액</td>
@@ -195,11 +195,11 @@ async function HomeContent() {
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">장기 추세</td>
-              <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선</td>
+              <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선 + 현재가 &gt; 200일선</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">단기 눌림</td>
-              <td className="py-1.5">20일선 ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
+              <td className="py-1.5">20일선 −5% ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">RSI</td>
@@ -215,6 +215,43 @@ async function HomeContent() {
           매일 오전 8:00 (KST)에 실행되며, 국내 개장(오전 9시) 이전이라 전 영업일 종가를 기준으로 스크리닝합니다.
           (시가·장중가 아님, GitHub Actions 스케줄 특성상 몇 분 정도 지연될 수 있습니다.)
         </p>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-700">추천 매매 방법</h3>
+        <p className="mt-1 text-xs text-gray-400">
+          이 스크리너는 스캘핑용이 아니라 눌림목 스윙 트레이드 구조로 설계되어 있습니다.
+        </p>
+        <ol className="mt-3 space-y-2.5 text-xs text-gray-600">
+          <li className="flex gap-2">
+            <span className="font-semibold text-gray-500 whitespace-nowrap">1. 보유 기간</span>
+            <span>
+              &quot;1주일&quot; 같은 고정 기간을 정하지 말고, 종목 카드에 표시되는 <b>손절가/목표가에 닿을 때까지 보유</b>합니다.
+              목표가는 직전 저항(피벗 고점) 기준이라 하루 만에 도달할 수도, 1~2주 넘게 걸릴 수도 있습니다.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="font-semibold text-gray-500 whitespace-nowrap">2. 수량 결정</span>
+            <span>
+              손절 거리(진입가 − 손절가) 기준으로 <b>계좌의 1~2%만 리스크에 걸리도록</b> 수량을 정합니다.
+              RSI 40~60 구간 진입은 과매도 반등이 아닌 추세 지속 베팅이므로, 손절을 타이트하게 지키는 것이 중요합니다.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="font-semibold text-gray-500 whitespace-nowrap">3. 진입 시점</span>
+            <span>
+              추천은 전 영업일 종가 기준이므로 실제 진입은 다음날 시가가 됩니다.
+              <b>시가가 크게 갭업해 있으면</b> 손익비가 이미 나빠진 상태이므로 그런 날은 스킵하거나 소량만 진입합니다.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <span className="font-semibold text-gray-500 whitespace-nowrap">4. 중도 점검</span>
+            <span>
+              목표가 도달 전이라도 시장이 하락장으로 바뀌거나 추세가 꺾이면 미리 정리해야 합니다.
+              보유 중에는 <b>&quot;보유 종목 점검&quot; 탭</b>에서 이탈 신호를 매일 확인하세요.
+            </span>
+          </li>
+        </ol>
       </div>
     </>
   )
