@@ -21,6 +21,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
         {
             "ticker": s.ticker, "name": s.name, "sector": s.sector,
             "close": s.close, "market_cap": s.market_cap, "rsi": s.rsi,
+            "date": s.as_of.isoformat(),
         }
         for s in result.screened_stocks
     ]
@@ -55,7 +56,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
             })
 
     return PipelineResult(
-        date=today.isoformat(),
+        date=result.as_of.isoformat(),
         market=result.market,
         regime=result.regime,
         leading_sectors=result.leading_sectors,

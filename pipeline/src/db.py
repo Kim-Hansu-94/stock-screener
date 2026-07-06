@@ -49,8 +49,10 @@ class ScreenerDB:
             self.client.table("leading_sectors").upsert(rows).execute()
 
         if result.screened_stocks:
+            # 각 종목의 "date"는 stock dict 안에 이미 실제 마지막 봉의 날짜로 들어있음
+            # (pipeline.py의 as_of). result.date로 덮어쓰면 안 되므로 여기서 넣지 않는다.
             rows = [
-                {"date": result.date, "market": result.market, **stock}
+                {"market": result.market, **stock}
                 for stock in result.screened_stocks
             ]
             self.client.table("screened_stocks").upsert(rows).execute()

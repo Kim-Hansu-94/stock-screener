@@ -28,16 +28,24 @@ class ScreenedStock:
     close: float
     market_cap: float
     rsi: float
+    as_of: date
 
 
 @dataclass
 class MarketPipelineResult:
     market: str
     regime: str
+    as_of: date
     leading_sectors: list[str] = field(default_factory=list)
     screened_stocks: list[ScreenedStock] = field(default_factory=list)
     price_history: dict[str, pd.DataFrame] = field(default_factory=dict)
     universe_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+
+def _as_of_date(idx) -> date:
+    """실제로 가져온 마지막 봉의 날짜. wall-clock `today`와 다를 수 있다
+    (파이프라인 실행 시각이 늦어져 그날 종가까지 이미 포함된 경우 등)."""
+    return idx.date() if hasattr(idx, "date") else idx
 
 
 def _build_sector_frame(universe: pd.DataFrame, recent_histories: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -65,7 +73,9 @@ def _screen_candidates(
     for _, row in candidates.iterrows():
         ticker = row["ticker"]
         hist = fetch_full_history(ticker)
-        if hist.empty or not passes_pullback_filter(hist["Close"], hist["Volume"], require_sma200=require_sma200):
+        if hist.empty or not passes_pullback_filter(
+            hist["Close"], hist["Volume"], hist["High"], require_sma200=require_sma200,
+        ):
             continue
         screened.append(ScreenedStock(
             ticker=ticker,
@@ -74,6 +84,7 @@ def _screen_candidates(
             close=float(hist["Close"].iloc[-1]),
             market_cap=float(row["market_cap"]),
             rsi=float(rsi(hist["Close"]).iloc[-1]),
+            as_of=_as_of_date(hist.index[-1]),
         ))
         price_history[ticker] = hist.tail(120)
     return screened, price_history
@@ -102,7 +113,8 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
         screened, price_history = [], {}
 
     return MarketPipelineResult(
-        market="KR", regime=regime, leading_sectors=top_sectors,
+        market="KR", regime=regime, as_of=_as_of_date(index_close.index[-1]),
+        leading_sectors=top_sectors,
         screened_stocks=screened, price_history=price_history,
         universe_df=universe,
     )
@@ -143,7 +155,8 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
         screened = []
 
     return MarketPipelineResult(
-        market="US", regime=regime, leading_sectors=top_sectors,
+        market="US", regime=regime, as_of=_as_of_date(index_close.index[-1]),
+        leading_sectors=top_sectors,
         screened_stocks=screened,
         price_history=all_histories,
         universe_df=universe,

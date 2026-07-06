@@ -16,11 +16,14 @@ RSI_HIGH = 60  # raised from 55: 10-20MA zone stocks haven't cooled as far as 20
 RSI_DIRECTION_LOOKBACK = 3
 CONSECUTIVE_DOWN_THRESHOLD = 0.01  # 1% per day — minor noise is allowed, sustained drops are not
 VOLUME_DECLINE_THRESHOLD = 0.85  # recent 5d avg vol must drop to 85% of prior 20d avg (was <1.0)
+IMPULSE_LOOKBACK_DAYS = 60
+IMPULSE_MIN_GAIN = 0.15  # 선행 임팩트: 최근 60거래일 수익률 +15% 이상인 종목만
 
 
 def passes_pullback_filter(
     close: pd.Series,
     volume: pd.Series,
+    high: pd.Series,
     *,
     require_sma200: bool = False,
 ) -> bool:
@@ -41,7 +44,7 @@ def passes_pullback_filter(
     if pd.isna(latest_sma60) or pd.isna(latest_rsi) or pd.isna(latest_sma10) or pd.isna(latest_sma20):
         return False
 
-    # US-only: require close above 200-day MA to exclude long-term downtrend stocks.
+    # Require close above 200-day MA to exclude long-term downtrend stocks (KR + US).
     if require_sma200:
         sma200 = sma(close, SMA200_WINDOW)
         latest_sma200 = sma200.iloc[-1]
@@ -63,5 +66,13 @@ def passes_pullback_filter(
     d2 = (close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]
     strong_consecutive_down = (d1 < -CONSECUTIVE_DOWN_THRESHOLD) and (d2 < -CONSECUTIVE_DOWN_THRESHOLD)
 
+    # 선행 임팩트: 눌림목 이전에 강한 상승 파동이 있었던 종목만.
+    impulse = (latest_close / close.iloc[-1 - IMPULSE_LOOKBACK_DAYS] - 1) >= IMPULSE_MIN_GAIN
+
+    # 반등 확인: 당일 종가가 전일 고가를 넘어야 진입 — 하락 중 매수(falling knife) 방지.
+    # 백테스트(KR 시총 상위 500, 2010~) 전 보유기간에서 유일하게 일관된 개선 조건.
+    bounce_confirmed = latest_close > high.iloc[-2]
+
     return bool(long_term_up and pullback and rsi_ok and rsi_rising
-                and not strong_consecutive_down and volume_declining)
+                and not strong_consecutive_down and volume_declining
+                and impulse and bounce_confirmed)
