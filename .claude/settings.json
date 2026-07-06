@@ -6,7 +6,9 @@
       "Bash(bash \"/home/codespace/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief\" *)",
       "Bash(bash \"/home/codespace/.claude/plugins/cache/superpowers-marketplace/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package\" *)",
       "Bash(pytest *)",
-      "Bash(python -m pytest *)"
+      "Bash(python -m pytest *)",
+      "Bash(npx vitest run)",
+      "Bash(npx tsc --noEmit)"
     ]
   }
 }
