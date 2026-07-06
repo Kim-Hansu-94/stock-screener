@@ -202,12 +202,24 @@ async function HomeContent() {
               <td className="py-1.5">20일선 −5% ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
             </tr>
             <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">선행 상승</td>
+              <td className="py-1.5">최근 60거래일 수익률 +15% 이상 (강한 상승 파동 후의 눌림만)</td>
+            </tr>
+            <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">RSI</td>
-              <td className="py-1.5">40 ~ 60 구간</td>
+              <td className="py-1.5">40 ~ 60 구간 + 3일 전보다 상승 중</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">거래량</td>
-              <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균 (매도 압력 약화)</td>
+              <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균의 85% (매도 압력 약화)</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">반등 확인</td>
+              <td className="py-1.5">당일 종가 &gt; 전일 고가 (하락 중 매수 방지)</td>
+            </tr>
+            <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">급락 차단</td>
+              <td className="py-1.5">직전 2일 연속 −1% 초과 하락 시 제외</td>
             </tr>
           </tbody>
         </table>
