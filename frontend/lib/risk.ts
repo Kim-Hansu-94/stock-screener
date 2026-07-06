@@ -87,6 +87,10 @@ function findPivotHighs(
   return pivots.sort((a, b) => a - b)
 }
 
+// Breathing room under the swing low, in ATRs. Half an average day's range is enough
+// to survive a stop-hunt wick without meaningfully widening per-share risk.
+const STOP_BUFFER_ATR_MULT = 0.5
+
 export function computeStopTarget(
   bars: PriceBar[],
   entry: number,
@@ -99,8 +103,11 @@ export function computeStopTarget(
   const swingLow = Math.min(...recent20.map((p) => p.low))
   const atr = computeATR(recent20)
   const atrStop = atr > 0 ? entry - 1.5 * atr : swingLow
+  // Buffer the structural stop below the swing low: a stop placed exactly at an
+  // obvious low gets picked off by intraday probes that touch the level and reverse.
+  const swingStop = swingLow - STOP_BUFFER_ATR_MULT * atr
   // Take the tighter (higher) of the two stops
-  const rawStop = Math.max(swingLow, atrStop)
+  const rawStop = Math.max(swingStop, atrStop)
 
   if (rawStop >= entry) return { stop: null, target: null, riskReward: null }
   const stop = rawStop

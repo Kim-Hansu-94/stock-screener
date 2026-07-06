@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeStopTarget, filterBarsAsOf, type PriceBar } from './risk'
+import { computeATR, computeStopTarget, filterBarsAsOf, type PriceBar } from './risk'
 
 function dayLabel(n: number): string {
   return `D${String(n).padStart(4, '0')}`
@@ -55,6 +55,30 @@ describe('computeStopTarget entry-date bounding regression', () => {
     // low values, even though nothing about the entry-day setup changed.
     expect(buggyResult.riskReward).not.toBeCloseTo(correctResult.riskReward ?? NaN, 5)
     expect(correctResult.riskReward).not.toBeNull()
+  })
+})
+
+describe('computeStopTarget swing-low buffer', () => {
+  it('places the stop below the swing low instead of exactly at it', () => {
+    // 60-bar uptrend so the SMA60 trend gate passes.
+    const bars = makeUptrendBars(60, 100, 1)
+    // Wide-range consolidation: closes hold 160 while lows probe 155, so the swing
+    // low sits within one ATR of entry and the structural stop is the binding one.
+    for (let i = 0; i < 12; i++) {
+      bars.push({ date: dayLabel(60 + i), high: 165, low: 155, close: 160 })
+    }
+    const entry = bars.at(-1)!.close
+    const swingLow = Math.min(...bars.slice(-20).map((b) => b.low))
+
+    const result = computeStopTarget(bars, entry)
+
+    // Pre-buffer behavior put the stop exactly at the swing low, where an intraday
+    // probe of the obvious level would tag it before reversing.
+    expect(result.stop).not.toBeNull()
+    expect(result.stop!).toBeLessThan(swingLow)
+    // Still tighter than (or equal to) the pure ATR stop — the buffer must not
+    // blow past the volatility-based floor.
+    expect(result.stop!).toBeGreaterThanOrEqual(entry - 1.5 * computeATR(bars.slice(-20)))
   })
 })
 
