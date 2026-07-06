@@ -7,7 +7,7 @@ from pipeline.src import main as main_module
 from pipeline.src.pipeline import MarketPipelineResult, ScreenedStock
 
 
-def test_main_saves_kr_and_us_results(monkeypatch):
+def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     # as_of는 wall-clock today(2024-01-02)와 일부러 다르게 주어, 파이프라인이
     # 실제 마지막 봉의 날짜를 그대로 전달하는지(= today로 덮어쓰지 않는지) 검증한다.
     kr_result = MarketPipelineResult(
@@ -19,12 +19,22 @@ def test_main_saves_kr_and_us_results(monkeypatch):
             index=pd.to_datetime(["2024-01-02"]),
         )},
     )
-    us_result = MarketPipelineResult(market="US", regime="bear", as_of=date(2024, 1, 3))
+    # universe_df는 main.py가 index_membership 컬럼을 참조하므로(기회 종목/Russell 분류)
+    # production과 동일한 형태(ticker/name/sector/index_membership)로 채워야 한다.
+    us_universe_df = pd.DataFrame([
+        {"ticker": "AAPL", "name": "Apple", "sector": "Technology", "index_membership": "S&P500"},
+    ])
+    us_result = MarketPipelineResult(
+        market="US", regime="bear", as_of=date(2024, 1, 3), universe_df=us_universe_df,
+    )
 
     monkeypatch.setattr(main_module, "_today_kst", lambda: date(2024, 1, 2))
     monkeypatch.setattr(main_module, "run_kr_pipeline", lambda today: kr_result)
     monkeypatch.setattr(main_module, "run_us_pipeline", lambda today: us_result)
     monkeypatch.setattr(main_module, "load_dotenv", lambda: None)
+    monkeypatch.setattr(main_module, "_SEED_FILE", tmp_path / ".yfinance_opp_seeded")
+    monkeypatch.setattr(main_module, "_SEEDED_TICKERS_FILE", tmp_path / ".yfinance_opp_seeded_tickers")
+    monkeypatch.setattr(main_module.prices_us, "get_opportunity_histories", lambda *a, **k: {})
 
     fake_db = MagicMock()
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))

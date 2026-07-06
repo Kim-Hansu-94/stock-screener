@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -10,6 +12,8 @@ from .pattern_discovery import compute_pattern_matches
 from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 
 KST = timezone(timedelta(hours=9))
+_SEED_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded"
+_SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded_tickers"
 
 
 def _today_kst() -> date:
@@ -124,18 +128,13 @@ def main() -> None:
     opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
 
-    from pathlib import Path
-    import json
-    _seed_file = Path(__file__).parent.parent / ".yfinance_opp_seeded"
-    _seeded_tickers_file = Path(__file__).parent.parent / ".yfinance_opp_seeded_tickers"
-
-    if _seed_file.exists():
-        seed_date = date.fromisoformat(_seed_file.read_text().strip())
+    if _SEED_FILE.exists():
+        seed_date = date.fromisoformat(_SEED_FILE.read_text().strip())
         incremental_days = max((today - seed_date).days + 7, 14)
         # 파일 없으면 빈 set → 모든 티커를 신규로 처리해 3년 전체 재시드 (1회성 마이그레이션)
         seeded_tickers = (
-            set(json.loads(_seeded_tickers_file.read_text()))
-            if _seeded_tickers_file.exists()
+            set(json.loads(_SEEDED_TICKERS_FILE.read_text()))
+            if _SEEDED_TICKERS_FILE.exists()
             else set()
         )
         new_tickers = [t for t in opp_tickers if t not in seeded_tickers]
@@ -171,8 +170,8 @@ def main() -> None:
             })
     db.save_price_history(opp_rows)
     print(f"  → {len(opp_rows)}행 저장", flush=True)
-    _seed_file.write_text(today.isoformat())
-    _seeded_tickers_file.write_text(json.dumps(opp_tickers))
+    _SEED_FILE.write_text(today.isoformat())
+    _SEEDED_TICKERS_FILE.write_text(json.dumps(opp_tickers))
 
     # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.
     # KIS API(순차)는 S&P500+NASDAQ100만 받으므로 Russell 3000은 여기서 별도 처리.
