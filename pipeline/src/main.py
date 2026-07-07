@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from . import prices_kr, prices_us
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
-from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
+from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 
 KST = timezone(timedelta(hours=9))
 _SEED_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded"
@@ -174,9 +174,9 @@ def main() -> None:
     _SEEDED_TICKERS_FILE.write_text(json.dumps(opp_tickers))
 
     # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.
-    # KIS API(순차)는 S&P500+NASDAQ100만 받으므로 Russell 3000은 여기서 별도 처리.
+    # KIS API(순차)는 스크리너 대상(S&P1500+NASDAQ100)만 받으므로 나머지는 여기서 별도 처리.
     russell_tickers = us_result.universe_df.loc[
-        ~us_result.universe_df["index_membership"].isin(["S&P500", "NASDAQ100"]),
+        ~us_result.universe_df["index_membership"].isin(US_SCREENER_INDEXES),
         "ticker",
     ].tolist()
     if russell_tickers:

@@ -18,7 +18,10 @@ FULL_HISTORY_LOOKBACK_DAYS = 380
 US_UNIVERSE_HISTORY_LOOKBACK_DAYS = 380
 INDEX_LOOKBACK_DAYS = 400
 KR_MIN_MARKET_CAP = 300_000_000_000
-US_MIN_MARKET_CAP = 200_000_000
+# $20억 — S&P600 하단의 저유동성 꼬리를 잘라내는 실질적 하한 (KR 3,000억원과 시장 규모 대비 유사한 깊이)
+US_MIN_MARKET_CAP = 2_000_000_000
+# 눌림목 스크리너 대상 지수 (S&P 1500 + NASDAQ 100). Russell3000 단독 편입 종목은 패턴 매칭 전용.
+US_SCREENER_INDEXES = ["S&P500", "NASDAQ100", "S&P400", "S&P600"]
 
 
 @dataclass
@@ -133,21 +136,21 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     index_close = prices_us.get_sp500_index_history(today, INDEX_LOOKBACK_DAYS)
     regime = determine_market_regime(index_close)
 
-    # KIS API는 순차 호출이므로 S&P500+NASDAQ100(~600종목)만 다운로드.
-    # Russell 3000 히스토리는 main.py에서 yfinance 배치로 별도 수집 (패턴 매칭용).
-    sp_ndx_mask = universe["index_membership"].isin(["S&P500", "NASDAQ100"])
-    sp_ndx_tickers = universe.loc[sp_ndx_mask, "ticker"].tolist()
+    # KIS API는 순차 호출이므로 스크리너 대상(S&P1500+NASDAQ100, ~1,500종목)만 다운로드.
+    # Russell 3000 단독 편입 종목 히스토리는 main.py에서 yfinance 배치로 별도 수집 (패턴 매칭용).
+    screener_mask = universe["index_membership"].isin(US_SCREENER_INDEXES)
+    screener_tickers = universe.loc[screener_mask, "ticker"].tolist()
     all_histories = prices_us.get_us_stock_histories(
-        sp_ndx_tickers, today, US_UNIVERSE_HISTORY_LOOKBACK_DAYS,
+        screener_tickers, today, US_UNIVERSE_HISTORY_LOOKBACK_DAYS,
     )
-    sector_df = _build_sector_frame(universe[sp_ndx_mask], all_histories)
+    sector_df = _build_sector_frame(universe[screener_mask], all_histories)
     top_sectors = sectors.leading_sectors(sector_df, top_n=5) if not sector_df.empty else []
 
-    # 눌림목 스크리너: S&P500+NASDAQ100만 대상 (Russell 3000 소형주 제외)
+    # 눌림목 스크리너: S&P1500+NASDAQ100 대상 (Russell 3000 단독 편입 소형주 제외)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단
     if regime == "bull":
         candidates = universe[
-            sp_ndx_mask
+            screener_mask
             & universe["sector"].isin(top_sectors)
             & universe["meets_cap_threshold"]
         ]

@@ -1,7 +1,7 @@
 """
-S&P 500 + NASDAQ 100 + Russell 3000 합산 유니버스.
-Russell 3000 (Vanguard VTHR API)은 중소형주 커버리지 확장용.
-VTHR 수집 실패 시 S&P 400 + S&P 600 으로 폴백 (S&P 500·NASDAQ100은 항상 시도).
+S&P 1500 (S&P 500 + 400 + 600) + NASDAQ 100 + Russell 3000 합산 유니버스.
+S&P 1500 + NASDAQ 100 은 눌림목 스크리너 대상, Russell 3000 (Vanguard VTHR API)은
+패턴 매칭 커버리지 확장용.
 """
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ def get_us_korean_names() -> dict[str, str]:
 
 
 def get_us_universe() -> pd.DataFrame:
-    """S&P 500 + NASDAQ 100 + Russell 3000 합산 유니버스를 반환."""
+    """S&P 1500 + NASDAQ 100 + Russell 3000 합산 유니버스를 반환."""
     parts: list[pd.DataFrame] = []
 
     # 1. S&P 500 (FinanceDataReader – sector 정보 풍부하여 앞에 배치)
@@ -163,15 +163,20 @@ def get_us_universe() -> pd.DataFrame:
     except Exception as e:
         print(f"  S&P 500 실패: {e}")
 
-    # 2. NASDAQ 100 (Wikipedia)
-    try:
-        ndx = _fetch_sp_index("https://en.wikipedia.org/wiki/Nasdaq-100", "NASDAQ100")
-        parts.append(ndx)
-        print(f"  NASDAQ 100: {len(ndx)}개")
-    except Exception as e:
-        print(f"  NASDAQ 100 실패: {e}")
+    # 2. NASDAQ 100 + S&P 400/600 (Wikipedia) — 눌림목 스크리너 대상 지수들
+    for label, url in [
+        ("NASDAQ100", "https://en.wikipedia.org/wiki/Nasdaq-100"),
+        ("S&P400", "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"),
+        ("S&P600", "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"),
+    ]:
+        try:
+            df = _fetch_sp_index(url, label)
+            parts.append(df)
+            print(f"  {label}: {len(df)}개")
+        except Exception as e:
+            print(f"  {label} 실패: {e}")
 
-    # 3. Russell 3000 (Vanguard VTHR) – 중소형주 커버리지 확장
+    # 3. Russell 3000 (Vanguard VTHR) – 패턴 매칭용 커버리지 확장 (스크리너 대상 아님)
     try:
         vthr = _fetch_vthr_holdings()
         vthr["index_membership"] = "Russell3000"
@@ -179,17 +184,6 @@ def get_us_universe() -> pd.DataFrame:
         print(f"  Russell 3000 (Vanguard VTHR): {len(vthr)}개")
     except Exception as e:
         print(f"  Russell 3000 수집 실패 ({e})")
-        # 폴백: S&P 400 + S&P 600으로 중소형주 커버리지 확보
-        for label, url in [
-            ("S&P400", "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"),
-            ("S&P600", "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"),
-        ]:
-            try:
-                df = _fetch_sp_index(url, label)
-                parts.append(df)
-                print(f"    {label}: {len(df)}개")
-            except Exception as ex:
-                print(f"    {label} 실패: {ex}")
 
     if not parts:
         raise RuntimeError("유니버스 수집 완전 실패")
@@ -197,7 +191,8 @@ def get_us_universe() -> pd.DataFrame:
     universe = pd.concat(parts, ignore_index=True)
     universe["ticker"] = universe["ticker"].map(_normalize_ticker)
     universe = universe[universe["ticker"].str.len() > 0]
-    # S&P500 → NASDAQ100 → Russell3000 순으로 중복 시 앞쪽 우선 (sector 정보 보존)
+    # S&P500 → NASDAQ100 → S&P400 → S&P600 → Russell3000 순으로 중복 시 앞쪽 우선
+    # (sector 정보 보존 + 스크리너 대상 라벨이 Russell3000보다 우선)
     universe = universe.drop_duplicates(subset="ticker", keep="first")
     print(f"  → 합산 유니버스: {len(universe)}개 (중복 제거 후)")
 

@@ -15,7 +15,7 @@ import { computeStopTarget, filterBarsAsOf } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
-  { market: 'US', label: '미국', universe: 'S&P 500 · NASDAQ 100' },
+  { market: 'US', label: '미국', universe: 'S&P 1500 · NASDAQ 100' },
 ]
 
 async function fetchUsdKrwRate(): Promise<number> {
@@ -191,7 +191,7 @@ async function HomeContent() {
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시가총액</td>
-              <td className="py-1.5">한국 3,000억원 이상 / 미국 2억달러 이상</td>
+              <td className="py-1.5">한국 3,000억원 이상 / 미국 20억달러 이상</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">장기 추세</td>
