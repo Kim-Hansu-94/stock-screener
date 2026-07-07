@@ -52,6 +52,12 @@ def kr_universe_df():
          "market_cap": 4e14, "meets_cap_threshold": True},
         {"ticker": "BBB", "name": "Stock BBB", "sector": "Semiconductors",
          "market_cap": 1e9, "meets_cap_threshold": False},
+        # 초대형주(≥20조원): 비주도 섹터라도 섹터 게이트 면제로 스크리닝 대상
+        {"ticker": "CCC", "name": "Stock CCC", "sector": "Bio",
+         "market_cap": 3e13, "meets_cap_threshold": True},
+        # 비주도 섹터 + 초대형주 아님(5,000억): 섹터 게이트로 제외
+        {"ticker": "DDD", "name": "Stock DDD", "sector": "Bio",
+         "market_cap": 5e11, "meets_cap_threshold": True},
     ])
     # Production's universe_kr.get_kr_universe() explicitly casts this column to
     # object dtype (see universe_kr.py) so that `is True`/`is False` identity
@@ -70,6 +76,10 @@ def us_universe_df():
         {"ticker": "DDD", "name": "Stock DDD", "sector": "Technology", "index_membership": "S&P600"},
         {"ticker": "EEE", "name": "Stock EEE", "sector": "Technology", "index_membership": "Russell3000"},
         {"ticker": "FFF", "name": "Stock FFF", "sector": "Technology", "index_membership": "S&P500"},
+        # 초대형주(≥$2,000억): 비주도 섹터(Energy)라도 섹터 게이트 면제
+        {"ticker": "GGG", "name": "Stock GGG", "sector": "Energy", "index_membership": "S&P500"},
+        # 비주도 섹터 + 초대형주 아님($100억): 섹터 게이트로 제외
+        {"ticker": "HHH", "name": "Stock HHH", "sector": "Energy", "index_membership": "S&P500"},
     ])
 
 
@@ -93,7 +103,9 @@ def test_run_kr_pipeline_screens_only_leading_sector_and_cap_qualified_stocks(mo
     assert result.leading_sectors == ["Semiconductors"]
     assert result.as_of == LAST_BAR_DATE
     tickers = [s.ticker for s in result.screened_stocks]
-    assert tickers == ["AAA"]  # BBB excluded by market cap threshold
+    # BBB는 시총 미달, DDD는 비주도 섹터(Bio)+초대형주 아님으로 제외.
+    # CCC는 비주도 섹터지만 초대형주(30조원 ≥ 20조원)라 섹터 게이트 면제.
+    assert tickers == ["AAA", "CCC"]
     assert "AAA" in result.price_history
     assert result.screened_stocks[0].as_of == LAST_BAR_DATE
 
@@ -120,7 +132,8 @@ def test_run_us_pipeline_screens_only_leading_sector_and_cap_qualified_stocks(mo
     monkeypatch.setattr(
         pl.prices_us, "get_us_market_caps",
         # BBB($1억)·FFF($10억)는 US_MIN_MARKET_CAP($20억) 미달로 제외되어야 한다.
-        lambda tickers: {"AAA": 4e14, "BBB": 1e8, "CCC": 4e14, "DDD": 4e14, "EEE": 4e14, "FFF": 1e9},
+        lambda tickers: {"AAA": 4e14, "BBB": 1e8, "CCC": 4e14, "DDD": 4e14, "EEE": 4e14, "FFF": 1e9,
+                         "GGG": 3e11, "HHH": 1e10},
     )
     monkeypatch.setattr(
         pl.prices_us, "get_sp500_index_history",
@@ -145,7 +158,9 @@ def test_run_us_pipeline_screens_only_leading_sector_and_cap_qualified_stocks(mo
     tickers = [s.ticker for s in result.screened_stocks]
     # BBB·FFF는 시총 미달, EEE는 Russell3000 단독 편입이라 눌림목 스크리너 대상이 아님.
     # S&P400(CCC)·S&P600(DDD)은 S&P1500 확장으로 스크리너에 포함된다.
-    assert tickers == ["AAA", "CCC", "DDD"]
+    # GGG는 비주도 섹터지만 초대형주($3,000억 ≥ $2,000억)라 섹터 게이트 면제,
+    # HHH는 비주도 섹터+초대형주 아님으로 제외.
+    assert tickers == ["AAA", "CCC", "DDD", "GGG"]
     assert "AAA" in result.price_history
     # US price_history는 스크리닝 통과 여부와 무관하게 S&P1500+NASDAQ100 전체를
     # 담는다 (main.py의 패턴 매칭 커버리지용, pipeline.py의 run_us_pipeline 참고).

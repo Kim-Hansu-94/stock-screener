@@ -191,7 +191,7 @@ async function HomeContent() {
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">주도 섹터</td>
-              <td className="py-1.5">최근 5일 거래대금 기준 상위 5개 섹터에 속한 종목</td>
+              <td className="py-1.5">최근 5일 거래대금 기준 상위 5개 섹터에 속한 종목 (초대형주는 면제: 한국 20조원 · 미국 2,000억달러 이상)</td>
             </tr>
             <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시가총액</td>

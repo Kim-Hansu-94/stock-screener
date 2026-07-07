@@ -22,6 +22,11 @@ KR_MIN_MARKET_CAP = 300_000_000_000
 US_MIN_MARKET_CAP = 2_000_000_000
 # 눌림목 스크리너 대상 지수 (S&P 1500 + NASDAQ 100). Russell3000 단독 편입 종목은 패턴 매칭 전용.
 US_SCREENER_INDEXES = ["S&P500", "NASDAQ100", "S&P400", "S&P600"]
+# 초대형주 섹터 게이트 면제 기준. 지수 주도 초대형주가 눌림목에 들어가면 자기 섹터의
+# 5일 모멘텀을 끌어내려 주도 섹터에서 빠지는 구조적 맹점이 있어, 이 기준 이상은
+# 주도 섹터 소속과 무관하게 눌림목 필터만으로 판단한다.
+KR_MEGA_CAP = 20_000_000_000_000  # 20조원
+US_MEGA_CAP = 200_000_000_000  # $2,000억
 
 
 @dataclass
@@ -110,7 +115,8 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
     # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단 (US와 동일)
     if regime == "bull":
-        candidates = universe[universe["sector"].isin(top_sectors) & universe["meets_cap_threshold"]]
+        sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= KR_MEGA_CAP)
+        candidates = universe[sector_gate & universe["meets_cap_threshold"]]
         screened, price_history = _screen_candidates(
             candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
             require_sma200=True,
@@ -149,11 +155,8 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     # 눌림목 스크리너: S&P1500+NASDAQ100 대상 (Russell 3000 단독 편입 소형주 제외)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단
     if regime == "bull":
-        candidates = universe[
-            screener_mask
-            & universe["sector"].isin(top_sectors)
-            & universe["meets_cap_threshold"]
-        ]
+        sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= US_MEGA_CAP)
+        candidates = universe[screener_mask & sector_gate & universe["meets_cap_threshold"]]
         screened, _ = _screen_candidates(
             candidates, lambda t: all_histories.get(t, pd.DataFrame()), require_sma200=True,
         )
