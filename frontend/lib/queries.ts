@@ -137,6 +137,8 @@ export async function getMonthlyPriceHistory(
   tickers: string[],
   days = 1095,
 ): Promise<Record<string, PriceHistoryRow[]>> {
+  'use cache'
+  cacheLife('hours')
   if (tickers.length === 0) return {}
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - days)
@@ -478,6 +480,8 @@ export async function getOpportunityDrawdowns(
   market: Market,
   tickers: string[],
 ): Promise<DrawdownSummary[]> {
+  'use cache'
+  cacheLife('hours')
   if (tickers.length === 0) return []
   const cutoff = new Date()
   cutoff.setFullYear(cutoff.getFullYear() - 3)
