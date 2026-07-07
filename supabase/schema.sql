@@ -37,6 +37,13 @@ create table if not exists stock_price_history (
   primary key (ticker, market, date)
 );
 
+-- Covering index for get_opp_drawdowns: it scans every universe ticker's 3-year
+-- close history to compute the 3y high / latest close. INCLUDE (close) lets it
+-- run as an index-only scan (no heap fetch), which is what keeps the KR path
+-- (900+ KOSPI tickers, 600k+ rows) from hitting statement_timeout.
+create index if not exists idx_sph_market_ticker_date_close
+  on stock_price_history (market, ticker, date) include (close);
+
 create table if not exists stock_universe (
   ticker            text not null,
   market            text not null check (market in ('KR', 'US')),
