@@ -620,7 +620,12 @@ export async function getPullbackScreenerWithRisk(
   )
 }
 
-// Computes 3-year high + current close in the DB (one RPC call → bypasses PostgREST max_rows=1000)
+// Computes 3-year high + current close in the DB (bypasses PostgREST max_rows=1000).
+// The aggregation is per-ticker independent, so we split the universe into batches and
+// run them in parallel — each batch scans far fewer price rows and stays well under the
+// statement timeout that a single 1000-ticker call was hitting.
+const OPP_DRAWDOWN_BATCH = 250
+
 export async function getOpportunityDrawdowns(
   market: Market,
   tickers: string[],
@@ -632,11 +637,23 @@ export async function getOpportunityDrawdowns(
   cutoff.setFullYear(cutoff.getFullYear() - 3)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
   const supabase = createServerSupabaseClient()
-  const { data, error } = await supabase.rpc('get_opp_drawdowns', {
-    p_market: market,
-    p_tickers: tickers,
-    p_cutoff: cutoffStr,
-  })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as DrawdownSummary[]
+
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += OPP_DRAWDOWN_BATCH) {
+    batches.push(tickers.slice(i, i + OPP_DRAWDOWN_BATCH))
+  }
+
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const { data, error } = await supabase.rpc('get_opp_drawdowns', {
+        p_market: market,
+        p_tickers: batch,
+        p_cutoff: cutoffStr,
+      })
+      if (error) throw new Error(error.message)
+      return (data ?? []) as DrawdownSummary[]
+    }),
+  )
+
+  return results.flat()
 }
