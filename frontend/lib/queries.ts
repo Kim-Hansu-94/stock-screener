@@ -1,7 +1,7 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -400,6 +400,139 @@ export async function getExitSignals(market: Market, days = 30): Promise<ExitChe
       }
     },
   )
+}
+
+// Aggregate 90-day track record: walk each past pullback recommendation forward to its
+// stop/target resolution (same logic as getExitSignals), dedupe to the first day each ticker
+// was recommended within the window, then summarize hit/stop/open rates and P&L stats.
+export async function getScreenerTrackRecord(market: Market, days = 90): Promise<TrackRecord> {
+  'use cache'
+  cacheLife('hours')
+
+  const supabase = createServerSupabaseClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  const { data: recs, error: recsError } = await supabase
+    .from('screened_stocks')
+    .select('date, ticker, close')
+    .eq('market', market)
+    .lt('date', today)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: false })
+
+  if (recsError) throw new Error(recsError.message)
+
+  const empty: TrackRecord = {
+    market,
+    totalTrades: 0,
+    targetHitRate: 0,
+    stoppedOutRate: 0,
+    openRate: 0,
+    avgReturnPct: 0,
+    avgHoldingDays: 0,
+    avgR: 0,
+  }
+  if (!recs?.length) return empty
+
+  // Dedupe to the first (earliest) recommendation per ticker within the window. recs come
+  // in date-descending order, so the last match for each ticker is its earliest date.
+  const firstByTicker = new Map<string, { date: string; ticker: string; close: number }>()
+  for (const rec of recs as { date: string; ticker: string; close: number }[]) {
+    firstByTicker.set(rec.ticker, rec)
+  }
+  const trades = [...firstByTicker.values()]
+
+  const tickers = [...firstByTicker.keys()]
+  const oldestDate = trades.reduce((min, t) => (t.date < min ? t.date : min), trades[0].date)
+
+  const prePeriodDate = new Date(oldestDate)
+  prePeriodDate.setDate(prePeriodDate.getDate() - 150)
+  const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
+
+  const { data: priceData, error: priceError } = await supabase
+    .from('stock_price_history')
+    .select('ticker, date, high, low, close')
+    .eq('market', market)
+    .in('ticker', tickers)
+    .gte('date', prePeriodStr)
+    .order('date', { ascending: true })
+
+  if (priceError) throw new Error(priceError.message)
+
+  const priceMap: Record<string, PriceBar[]> = {}
+  for (const row of (priceData ?? []) as (PriceBar & { ticker: string })[]) {
+    priceMap[row.ticker] ??= []
+    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
+  }
+
+  let targetHits = 0
+  let stoppedOut = 0
+  let open = 0
+  const closedReturns: number[] = []
+  const closedHoldingDays: number[] = []
+  const closedR: number[] = []
+
+  for (const trade of trades) {
+    const allBars = priceMap[trade.ticker] ?? []
+    const preBars = allBars.filter((p) => p.date <= trade.date)
+    const future = allBars.filter((p) => p.date > trade.date)
+
+    const { stop, target } = computeStopTarget(preBars, trade.close)
+    // Skip recommendations whose stop/target can't be computed: an unresolvable trade
+    // would distort the rates and R stats.
+    if (stop === null || target === null) continue
+
+    let status: ExitStatus = 'open'
+    let holdingDays = 0
+    for (let i = 0; i < future.length; i++) {
+      const bar = future[i]
+      // Same-bar tie: stop takes priority (conservative).
+      if (bar.low <= stop) {
+        status = 'stopped_out'
+        holdingDays = i + 1
+        break
+      }
+      if (bar.high >= target) {
+        status = 'target_hit'
+        holdingDays = i + 1
+        break
+      }
+    }
+
+    if (status === 'open') {
+      open++
+      continue
+    }
+
+    const exitPrice = status === 'target_hit' ? target : stop
+    const returnPct = ((exitPrice - trade.close) / trade.close) * 100
+    const risk = trade.close - stop
+    closedReturns.push(returnPct)
+    closedHoldingDays.push(holdingDays)
+    if (risk > 0) closedR.push((exitPrice - trade.close) / risk)
+
+    if (status === 'target_hit') targetHits++
+    else stoppedOut++
+  }
+
+  const total = targetHits + stoppedOut + open
+  if (total === 0) return empty
+
+  const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length)
+
+  return {
+    market,
+    totalTrades: total,
+    targetHitRate: targetHits / total,
+    stoppedOutRate: stoppedOut / total,
+    openRate: open / total,
+    avgReturnPct: mean(closedReturns),
+    avgHoldingDays: mean(closedHoldingDays),
+    avgR: mean(closedR),
+  }
 }
 
 export async function getPullbackScreenerWithRisk(

@@ -1,7 +1,8 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getScreenedStockPerformance, getRegimesInRange } from '@/lib/queries'
+import { getScreenedStockPerformance, getRegimesInRange, getScreenerTrackRecord } from '@/lib/queries'
 import { PerformanceTable } from '@/components/PerformanceTable'
+import { TrackRecordCard } from '@/components/TrackRecordCard'
 
 async function HistoryContent() {
   await connection()
@@ -10,11 +11,13 @@ async function HistoryContent() {
   cutoff.setDate(cutoff.getDate() - 30)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  const [krPerf, usPerf, krRegimes, usRegimes] = await Promise.all([
+  const [krPerf, usPerf, krRegimes, usRegimes, krTrack, usTrack] = await Promise.all([
     getScreenedStockPerformance('KR', 30),
     getScreenedStockPerformance('US', 30),
     getRegimesInRange('KR', cutoffStr),
     getRegimesInRange('US', cutoffStr),
+    getScreenerTrackRecord('KR', 90),
+    getScreenerTrackRecord('US', 90),
   ])
 
   const hasData = krPerf.length > 0 || usPerf.length > 0
@@ -28,6 +31,7 @@ async function HistoryContent() {
       {krPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">한국 시장</h2>
+          <TrackRecordCard record={krTrack} />
           <PerformanceTable items={krPerf} market="KR" regimes={krRegimes} />
         </section>
       )}
@@ -35,6 +39,7 @@ async function HistoryContent() {
       {usPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">미국 시장</h2>
+          <TrackRecordCard record={usTrack} />
           <PerformanceTable items={usPerf} market="US" regimes={usRegimes} />
         </section>
       )}
