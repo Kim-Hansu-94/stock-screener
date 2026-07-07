@@ -173,12 +173,14 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
       ([entry]) => {
         if (entry.isIntersecting) {
           setChartReady(true)
-          if (stock.market === 'US') {
-            fetch(`/api/stock-news?ticker=${stock.ticker}`)
-              .then((r) => r.json())
-              .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
-              .catch(() => setNews([]))
-          }
+          const newsUrl =
+            stock.market === 'KR'
+              ? `/api/stock-news?q=${encodeURIComponent(stock.name_kr || stock.name)}`
+              : `/api/stock-news?ticker=${stock.ticker}`
+          fetch(newsUrl)
+            .then((r) => r.json())
+            .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
+            .catch(() => setNews([]))
           observer.disconnect()
         }
       },
@@ -186,7 +188,7 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [stock.ticker, stock.market])
+  }, [stock.ticker, stock.market, stock.name_kr, stock.name])
 
   const drawdownStr = stock.drawdown.toFixed(1)
   const variant =
