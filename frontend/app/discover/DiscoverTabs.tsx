@@ -208,7 +208,7 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
         <CardTitle className="flex items-start justify-between text-base">
           <span>
             <span className="block">
-              {stock.name_kr ?? stock.name}{' '}
+              {stock.name_kr || stock.name}{' '}
               <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
             </span>
             {stock.name_kr && (

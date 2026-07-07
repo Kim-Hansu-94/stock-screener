@@ -35,7 +35,7 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
   const [newsLoading, setNewsLoading] = useState(false)
   const changePercent = calculateChangePercent(history.map((row) => row.close))
 
-  const newsQuery = market === 'KR' ? (stock.name_kr ?? stock.name) : stock.ticker
+  const newsQuery = market === 'KR' ? (stock.name_kr || stock.name) : stock.ticker
 
   useEffect(() => {
     const load = async () => {
@@ -85,7 +85,7 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
         <CardTitle className="flex items-start justify-between text-base">
           <span>
             <span className="block">
-              {stock.name_kr ?? stock.name}{' '}
+              {stock.name_kr || stock.name}{' '}
               <span className="text-gray-400">({stock.ticker})</span>
             </span>
             {stock.name_kr && (

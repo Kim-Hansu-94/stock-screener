@@ -111,7 +111,7 @@ export function PerformanceTable({ items, market, regimes }: Props) {
                   {stocks.map((stock) => (
                     <tr key={stock.ticker} className="hover:bg-gray-50/50">
                       <td className="px-2 py-1.5">
-                        <span className="block text-sm font-medium text-gray-800">{stock.name_kr ?? stock.name}</span>
+                        <span className="block text-sm font-medium text-gray-800">{stock.name_kr || stock.name}</span>
                         <span className="text-xs text-gray-400">
                           {stock.ticker}
                           <span className="mx-1.5 text-gray-200">·</span>

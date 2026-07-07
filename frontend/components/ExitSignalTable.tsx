@@ -74,7 +74,7 @@ export function ExitSignalTable({ items, market }: Props) {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <span className="block text-sm font-medium text-gray-800">
-                          {item.name_kr ?? item.name}
+                          {item.name_kr || item.name}
                         </span>
                         <span className="text-xs text-gray-400">
                           {item.ticker}
