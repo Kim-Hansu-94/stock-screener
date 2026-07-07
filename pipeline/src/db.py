@@ -67,6 +67,10 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "stock_price_history", rows)
 
+    def save_fundamentals(self, rows: list[dict]) -> None:
+        if rows:
+            _batch_upsert(self.client, "stock_fundamentals", rows)
+
     def get_recently_screened_tickers(self, market: str, days: int = 5) -> list[str]:
         from datetime import date, timedelta
         cutoff = (date.today() - timedelta(days=days)).isoformat()

@@ -4,13 +4,14 @@ import { cacheLife } from 'next/cache'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
 import {
+  getFundamentalsMap,
   getLatestRegime,
   getLeadingSectors,
   getPriceHistoryByTicker,
   getScreenedStocks,
   getUniverseNameMap,
 } from '@/lib/queries'
-import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
+import type { FundamentalRow, LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 import { computeStopTarget, filterBarsAsOf } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
@@ -42,6 +43,7 @@ interface MarketSectionData {
   stocks: ScreenedStockRow[]
   priceHistory: Record<string, PriceHistoryRow[]>
   riskMap: Record<string, RiskInfo>
+  fundamentalsMap: Record<string, FundamentalRow>
   error: string | null
 }
 
@@ -49,14 +51,17 @@ async function loadMarketSection(market: Market, label: string, universe: string
   try {
     const regimeRow = await getLatestRegime(market)
     if (!regimeRow) {
-      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, riskMap: {}, error: null }
+      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, riskMap: {}, fundamentalsMap: {}, error: null }
     }
 
     const [sectors, stocks] = await Promise.all([
       getLeadingSectors(market, regimeRow.date),
       getScreenedStocks(market, regimeRow.date),
     ])
-    const priceHistory = await getPriceHistoryByTicker(market, stocks.map((stock) => stock.ticker))
+    const [priceHistory, fundamentalsMap] = await Promise.all([
+      getPriceHistoryByTicker(market, stocks.map((stock) => stock.ticker)),
+      getFundamentalsMap(market, stocks.map((stock) => stock.ticker)),
+    ])
 
     let enrichedStocks = stocks
     if (market === 'US' && stocks.length > 0) {
@@ -70,7 +75,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
       riskMap[stock.ticker] = computeStopTarget(barsAsOfEntry, stock.close)
     }
 
-    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }
+    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, fundamentalsMap, error: null }
   } catch (cause) {
     return {
       market,
@@ -82,6 +87,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
       stocks: [],
       priceHistory: {},
       riskMap: {},
+      fundamentalsMap: {},
       error: cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.',
     }
   }
@@ -168,6 +174,7 @@ async function HomeContent() {
                       stop={section.riskMap[stock.ticker]?.stop ?? null}
                       target={section.riskMap[stock.ticker]?.target ?? null}
                       riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
+                      fundamentals={section.fundamentalsMap[stock.ticker] ?? null}
                     />
                   ))}
                 </div>

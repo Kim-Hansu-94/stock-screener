@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from './StockChart'
-import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
+import type { FundamentalRow, Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
 import { translateSector } from '@/lib/sectorMap'
 
 interface StockCardProps {
@@ -16,6 +16,12 @@ interface StockCardProps {
   stop: number | null
   target: number | null
   riskReward: number | null
+  fundamentals: FundamentalRow | null
+}
+
+function formatRatio(value: number | null, suffix = ''): string {
+  if (value === null) return '—'
+  return `${value.toFixed(1)}${suffix}`
 }
 
 function formatRelativeTime(iso: string): string {
@@ -27,7 +33,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, fundamentals }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [livePrice, setLivePrice] = useState<number | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
@@ -142,6 +148,45 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
             </div>
           )}
         </dl>
+        {fundamentals && (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <p className="mb-1.5 text-xs font-medium text-gray-400">재무 지표</p>
+            <dl className="grid grid-cols-4 gap-2 text-sm text-gray-600">
+              <div>
+                <dt className="text-xs text-gray-400">PER</dt>
+                <dd>{formatRatio(fundamentals.per)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">PBR</dt>
+                <dd>{formatRatio(fundamentals.pbr)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">ROE</dt>
+                <dd>{formatRatio(fundamentals.roe, '%')}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">배당수익률</dt>
+                <dd>{formatRatio(fundamentals.dividend_yield, '%')}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">EPS</dt>
+                <dd>{fundamentals.eps === null ? '—' : fundamentals.eps.toLocaleString(market === 'US' ? 'en-US' : 'ko-KR', { maximumFractionDigits: 2 })}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">매출성장률</dt>
+                <dd className={fundamentals.revenue_growth !== null && fundamentals.revenue_growth < 0 ? 'text-red-500' : ''}>
+                  {formatRatio(fundamentals.revenue_growth, '%')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">순이익률</dt>
+                <dd className={fundamentals.profit_margin !== null && fundamentals.profit_margin < 0 ? 'text-red-500' : ''}>
+                  {formatRatio(fundamentals.profit_margin, '%')}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        )}
         {isExpanded && (
           <div className="mt-4">
             <StockChart

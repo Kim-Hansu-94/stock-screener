@@ -50,6 +50,22 @@ create table if not exists stock_universe (
 -- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS name_kr text;
 
+-- 추천 종목 재무 지표 (스크리닝 통과 + 패턴 매칭 종목만 수집)
+-- roe/dividend_yield/revenue_growth/profit_margin은 % 단위
+create table if not exists stock_fundamentals (
+  ticker          text not null,
+  market          text not null check (market in ('KR', 'US')),
+  per             numeric,
+  pbr             numeric,
+  eps             numeric,
+  roe             numeric,
+  dividend_yield  numeric,
+  revenue_growth  numeric,
+  profit_margin   numeric,
+  updated_at      date not null,
+  primary key (ticker, market)
+);
+
 -- 월봉 OHLCV 집계 (Supabase max_rows=1000 우회용 RPC)
 create or replace function get_monthly_ohlcv(
   p_market  text,
