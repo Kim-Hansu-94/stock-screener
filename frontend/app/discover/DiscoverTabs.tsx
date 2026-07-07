@@ -5,7 +5,7 @@ import { DailyReport } from './DailyReport'
 import { SimilaritySearch } from './SimilaritySearch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { translateSector } from '@/lib/sectorMap'
+import { translateSector, broadSector } from '@/lib/sectorMap'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
@@ -30,10 +30,10 @@ export function DiscoverTabs({
   const krCount = opportunities.filter((s) => s.market === 'KR').length
   const usCount = opportunities.filter((s) => s.market === 'US').length
   const sectorOptions = Array.from(
-    new Set(opportunities.map((s) => s.sector).filter((s): s is string => !!s)),
-  ).sort((a, b) => translateSector(a).localeCompare(translateSector(b), 'ko'))
+    new Set(opportunities.map((s) => broadSector(s.sector))),
+  ).sort((a, b) => a.localeCompare(b, 'ko'))
   const filteredOpportunities = sectorFilter
-    ? opportunities.filter((s) => s.sector === sectorFilter)
+    ? opportunities.filter((s) => broadSector(s.sector) === sectorFilter)
     : opportunities
 
   return (
@@ -126,7 +126,7 @@ export function DiscoverTabs({
                       : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                   }`}
                 >
-                  {translateSector(sector)}
+                  {sector}
                 </button>
               ))}
             </div>
