@@ -48,6 +48,8 @@ from pipeline.src.pattern_discovery import (  # noqa: E402
 LOOKBACK_ROWS = 260          # 채점 시 매일 참조하는 직전 거래일 수(≈1년, 프로덕션 lookback_days=380 대응)
 GS_MIN_START = 60            # 최소 이 정도 봉이 쌓인 뒤부터 스캔 시작
 SELL_TARGET = 3.0            # +300% (진입가의 4배)에서 익절
+STOP_LOSS = 0.50             # 진입가 대비 -50% 도달 시 손절
+MAX_HOLD_YEARS = 2           # 보유 상한 2년 (목표·손절 둘다 미도달이면 만기 청산)
 GS_COOLDOWN_DAYS = 30        # 같은 종목 재진입 최소 간격(캘린더일), 임계값별 독립
 GS_THRESHOLDS = [1.00, 0.95, 0.90]
 
@@ -58,11 +60,33 @@ GS_SUMMARY_CSV = OUT_DIR / "backtest_golden_summary.csv"
 
 # ── OHLCV 다운로드 (High/Low/Close/Volume 전부 보존) ──────────────────
 
+CACHE_DIR = OUT_DIR / "_cache"
+
+
+def _cache_path(tickers: list[str], end: pd.Timestamp) -> Path:
+    """유니버스 구성 + 기간 + 다운로드 날짜로 캐시 키 생성."""
+    import hashlib
+
+    key = hashlib.md5(("|".join(sorted(tickers))).encode()).hexdigest()[:8]
+    return CACHE_DIR / f"ohlcv_{YEARS_BACK}y_{end.date()}_{len(tickers)}_{key}.pkl"
+
+
 def download_ohlcv(tickers: list[str]) -> dict[str, pd.DataFrame]:
+    import pickle
+
     end = pd.Timestamp.today().normalize()
     start = end - pd.DateOffset(years=YEARS_BACK)
+
+    cache = _cache_path(tickers, end)
+    if cache.exists():
+        print(f"\n캐시된 OHLCV 사용: {cache.name} (다운로드 건너뜀)")
+        with open(cache, "rb") as fh:
+            ohlcv = pickle.load(fh)
+        print(f"  유효 종목: {len(ohlcv)}개")
+        return ohlcv
+
     print(f"\nOHLCV 다운로드 ({start.date()} ~ {end.date()}) ...")
-    print("  (약 10-20분 소요 예상)")
+    print("  (약 10-20분 소요 예상, 이후 실행은 캐시 재사용)")
 
     batch_size = 100
     fields = ["High", "Low", "Close", "Volume"]
@@ -108,6 +132,11 @@ def download_ohlcv(tickers: list[str]) -> dict[str, pd.DataFrame]:
         ohlcv[t] = pd.DataFrame({"High": h, "Low": low, "Close": c, "Volume": v})
 
     print(f"  유효 종목: {len(ohlcv)}개 (데이터 부족 종목 제외)")
+
+    CACHE_DIR.mkdir(exist_ok=True)
+    with open(cache, "wb") as fh:
+        pickle.dump(ohlcv, fh)
+    print(f"  캐시 저장: {cache.name} (다음 실행부터 다운로드 생략)")
     return ohlcv
 
 
@@ -156,24 +185,44 @@ def run_golden(ohlcv: dict[str, pd.DataFrame]) -> dict[float, list[dict]]:
             entry_date = index[i]
             entry_price = float(close[i])
             target_price = entry_price * (1.0 + SELL_TARGET)
+            stop_price = entry_price * (1.0 - STOP_LOSS)
 
-            # 진입 이후 +300% 최초 도달 시점 (벡터화)
-            fut_high = high[i + 1 :]
-            hits = np.nonzero(fut_high >= target_price)[0]
-            if hits.size:
-                exit_i = i + 1 + int(hits[0])
-                exit_date = index[exit_i]
+            # 보유 상한(2년) 이내 구간만 본다
+            cap_date = entry_date + pd.DateOffset(years=MAX_HOLD_YEARS)
+            cap_i = int(np.searchsorted(index.values, np.datetime64(cap_date), side="right")) - 1
+            end_i = min(cap_i, n - 1)
+            if end_i <= i:
+                continue  # 앞으로 볼 봉이 없음
+
+            seg_high = high[i + 1 : end_i + 1]
+            seg_low = low[i + 1 : end_i + 1]
+            t_hits = np.nonzero(seg_high >= target_price)[0]
+            s_hits = np.nonzero(seg_low <= stop_price)[0]
+            first_t = int(t_hits[0]) if t_hits.size else None
+            first_s = int(s_hits[0]) if s_hits.size else None
+
+            if first_t is not None and (first_s is None or first_t < first_s):
+                # 목표(+300%)가 손절보다 먼저 (동일봉이면 손절 우선 → 보수적)
+                exit_i = i + 1 + first_t
                 exit_price = target_price
                 ret = SELL_TARGET
-                hold = exit_i - i
-                target_hit = True
+                status = "target"
+            elif first_s is not None:
+                # 손절(-50%) 먼저 또는 동일봉
+                exit_i = i + 1 + first_s
+                exit_price = stop_price
+                ret = -STOP_LOSS
+                status = "stop"
             else:
-                exit_i = n - 1
-                exit_date = index[-1]
-                exit_price = float(close[-1])
+                # 목표·손절 둘다 미도달 → 만기(2년) 청산 또는 데이터 끝(보유중)
+                exit_i = end_i
+                exit_price = float(close[end_i])
                 ret = exit_price / entry_price - 1.0
-                hold = (n - 1) - i
-                target_hit = False
+                status = "expired" if cap_i < n - 1 else "open"
+
+            exit_date = index[exit_i]
+            hold = exit_i - i
+            target_hit = status == "target"
 
             for thr in GS_THRESHOLDS:
                 if score < thr:
@@ -193,6 +242,7 @@ def run_golden(ohlcv: dict[str, pd.DataFrame]) -> dict[float, list[dict]]:
                         "exit_price": round(exit_price, 4),
                         "return_pct": round(ret * 100, 2),
                         "target_hit": target_hit,
+                        "status": status,
                         "holding_days": hold,
                     }
                 )
@@ -210,18 +260,23 @@ def summarize_golden(trades: dict[float, list[dict]], spy_ret_3y: float | None) 
             continue
         df = pd.DataFrame(tl)
         n = len(df)
-        hits = df["target_hit"].sum()
-        open_n = n - hits
+        hits = int((df["status"] == "target").sum())
+        stops = int((df["status"] == "stop").sum())
+        expired = int((df["status"] == "expired").sum())
+        open_n = int((df["status"] == "open").sum())
         ret = df["return_pct"]
-        hit_hold = df[df["target_hit"]]["holding_days"]
+        hit_hold = df[df["status"] == "target"]["holding_days"]
         rows.append(
             {
                 "임계값": f"{thr*100:.0f}%",
                 "트레이드수": n,
                 "유니크종목": df["ticker"].nunique(),
-                "+300%도달수": int(hits),
+                "+300%도달수": hits,
                 "+300%도달률(%)": round(hits / n * 100, 1),
-                "미청산수": int(open_n),
+                "손절수": stops,
+                "손절률(%)": round(stops / n * 100, 1),
+                "2년만기수": expired,
+                "미청산수": open_n,
                 "평균수익률(%)": round(ret.mean(), 1),
                 "중앙수익률(%)": round(ret.median(), 1),
                 "최대수익(%)": round(ret.max(), 1),
@@ -236,7 +291,7 @@ def summarize_golden(trades: dict[float, list[dict]], spy_ret_3y: float | None) 
 def print_golden(summary: pd.DataFrame) -> None:
     print("\n" + "=" * 70)
     print("골드스탠다드(오늘의 추천) 백테스트 결과")
-    print("규칙: 매수=점수 임계값 도달일 종가 / 보유=무기한(손절 없음) / 매도=+300%")
+    print("규칙: 매수=점수 도달 종가 / 손절=-50% / 목표=+300% / 보유상한=2년")
     print("=" * 70)
     for _, r in summary.iterrows():
         print(f"\n[점수 {r['임계값']} 이상]")
@@ -245,6 +300,8 @@ def print_golden(summary: pd.DataFrame) -> None:
             continue
         print(f"  트레이드 수     : {r['트레이드수']} (종목 {r['유니크종목']}개)")
         print(f"  +300% 도달      : {r['+300%도달수']}건 ({r['+300%도달률(%)']}%)")
+        print(f"  -50% 손절       : {r['손절수']}건 ({r['손절률(%)']}%)")
+        print(f"  2년 만기 청산   : {r['2년만기수']}건")
         print(f"  미청산(보유중)  : {r['미청산수']}건")
         print(f"  평균 수익률     : {r['평균수익률(%)']}%  (중앙 {r['중앙수익률(%)']}%)")
         print(f"  최대 수익/손실  : +{r['최대수익(%)']}% / {r['최대손실(%)']}%")
