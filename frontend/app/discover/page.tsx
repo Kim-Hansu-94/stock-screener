@@ -48,7 +48,7 @@ async function computeOpportunities(
 async function loadOpportunities(): Promise<OpportunityStockRow[]> {
   const [usUniverse, krUniverse] = await Promise.all([
     getUniverseStocks('US', ['NASDAQ100', 'S&P500']),
-    getUniverseStocks('KR'),
+    getUniverseStocks('KR', ['KOSPI']),
   ])
 
   const [usOpps, krOpps] = await Promise.all([

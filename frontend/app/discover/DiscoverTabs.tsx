@@ -25,6 +25,16 @@ export function DiscoverTabs({
   opportunityError: string | null
 }) {
   const [tab, setTab] = useState<Tab>('report')
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null)
+
+  const krCount = opportunities.filter((s) => s.market === 'KR').length
+  const usCount = opportunities.filter((s) => s.market === 'US').length
+  const sectorOptions = Array.from(
+    new Set(opportunities.map((s) => s.sector).filter((s): s is string => !!s)),
+  ).sort((a, b) => translateSector(a).localeCompare(translateSector(b), 'ko'))
+  const filteredOpportunities = sectorFilter
+    ? opportunities.filter((s) => s.sector === sectorFilter)
+    : opportunities
 
   return (
     <div className="space-y-5">
@@ -82,18 +92,57 @@ export function DiscoverTabs({
           <div className="mb-4">
             <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
             <p className="mt-0.5 text-xs text-gray-400">
-              코스피 · 코스닥 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
+              코스피 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
             </p>
+            {opportunities.length > 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                국장 <strong>{krCount}개</strong> · 미장 <strong>{usCount}개</strong> (총{' '}
+                {opportunities.length}개)
+              </p>
+            )}
           </div>
+
+          {sectorOptions.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSectorFilter(null)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  sectorFilter === null
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                전체
+              </button>
+              {sectorOptions.map((sector) => (
+                <button
+                  key={sector}
+                  type="button"
+                  onClick={() => setSectorFilter(sector)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    sectorFilter === sector
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                >
+                  {translateSector(sector)}
+                </button>
+              ))}
+            </div>
+          )}
+
           {opportunityError ? (
             <p className="text-sm text-red-600">{opportunityError}</p>
           ) : opportunities.length === 0 ? (
             <p className="text-sm text-gray-500">
               해당 조건의 종목이 없습니다. 파이프라인 실행 후 데이터가 채워집니다.
             </p>
+          ) : filteredOpportunities.length === 0 ? (
+            <p className="text-sm text-gray-500">해당 섹터에 종목이 없습니다.</p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              {opportunities.map((stock) => (
+              {filteredOpportunities.map((stock) => (
                 <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} />
               ))}
             </div>

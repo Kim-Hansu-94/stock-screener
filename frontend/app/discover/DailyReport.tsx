@@ -47,6 +47,7 @@ export function DailyReport() {
 
   return (
     <div className="space-y-4">
+      <CriteriaLegend />
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-gray-700">
         {visible.length === 0 ? (
           <p>
@@ -90,6 +91,45 @@ export function DailyReport() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function CriteriaLegend() {
+  return (
+    <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-4">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-500">
+        종목 선정 기준 안내
+      </p>
+      <dl className="grid gap-x-6 gap-y-2 text-xs text-gray-600 sm:grid-cols-2">
+        <div>
+          <dt className="font-medium text-gray-700">Gold Standard 바닥 특성</dt>
+          <dd>QBTS · RGTI · AEVA · JOBY · FCEL 등 검증된 바닥 탈출 패턴과의 유사도</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-gray-700">하락률</dt>
+          <dd>52주 최고가 대비 하락폭 (점수 가중치 30%)</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-gray-700">저점 유지 N일</dt>
+          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도 (점수 가중치 40%, 가장 중요)</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-gray-700">거래량 N배</dt>
+          <dd>최근 20일 거래량 ÷ 직전 40일 거래량. 70% 이상 유지해야 통과 (점수 가중치 30%)</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-gray-700">VCP ✓ / ✗</dt>
+          <dd>단기(10일) 변동성이 장기(50일) 대비 60% 이하로 수축했는지 여부 — 충족 시 +10점 보너스</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-gray-700">이평 ✓ / ✗</dt>
+          <dd>현재가 &gt; 5일선 &gt; 10일선 &gt; 20일선 정배열 여부 — 충족 시 +10점 보너스</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-[11px] text-gray-400">
+        ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상일 때 표시됩니다.
+      </p>
     </div>
   )
 }

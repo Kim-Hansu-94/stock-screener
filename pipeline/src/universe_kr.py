@@ -12,10 +12,13 @@ def get_kr_universe(min_market_cap: float) -> pd.DataFrame:
     universe = universe.rename(columns={
         "Code": "ticker",
         "Name": "name",
+        "Market": "index_membership",
         "Marcap": "market_cap",
         "Sector": "sector",
     })
     universe["meets_cap_threshold"] = universe["market_cap"] >= min_market_cap
-    result = universe[["ticker", "name", "sector", "market_cap", "meets_cap_threshold"]].copy()
+    result = universe[
+        ["ticker", "name", "sector", "index_membership", "market_cap", "meets_cap_threshold"]
+    ].copy()
     result["meets_cap_threshold"] = result["meets_cap_threshold"].astype(object)
     return result
