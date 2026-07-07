@@ -214,6 +214,11 @@ def main() -> None:
         db.save_price_history(matched_rows)
         print(f"  → {len(matched_rows)}행 저장", flush=True)
 
+    # 모든 히스토리 저장 후 월봉 사전 집계 MV 갱신
+    print("월봉 집계(mv_monthly_ohlcv) 갱신 중...", flush=True)
+    db.refresh_monthly_ohlcv()
+    print("  → 완료", flush=True)
+
 
 if __name__ == "__main__":
     main()

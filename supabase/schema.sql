@@ -44,6 +44,53 @@ create table if not exists stock_price_history (
 create index if not exists idx_sph_market_ticker_date_close
   on stock_price_history (market, ticker, date) include (close);
 
+-- 월봉 사전 집계 Materialized View.
+-- get_monthly_ohlcv가 매 호출마다 일봉을 윈도우 함수로 접던 비용(국장 635종목 기준
+-- ~6.7초)을 리프레시 시점 1회로 옮긴다. 조회는 단순 인덱스 스캔이라 <1초로 떨어진다.
+-- 파이프라인이 히스토리 저장 후 refresh_monthly_ohlcv()로 갱신한다.
+create materialized view if not exists mv_monthly_ohlcv as
+with base as (
+  select
+    s.ticker, s.market, s.date,
+    s.open, s.high, s.low, s.close, s.volume,
+    date_trunc('month', s.date)::date as month_start,
+    row_number() over (
+      partition by s.ticker, s.market, date_trunc('month', s.date)
+      order by s.date asc
+    ) as rn_asc,
+    row_number() over (
+      partition by s.ticker, s.market, date_trunc('month', s.date)
+      order by s.date desc
+    ) as rn_desc
+  from stock_price_history s
+)
+select
+  ticker, market, month_start,
+  max(case when rn_asc  = 1 then open  end)::float8 as open,
+  max(high)::float8                                  as high,
+  min(low)::float8                                   as low,
+  max(case when rn_desc = 1 then close end)::float8  as close,
+  sum(volume)::bigint                                as volume,
+  max(case when rn_desc = 1 then date  end)          as last_date
+from base
+group by ticker, market, month_start;
+
+-- REFRESH ... CONCURRENTLY는 유니크 인덱스가 필수. 조회용 인덱스도 함께 둔다.
+create unique index if not exists idx_mv_monthly_pk
+  on mv_monthly_ohlcv (ticker, market, month_start);
+create index if not exists idx_mv_monthly_lookup
+  on mv_monthly_ohlcv (market, ticker, last_date);
+
+-- 파이프라인에서 RPC로 호출. CONCURRENTLY라 갱신 중에도 조회가 막히지 않는다.
+create or replace function refresh_monthly_ohlcv()
+returns void
+language plpgsql
+as $$
+begin
+  refresh materialized view concurrently mv_monthly_ohlcv;
+end;
+$$;
+
 create table if not exists stock_universe (
   ticker            text not null,
   market            text not null check (market in ('KR', 'US')),
@@ -76,38 +123,12 @@ returns table (
 language sql
 stable
 as $$
-  with base as (
-    select
-      s.ticker, s.market, s.date,
-      s.open, s.high, s.low, s.close, s.volume,
-      date_trunc('month', s.date)::date as month_start,
-      row_number() over (
-        partition by s.ticker, date_trunc('month', s.date)
-        order by s.date asc
-      ) as rn_asc,
-      row_number() over (
-        partition by s.ticker, date_trunc('month', s.date)
-        order by s.date desc
-      ) as rn_desc
-    from stock_price_history s
-    where s.market  = p_market
-      and s.ticker  = any(p_tickers)
-      and s.date   >= p_cutoff
-  ),
-  monthly as (
-    select
-      ticker, market, month_start,
-      max(case when rn_asc  = 1 then open  end)::float8 as open,
-      max(high)::float8                                  as high,
-      min(low)::float8                                   as low,
-      max(case when rn_desc = 1 then close end)::float8  as close,
-      sum(volume)::bigint                                as volume,
-      max(case when rn_desc = 1 then date  end)          as last_date
-    from base
-    group by ticker, market, month_start
-  )
+  -- 사전 집계된 mv_monthly_ohlcv 조회 (윈도우 함수는 리프레시 시점에 이미 계산됨).
   select ticker, market, last_date as date, open, high, low, close, volume
-  from monthly
+  from mv_monthly_ohlcv
+  where market  = p_market
+    and ticker  = any(p_tickers)
+    and last_date >= p_cutoff
   order by ticker, month_start
 $$;
 

@@ -108,6 +108,10 @@ def main() -> None:
         flush=True,
     )
 
+    print("월봉 집계(mv_monthly_ohlcv) 갱신 중...", flush=True)
+    db.refresh_monthly_ohlcv()
+    print("  → 완료", flush=True)
+
 
 if __name__ == "__main__":
     main()

@@ -67,6 +67,10 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "stock_price_history", rows)
 
+    def refresh_monthly_ohlcv(self) -> None:
+        # 일봉 저장 후 월봉 사전 집계 MV를 갱신 (CONCURRENTLY라 조회를 막지 않음).
+        self.client.rpc("refresh_monthly_ohlcv").execute()
+
     def get_recently_screened_tickers(self, market: str, days: int = 5) -> list[str]:
         from datetime import date, timedelta
         cutoff = (date.today() - timedelta(days=days)).isoformat()
