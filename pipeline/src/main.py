@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from . import prices_kr, prices_us
+from . import fundamentals, prices_kr, prices_us
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .pipeline import MarketPipelineResult, run_kr_pipeline, run_us_pipeline
@@ -213,6 +213,15 @@ def main() -> None:
                 })
         db.save_price_history(matched_rows)
         print(f"  → {len(matched_rows)}행 저장", flush=True)
+
+    # 화면에 노출되는 종목(스크리닝 통과 + 패턴 매칭)의 재무 지표 수집
+    kr_fund_tickers = [s.ticker for s in kr_result.screened_stocks]
+    us_fund_tickers = [s.ticker for s in us_result.screened_stocks] + [m["ticker"] for m in matches]
+    print(f"재무 지표 수집 중... (KR {len(set(kr_fund_tickers))}개, US {len(set(us_fund_tickers))}개)", flush=True)
+    fund_rows = fundamentals.get_fundamentals(kr_fund_tickers, "KR", today) + \
+        fundamentals.get_fundamentals(us_fund_tickers, "US", today)
+    db.save_fundamentals(fund_rows)
+    print(f"  → {len(fund_rows)}개 저장", flush=True)
 
 
 if __name__ == "__main__":

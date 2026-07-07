@@ -26,6 +26,20 @@ export interface ScreenedStockRow {
   rsi: number
 }
 
+// roe/dividend_yield/revenue_growth/profit_margin은 % 단위
+export interface FundamentalRow {
+  ticker: string
+  market: Market
+  per: number | null
+  pbr: number | null
+  eps: number | null
+  roe: number | null
+  dividend_yield: number | null
+  revenue_growth: number | null
+  profit_margin: number | null
+  updated_at: string
+}
+
 export interface PriceHistoryRow {
   ticker: string
   market: Market

@@ -1,7 +1,7 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, FundamentalRow, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -98,6 +98,28 @@ export async function getUniverseStocks(
 
   if (error) return []
   return (data ?? []) as UniverseStockRow[]
+}
+
+export async function getFundamentalsMap(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, FundamentalRow>> {
+  'use cache'
+  cacheLife('hours')
+  if (tickers.length === 0) return {}
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_fundamentals')
+    .select('ticker, market, per, pbr, eps, roe, dividend_yield, revenue_growth, profit_margin, updated_at')
+    .eq('market', market)
+    .in('ticker', tickers)
+
+  if (error) return {}
+  const map: Record<string, FundamentalRow> = {}
+  for (const row of (data ?? []) as FundamentalRow[]) {
+    map[row.ticker] = row
+  }
+  return map
 }
 
 export async function getUniverseNameMap(

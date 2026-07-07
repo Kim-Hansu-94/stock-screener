@@ -37,6 +37,26 @@ def test_save_pipeline_result_writes_all_tables():
     }]
 
 
+def test_save_fundamentals_upserts_rows():
+    client = MagicMock()
+    db = ScreenerDB(client)
+
+    rows = [{"ticker": "AAPL", "market": "US", "per": 28.5, "updated_at": "2024-01-02"}]
+    db.save_fundamentals(rows)
+
+    client.table.assert_called_once_with("stock_fundamentals")
+    assert client.table.return_value.upsert.call_args.args[0] == rows
+
+
+def test_save_fundamentals_skips_empty_list():
+    client = MagicMock()
+    db = ScreenerDB(client)
+
+    db.save_fundamentals([])
+
+    client.table.assert_not_called()
+
+
 def test_save_pipeline_result_skips_empty_sector_and_stock_lists():
     client = MagicMock()
     db = ScreenerDB(client)

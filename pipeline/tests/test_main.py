@@ -36,6 +36,14 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "_SEEDED_TICKERS_FILE", tmp_path / ".yfinance_opp_seeded_tickers")
     monkeypatch.setattr(main_module.prices_us, "get_opportunity_histories", lambda *a, **k: {})
 
+    fund_calls: list[tuple] = []
+
+    def fake_fundamentals(tickers, market, as_of):
+        fund_calls.append((list(tickers), market))
+        return [{"ticker": t, "market": market, "per": 10.0, "updated_at": as_of.isoformat()} for t in tickers]
+
+    monkeypatch.setattr(main_module.fundamentals, "get_fundamentals", fake_fundamentals)
+
     fake_db = MagicMock()
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))
 
@@ -56,3 +64,8 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     assert second_call_result.regime == "bear"
     assert second_call_result.screened_stocks == []
     assert second_call_result.price_history == []
+
+    # 재무 지표는 KR/US 각각 스크리닝 통과 종목 대상으로 수집·저장된다
+    assert fund_calls == [(["005930"], "KR"), ([], "US")]
+    saved_fundamentals = fake_db.save_fundamentals.call_args.args[0]
+    assert [r["ticker"] for r in saved_fundamentals] == ["005930"]
