@@ -85,19 +85,31 @@ export async function getUniverseStocks(
   'use cache'
   cacheLife('hours')
   const supabase = createServerSupabaseClient()
-  const { data, error } = memberships?.length
-    ? await supabase
-        .from('stock_universe')
-        .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
-        .eq('market', market)
-        .in('index_membership', memberships)
-    : await supabase
-        .from('stock_universe')
-        .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
-        .eq('market', market)
+  const PAGE_SIZE = 1000
+  const rows: UniverseStockRow[] = []
 
-  if (error) return []
-  return (data ?? []) as UniverseStockRow[]
+  for (let page = 0; ; page++) {
+    const from = page * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+    const query = memberships?.length
+      ? supabase
+          .from('stock_universe')
+          .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
+          .eq('market', market)
+          .in('index_membership', memberships)
+      : supabase
+          .from('stock_universe')
+          .select('ticker, market, name, name_kr, sector, index_membership, updated_at')
+          .eq('market', market)
+
+    const { data, error } = await query.range(from, to)
+    if (error) return []
+
+    rows.push(...((data ?? []) as UniverseStockRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+
+  return rows
 }
 
 export async function getUniverseNameMap(
