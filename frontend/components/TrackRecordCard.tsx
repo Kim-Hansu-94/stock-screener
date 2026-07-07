@@ -38,12 +38,9 @@ export function TrackRecordCard({ record }: { record: TrackRecord }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-baseline justify-between">
-        <p className="text-sm font-medium text-gray-700">90일 종합 성적표</p>
-        <p className="text-xs text-gray-400">
-          전체 {record.totalTrades}건 · 청산 {closedCount}건 (첫 추천일 매수 기준)
-        </p>
-      </div>
+      <p className="text-xs text-gray-400">
+        전체 {record.totalTrades}건 · 청산 {closedCount}건 (첫 추천일 매수 기준)
+      </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="목표 도달률" value={pct(record.targetHitRate)} tone="positive" />
         <Stat label="손절률" value={pct(record.stoppedOutRate)} tone="negative" />

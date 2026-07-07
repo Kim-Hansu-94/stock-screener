@@ -24,6 +24,20 @@ async function HistoryContent() {
 
   return (
     <>
+      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-gray-900">90일 종합 성적표</h2>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-500">한국 시장</p>
+            <TrackRecordCard record={krTrack} />
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-500">미국 시장</p>
+            <TrackRecordCard record={usTrack} />
+          </div>
+        </div>
+      </section>
+
       {!hasData && (
         <p className="text-sm text-gray-400">최근 30일 내 추천 이력이 없습니다.</p>
       )}
@@ -31,7 +45,6 @@ async function HistoryContent() {
       {krPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">한국 시장</h2>
-          <TrackRecordCard record={krTrack} />
           <PerformanceTable items={krPerf} market="KR" regimes={krRegimes} />
         </section>
       )}
@@ -39,7 +52,6 @@ async function HistoryContent() {
       {usPerf.length > 0 && (
         <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="text-base font-semibold text-gray-900">미국 시장</h2>
-          <TrackRecordCard record={usTrack} />
           <PerformanceTable items={usPerf} market="US" regimes={usRegimes} />
         </section>
       )}
