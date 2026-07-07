@@ -182,6 +182,10 @@ async function HomeContent() {
         <table className="mt-3 w-full border-collapse text-xs text-gray-600">
           <tbody className="divide-y divide-gray-50">
             <tr>
+              <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">대상 종목</td>
+              <td className="py-1.5">한국 코스피 · 코스닥 / 미국 S&amp;P 1500 (대형 · 중형 · 소형) + NASDAQ 100</td>
+            </tr>
+            <tr>
               <td className="py-1.5 pr-4 font-medium text-gray-500 whitespace-nowrap">시장 분위기</td>
               <td className="py-1.5">지수 종가 &gt; 50일선 &gt; 200일선 (상승장 확인)</td>
             </tr>
