@@ -1,6 +1,7 @@
 import { cacheLife } from 'next/cache'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
+import type { DailyBar } from './opportunityScore'
 import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow } from './types'
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
@@ -656,4 +657,59 @@ export async function getOpportunityDrawdowns(
   )
 
   return results.flat()
+}
+
+// Fetches ~1 year of daily OHLCV for the drawdown-passing tickers only.
+// PostgREST caps responses at max_rows=1000, so each batch is kept small enough
+// (15 tickers × ~260 bars ≈ 3,900 rows) to page through with .range() in a few
+// round trips; batches run in parallel.
+const DAILY_BARS_BATCH = 15
+const DAILY_BARS_PAGE = 1000
+const DAILY_BARS_CALENDAR_DAYS = 400
+
+export async function getDailyBars(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, DailyBar[]>> {
+  'use cache'
+  cacheLife('hours')
+  if (tickers.length === 0) return {}
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - DAILY_BARS_CALENDAR_DAYS)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const supabase = createServerSupabaseClient()
+
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += DAILY_BARS_BATCH) {
+    batches.push(tickers.slice(i, i + DAILY_BARS_BATCH))
+  }
+
+  type DailyBarRow = DailyBar & { ticker: string }
+
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const rows: DailyBarRow[] = []
+      for (let from = 0; ; from += DAILY_BARS_PAGE) {
+        const { data, error } = await supabase
+          .from('stock_price_history')
+          .select('ticker, date, close, high, low, volume')
+          .eq('market', market)
+          .in('ticker', batch)
+          .gte('date', cutoffStr)
+          .order('ticker', { ascending: true })
+          .order('date', { ascending: true })
+          .range(from, from + DAILY_BARS_PAGE - 1)
+        if (error) throw new Error(error.message)
+        rows.push(...((data ?? []) as DailyBarRow[]))
+        if (!data || data.length < DAILY_BARS_PAGE) break
+      }
+      return rows
+    }),
+  )
+
+  const byTicker: Record<string, DailyBar[]> = {}
+  for (const { ticker, ...barFields } of results.flat()) {
+    ;(byTicker[ticker] ??= []).push(barFields)
+  }
+  return byTicker
 }

@@ -93,6 +93,8 @@ export function DiscoverTabs({
             <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
             <p className="mt-0.5 text-xs text-gray-400">
               코스피 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
+              최근 20일 내 52주 신저가를 갱신 중이거나 최근 60일 박스폭이 30%를 넘는(횡보가 아닌) 종목은 제외하고,
+              매도 소진 · 변동성 수축(VCP) · 저점 높이기 · 거래량 소진을 합산한 매수 매력도 순으로 정렬합니다.
             </p>
             {opportunities.length > 0 && (
               <p className="mt-1 text-xs text-gray-500">
@@ -239,6 +241,29 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
             <dd>{formatPrice(stock.high3y)}</dd>
           </div>
         </dl>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+            매력도 {Math.round(stock.score * 100)}점
+          </span>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+            저점 유지 {stock.daysSinceLow}일
+          </span>
+          {stock.vcp && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">VCP ✓</span>
+          )}
+          {stock.higherLows && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">저점↑</span>
+          )}
+          {stock.volumeDry && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">거래량 소진</span>
+          )}
+          {stock.alignedMAs && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">정배열</span>
+          )}
+          {stock.volumeTrigger && (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">거래량 급증</span>
+          )}
+        </div>
         <div ref={sentinelRef} className="mt-4 min-h-80">
           {chartReady && (
             <StockChart monthly bollinger rsi preAggregated history={stock.history} />

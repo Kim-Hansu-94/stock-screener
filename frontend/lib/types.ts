@@ -72,6 +72,14 @@ export interface OpportunityStockRow {
   high3y: number
   drawdown: number
   history: PriceHistoryRow[]
+  /** 매수 매력도 0~1 (하드 필터 통과 종목만 리스트에 남는다) */
+  score: number
+  daysSinceLow: number
+  vcp: boolean
+  higherLows: boolean
+  volumeDry: boolean
+  alignedMAs: boolean
+  volumeTrigger: boolean
 }
 
 export interface DailyReportResult {

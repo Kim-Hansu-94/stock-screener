@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory } from '@/lib/queries'
+import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars } from '@/lib/queries'
+import { scoreOpportunity } from '@/lib/opportunityScore'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
@@ -24,10 +25,19 @@ async function computeOpportunities(
 
   if (passing.length === 0) return []
 
-  const history = await getMonthlyPriceHistory(market, passing.map((s) => s.ticker))
+  // 하드 필터(신저가 갱신 중·박스폭 초과)를 통과한 종목만 매수 매력도와 함께 남긴다
+  const dailyBars = await getDailyBars(market, passing.map((s) => s.ticker))
+  const scored = passing.flatMap((s) => {
+    const signals = scoreOpportunity(dailyBars[s.ticker] ?? [])
+    return signals ? [{ summary: s, signals }] : []
+  })
+
+  if (scored.length === 0) return []
+
+  const history = await getMonthlyPriceHistory(market, scored.map(({ summary }) => summary.ticker))
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
-  return passing.map((s) => {
+  return scored.map(({ summary: s, signals }) => {
     const meta = metaMap.get(s.ticker)
     const drawdown = ((s.high3y - s.current_close) / s.high3y) * 100
     return {
@@ -41,6 +51,7 @@ async function computeOpportunities(
       high3y: s.high3y,
       drawdown,
       history: history[s.ticker] ?? [],
+      ...signals,
     }
   })
 }
@@ -56,7 +67,8 @@ async function loadOpportunities(): Promise<OpportunityStockRow[]> {
     computeOpportunities(krUniverse, 'KR'),
   ])
 
-  return [...usOpps, ...krOpps].sort((a, b) => b.drawdown - a.drawdown)
+  // 매수 매력도 순 정렬, 동점이면 하락률 큰 순
+  return [...usOpps, ...krOpps].sort((a, b) => b.score - a.score || b.drawdown - a.drawdown)
 }
 
 async function DiscoverContent() {
