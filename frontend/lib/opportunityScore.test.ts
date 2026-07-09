@@ -44,6 +44,27 @@ describe('scoreOpportunity 하드 필터', () => {
     bars[230] = bar(230, 145, 2)
     expect(scoreOpportunity(bars)).toBeNull()
   })
+
+  it('거래정지 등으로 최근 거래량이 전무하면 제외 (NaN 점수 방지)', () => {
+    const bars = goodBase()
+    // 마지막 20일 거래 정지: 가격 고정 + 거래량 0
+    for (let i = 240; i < 260; i++) {
+      bars[i] = { ...bar(i, 110, 0, 0) }
+    }
+    expect(scoreOpportunity(bars)).toBeNull()
+  })
+
+  it('가격이 평평해 ATR이 0이어도 점수가 NaN이 되지 않는다', () => {
+    const bars = goodBase()
+    // 마지막 70일을 종가 고정·스프레드 0으로 (ATR60 = 0), 거래량은 유지
+    for (let i = 190; i < 260; i++) {
+      bars[i] = bar(i, 110, 0, 700_000)
+    }
+    const result = scoreOpportunity(bars)
+    if (result !== null) {
+      expect(Number.isFinite(result.score)).toBe(true)
+    }
+  })
 })
 
 describe('scoreOpportunity 점수', () => {

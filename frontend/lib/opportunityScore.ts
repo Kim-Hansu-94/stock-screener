@@ -71,13 +71,20 @@ export function scoreOpportunity(bars: DailyBar[]): OpportunitySignals | null {
   const boxLow = Math.min(...boxBars.map((b) => b.low))
   if ((boxHigh - boxLow) / boxLow > MAX_BOX_RANGE) return null
 
+  // 하드 필터 3 — 거래정지/유동성 전무 제외: 거래량 평균이 0이면 매수 자체가
+  // 불가능하고, 아래 거래량 비율 계산이 0/0 = NaN이 되어 점수를 오염시킨다
+  const volumes = bars.map((b) => b.volume)
+  if (mean(volumes.slice(-20)) <= 0 || mean(volumes.slice(-60, -20)) <= 0) return null
+
   // 매도 소진 (0.30): 52주 저점을 마지막으로 찍은 뒤 경과 거래일
   const yearLow = Math.min(...lows)
   const daysSinceLow = lows.length - 1 - lows.lastIndexOf(yearLow)
   const exhaustionScore = clamp01(daysSinceLow / EXHAUSTION_CAP_DAYS)
 
   // 변동성 수축 VCP (0.25): ATR20/ATR60 낮을수록 좋음 (0.6 이하 만점, 1.0 이상 0점)
-  const vcpRatio = atr(bars, 20) / atr(bars, 60)
+  // ATR60이 0(장기간 가격 고정)이면 0/0 = NaN이 되므로 수축 정보 없음(1)으로 처리
+  const atr60 = atr(bars, 60)
+  const vcpRatio = atr60 > 0 ? atr(bars, 20) / atr60 : 1
   const vcpScore = clamp01((1 - vcpRatio) / 0.4)
 
   // 저점 높이기 (0.25): 최근 60일 저점 > 그 앞 60일 저점
@@ -86,7 +93,6 @@ export function scoreOpportunity(bars: DailyBar[]): OpportunitySignals | null {
   const higherLows = recent60Low > prior60Low
 
   // 거래량 소진 (0.20): 최근 20일 / 직전 40일 거래량 비율, 0.5~0.8 구간이 최고점
-  const volumes = bars.map((b) => b.volume)
   const volRatio = mean(volumes.slice(-20)) / mean(volumes.slice(-60, -20))
   const volumeDryScore =
     volRatio < 0.5
