@@ -3,14 +3,17 @@ name: Stock Screener Pipeline
 on:
   schedule:
     # ⚠️ 이 schedule은 백업용이다. 본 트리거는 Supabase pg_cron이 매일
-    # 07:47 KST(22:47 UTC)에 workflow_dispatch로 쏜다
+    # 06:30 KST(21:30 UTC)에 workflow_dispatch로 쏜다
     # (supabase/pg_cron_pipeline_trigger.sql 참고).
+    # 06:30인 이유: 미장 마감(05~06시 KST, 서머타임 여부에 따라 다름) 직후이면서
+    # 파이프라인 소요 50~80분을 감안해 아침 8시 확인 전에 결과가 나오는 시각.
+    # 이보다 이르면(예: 새벽 3~4시) 미장이 아직 열려 있어 당일 미국 세션이 빠진다.
     # GitHub schedule은 SLA 없는 best-effort라 이 저장소에서 매번 9~14시간
     # 지연됐고(:47 이동으로도 개선 안 됨), 2026-07-09에는 아예 실행되지 않아
     # 아침 스크리너가 뜨지 않았다. 그래서 정시 실행은 pg_cron에 맡기고,
     # 이 schedule은 pg_cron이 실패한 날에만 늦게라도 도는 안전망으로 남긴다.
     # 중복 실행은 아래 precheck 잡이 걸러낸다.
-    - cron: '47 22 * * 0-4'
+    - cron: '30 21 * * 0-4'
   workflow_dispatch:
     inputs:
       force_backfill:

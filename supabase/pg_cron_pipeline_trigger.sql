@@ -5,8 +5,10 @@
 -- 옮겨도(6cca487) 효과가 없었고, 07-09에는 트리거 예정 시각에서 3시간이 지나도록
 -- 실행이 큐에 잡히지도 않았다. 아침 8시 스크리너가 저녁에 도는 원인.
 --
--- 해결: 시간이 정확한 Supabase pg_cron이 매일 07:47 KST(= 22:47 UTC)에
+-- 해결: 시간이 정확한 Supabase pg_cron이 매일 06:30 KST(= 21:30 UTC)에
 -- GitHub API(workflow_dispatch)로 파이프라인을 직접 실행한다.
+-- 06:30인 이유: 미장 마감(05~06시 KST) 직후 + 파이프라인 소요 50~80분을 감안하면
+-- 아침 8시 확인 전에 결과가 준비된다. 새벽 3~4시는 미장이 아직 장중이라 불가.
 -- GitHub 쪽 schedule은 pg_cron이 죽었을 때의 백업으로 남기되, 워크플로의
 -- precheck 잡이 "최근 18시간 내 성공 실행"을 확인해 중복 실행을 건너뛴다.
 --
@@ -28,10 +30,10 @@ select vault.create_secret('<PAT>', 'github_pat_actions');
 --     (select id from vault.secrets where name = 'github_pat_actions'),
 --     '<새 PAT>');
 
--- 2) 매일 07:47 KST(22:47 UTC, 일~목 UTC = 월~금 KST 아침)에 파이프라인 트리거
+-- 2) 매일 06:30 KST(21:30 UTC, 일~목 UTC = 월~금 KST 새벽)에 파이프라인 트리거
 select cron.schedule(
   'trigger-stock-pipeline',
-  '47 22 * * 0-4',
+  '30 21 * * 0-4',
   $$
   select net.http_post(
     url := 'https://api.github.com/repos/Kim-Hansu-94/stock-screener/actions/workflows/pipeline.yml/dispatches',
