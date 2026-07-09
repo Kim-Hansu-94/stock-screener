@@ -18,6 +18,11 @@ interface StockCardProps {
   riskReward: number | null
 }
 
+// 종목 단위 눌림목 조건 개수 — pipeline/src/screener.py의 CRITERION_* 9개와 동기 유지.
+// 하락장 날은 시장 단위 조건('시장 하락장')이 failed_criteria에 추가돼 분모가 1 늘어난다.
+const STOCK_CRITERIA_COUNT = 9
+const MARKET_BEAR_CRITERION = '시장 하락장'
+
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const diffH = Math.floor(diffMs / 3_600_000)
@@ -36,6 +41,10 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
   const changePercent = calculateChangePercent(history.map((row) => row.close))
 
   const newsQuery = market === 'KR' ? (stock.name_kr || stock.name) : stock.ticker
+
+  // 하락장 날은 시장 조건 1개가 더해져 분모가 10, 평상시엔 9.
+  const totalCriteria =
+    STOCK_CRITERIA_COUNT + (stock.failed_criteria.includes(MARKET_BEAR_CRITERION) ? 1 : 0)
 
   useEffect(() => {
     const load = async () => {
@@ -100,7 +109,8 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           {stock.passed === false ? (
             <>
               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                조건 {stock.failed_criteria.length}개 미달 · 참고용
+                조건 {totalCriteria - stock.failed_criteria.length}개 충족 (
+                {totalCriteria - stock.failed_criteria.length}/{totalCriteria}) · 참고용
               </span>
               {stock.failed_criteria.map((criterion) => (
                 <span
@@ -113,7 +123,7 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
             </>
           ) : (
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              전 조건 충족
+              전 조건 충족 ({totalCriteria}/{totalCriteria})
             </span>
           )}
         </div>
