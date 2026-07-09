@@ -48,12 +48,18 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('screened_stocks')
-    .select('date, market, ticker, name, sector, close, market_cap, rsi')
+    .select('date, market, ticker, name, sector, close, market_cap, rsi, passed, failed_criteria')
     .eq('market', market)
     .eq('date', date)
 
   if (error) throw new Error(error.message)
-  return (data ?? []) as ScreenedStockRow[]
+  // 전 조건 통과 종목 먼저, 근접 후보는 미달 조건 적은 순
+  const rows = (data ?? []) as ScreenedStockRow[]
+  return rows.sort(
+    (a, b) =>
+      Number(b.passed) - Number(a.passed) ||
+      a.failed_criteria.length - b.failed_criteria.length,
+  )
 }
 
 export async function getPriceHistoryByTicker(
@@ -232,10 +238,12 @@ export async function getScreenedStockPerformance(
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   // Past recommendations only (exclude today since day1 would be today's close, not yet settled)
+  // passed=true만: 근접 후보(참고용)는 추천이 아니므로 수익률 집계에서 제외
   const { data: recs, error: recsError } = await supabase
     .from('screened_stocks')
     .select('date, market, ticker, name, sector, close')
     .eq('market', market)
+    .eq('passed', true)
     .lt('date', today)
     .gte('date', cutoffStr)
     .order('date', { ascending: false })
@@ -317,10 +325,12 @@ export async function getExitSignals(market: Market, days = 30): Promise<ExitChe
   cutoff.setDate(cutoff.getDate() - days)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
+  // passed=true만: 근접 후보(참고용)는 보유 종목 점검 대상이 아니다
   const { data: recs, error: recsError } = await supabase
     .from('screened_stocks')
     .select('date, market, ticker, name, sector, close')
     .eq('market', market)
+    .eq('passed', true)
     .lt('date', today)
     .gte('date', cutoffStr)
     .order('date', { ascending: false })
@@ -430,10 +440,12 @@ export async function getScreenerTrackRecord(market: Market, days = 90): Promise
   cutoff.setDate(cutoff.getDate() - days)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
+  // passed=true만: 성적표는 실제 추천(전 조건 통과)의 기록이어야 한다
   const { data: recs, error: recsError } = await supabase
     .from('screened_stocks')
     .select('date, ticker, close')
     .eq('market', market)
+    .eq('passed', true)
     .lt('date', today)
     .gte('date', cutoffStr)
     .order('date', { ascending: false })

@@ -24,6 +24,10 @@ export interface ScreenedStockRow {
   close: number
   market_cap: number
   rsi: number
+  /** 전 조건 통과 여부 — false면 미달 조건이 가장 적은 근접 후보(참고용) */
+  passed: boolean
+  /** 미달 조건 라벨 목록 (예: '거래량 미감소', '시장 하락장') */
+  failed_criteria: string[]
 }
 
 export interface PriceHistoryRow {

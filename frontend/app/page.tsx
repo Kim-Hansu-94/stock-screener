@@ -157,22 +157,32 @@ async function HomeContent() {
               <LeadingSectors marketLabel={section.label} sectors={section.sectors} />
 
               {section.stocks.length === 0 ? (
-                <p className="text-sm text-gray-500">오늘은 조건을 만족하는 종목이 없습니다.</p>
+                <p className="text-sm text-gray-500">
+                  오늘은 표시할 후보가 없습니다 (데이터 부족 또는 후보군 없음).
+                </p>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {section.stocks.map((stock) => (
-                    <StockCard
-                      key={stock.ticker}
-                      stock={stock}
-                      history={section.priceHistory[stock.ticker] ?? []}
-                      market={section.market}
-                      usdKrwRate={usdKrwRate}
-                      stop={section.riskMap[stock.ticker]?.stop ?? null}
-                      target={section.riskMap[stock.ticker]?.target ?? null}
-                      riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
-                    />
-                  ))}
-                </div>
+                <>
+                  {!section.stocks.some((s) => s.passed) && (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      오늘 전 조건을 충족한 종목은 없습니다. 아래는 조건에 가장 근접한 상위
+                      후보이며, 어떤 조건이 미달인지 카드에 표시됩니다. 참고용으로만 보세요.
+                    </p>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {section.stocks.map((stock) => (
+                      <StockCard
+                        key={stock.ticker}
+                        stock={stock}
+                        history={section.priceHistory[stock.ticker] ?? []}
+                        market={section.market}
+                        usdKrwRate={usdKrwRate}
+                        stop={section.riskMap[stock.ticker]?.stop ?? null}
+                        target={section.riskMap[stock.ticker]?.target ?? null}
+                        riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}
@@ -233,6 +243,11 @@ async function HomeContent() {
           매일 오전 6:30 (KST)에 파이프라인이 자동 실행됩니다. 미장 마감 직후이자 국내 개장(오전 9시) 이전이라
           전 영업일 종가 기준으로 스크리닝하며, 완료 즉시 사이트 전체 데이터가 함께 갱신됩니다.
           정시 실행이 실패한 날에는 오전 8시·11시 백업 스케줄이 자동으로 다시 실행합니다.
+        </p>
+        <p className="mt-2 text-xs text-gray-400">
+          전 조건 충족 종목이 5개 미만인 날에는 미달 조건이 가장 적은 근접 후보로 5개까지 채워
+          보여줍니다. 근접 후보는 카드에 미달 조건이 표시되며(하락장 날은 &lsquo;시장 하락장&rsquo; 포함),
+          매수 신호가 아닌 관찰 목록입니다. 추천 이력·성적표에는 전 조건 충족 종목만 집계됩니다.
         </p>
       </div>
 

@@ -96,6 +96,27 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
             {changePercent === null ? '등락률 없음' : `${changePercent.toFixed(2)}%`}
           </Badge>
         </CardTitle>
+        <div className="flex flex-wrap items-center gap-1 pt-1">
+          {stock.passed === false ? (
+            <>
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                조건 {stock.failed_criteria.length}개 미달 · 참고용
+              </span>
+              {stock.failed_criteria.map((criterion) => (
+                <span
+                  key={criterion}
+                  className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500"
+                >
+                  {criterion}
+                </span>
+              ))}
+            </>
+          ) : (
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+              전 조건 충족
+            </span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">

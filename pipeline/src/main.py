@@ -26,6 +26,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
             "ticker": s.ticker, "name": s.name, "sector": s.sector,
             "close": s.close, "market_cap": s.market_cap, "rsi": s.rsi,
             "date": s.as_of.isoformat(),
+            "passed": s.passed, "failed_criteria": s.failed_criteria,
         }
         for s in result.screened_stocks
     ]

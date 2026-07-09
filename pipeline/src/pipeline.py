@@ -9,7 +9,7 @@ import pandas as pd
 from . import prices_kr, prices_us, sectors, universe_kr, universe_us
 from .indicators import rsi
 from .market_regime import determine_market_regime
-from .screener import passes_pullback_filter
+from .screener import evaluate_pullback
 
 SECTOR_DETECTION_LOOKBACK_DAYS = 45
 # 380 calendar days ≈ 263 trading days — 200일 SMA 계산에 필요한 최소 거래일을 확보.
@@ -27,6 +27,11 @@ US_SCREENER_INDEXES = ["S&P500", "NASDAQ100", "S&P400", "S&P600"]
 # 주도 섹터 소속과 무관하게 눌림목 필터만으로 판단한다.
 KR_MEGA_CAP = 20_000_000_000_000  # 20조원
 US_MEGA_CAP = 200_000_000_000  # $2,000억
+# 전 조건 통과 종목이 5개 미만인 날, 미달 조건이 가장 적은 근접 종목으로 채워
+# 매일 최소 5개(후보가 있는 한)를 보여준다. 근접 종목은 passed=False로 구분.
+TOP_CANDIDATES = 5
+# 하락장 날 모든 후보에 붙는 시장 단위 미달 조건 (종목 조건과 동일한 목록에 표시)
+MARKET_BEAR_CRITERION = "시장 하락장"
 
 
 @dataclass
@@ -38,6 +43,8 @@ class ScreenedStock:
     market_cap: float
     rsi: float
     as_of: date
+    passed: bool = True
+    failed_criteria: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -76,26 +83,50 @@ def _screen_candidates(
     candidates: pd.DataFrame,
     fetch_full_history: Callable[[str], pd.DataFrame],
     require_sma200: bool = False,
+    extra_failures: list[str] | None = None,
 ) -> tuple[list[ScreenedStock], dict[str, pd.DataFrame]]:
-    screened: list[ScreenedStock] = []
-    price_history: dict[str, pd.DataFrame] = {}
+    """전 조건 통과 종목 전부 + 미달이 가장 적은 근접 종목으로 TOP_CANDIDATES까지 채운다.
+
+    extra_failures: 시장 단위 미달 조건(예: 하락장). 모든 후보의 failed_criteria에
+    더해지므로, 하락장 날은 전 종목이 passed=False가 되어 이력/성적표 집계
+    (passed=true 필터)에는 잡히지 않으면서 화면에는 상위 후보가 표시된다.
+    """
+    evaluated: list[tuple[float, ScreenedStock, pd.DataFrame]] = []
     for _, row in candidates.iterrows():
         ticker = row["ticker"]
         hist = fetch_full_history(ticker)
-        if hist.empty or not passes_pullback_filter(
-            hist["Close"], hist["Volume"], hist["High"], require_sma200=require_sma200,
-        ):
+        if hist.empty:
             continue
-        screened.append(ScreenedStock(
-            ticker=ticker,
-            name=row["name"],
-            sector=row["sector"],
-            close=float(hist["Close"].iloc[-1]),
-            market_cap=float(row["market_cap"]),
-            rsi=float(rsi(hist["Close"]).iloc[-1]),
-            as_of=_as_of_date(hist.index[-1]),
+        ev = evaluate_pullback(
+            hist["Close"], hist["Volume"], hist["High"], require_sma200=require_sma200,
+        )
+        if ev is None:
+            continue
+        failed = list(extra_failures or []) + ev.failed
+        evaluated.append((
+            ev.impulse_gain,
+            ScreenedStock(
+                ticker=ticker,
+                name=row["name"],
+                sector=row["sector"],
+                close=float(hist["Close"].iloc[-1]),
+                market_cap=float(row["market_cap"]),
+                rsi=float(rsi(hist["Close"]).iloc[-1]),
+                as_of=_as_of_date(hist.index[-1]),
+                passed=not failed,
+                failed_criteria=failed,
+            ),
+            hist,
         ))
-        price_history[ticker] = hist.tail(120)
+
+    # 미달 조건 적은 순 → 선행 상승(임팩트) 큰 순
+    evaluated.sort(key=lambda t: (len(t[1].failed_criteria), -t[0]))
+    passers = [t for t in evaluated if t[1].passed]
+    near_misses = [t for t in evaluated if not t[1].passed]
+    selected = passers + near_misses[: max(0, TOP_CANDIDATES - len(passers))]
+
+    screened = [stock for _, stock, _ in selected]
+    price_history = {stock.ticker: hist.tail(120) for _, stock, hist in selected}
     return screened, price_history
 
 
@@ -112,17 +143,16 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
     sector_df = _build_sector_frame(universe, recent_histories)
     top_sectors = sectors.leading_sectors(sector_df, top_n=5) if not sector_df.empty else []
 
-    # 시장 국면이 bull일 때만 스크리닝 (bear 구간 신호 억제)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단 (US와 동일)
-    if regime == "bull":
-        sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= KR_MEGA_CAP)
-        candidates = universe[sector_gate & universe["meets_cap_threshold"]]
-        screened, price_history = _screen_candidates(
-            candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
-            require_sma200=True,
-        )
-    else:
-        screened, price_history = [], {}
+    # 하락장에도 상위 후보는 랭킹으로 보여주되 "시장 하락장" 미달 조건을 달아
+    # passed=False로 저장한다 (매수 신호 아님 표시 + 이력 집계 제외).
+    sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= KR_MEGA_CAP)
+    candidates = universe[sector_gate & universe["meets_cap_threshold"]]
+    screened, price_history = _screen_candidates(
+        candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
+        require_sma200=True,
+        extra_failures=[] if regime == "bull" else [MARKET_BEAR_CRITERION],
+    )
 
     return MarketPipelineResult(
         market="KR", regime=regime, as_of=_as_of_date(index_close.index[-1]),
@@ -154,14 +184,13 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
 
     # 눌림목 스크리너: S&P1500+NASDAQ100 대상 (Russell 3000 단독 편입 소형주 제외)
     # require_sma200=True: 200일 이평선 위에 있는 종목만 — 장기 하락 추세 종목 원천 차단
-    if regime == "bull":
-        sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= US_MEGA_CAP)
-        candidates = universe[screener_mask & sector_gate & universe["meets_cap_threshold"]]
-        screened, _ = _screen_candidates(
-            candidates, lambda t: all_histories.get(t, pd.DataFrame()), require_sma200=True,
-        )
-    else:
-        screened = []
+    # 하락장에도 상위 후보는 랭킹으로 보여주되 "시장 하락장" 미달로 passed=False 저장.
+    sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= US_MEGA_CAP)
+    candidates = universe[screener_mask & sector_gate & universe["meets_cap_threshold"]]
+    screened, _ = _screen_candidates(
+        candidates, lambda t: all_histories.get(t, pd.DataFrame()), require_sma200=True,
+        extra_failures=[] if regime == "bull" else [MARKET_BEAR_CRITERION],
+    )
 
     return MarketPipelineResult(
         market="US", regime=regime, as_of=_as_of_date(index_close.index[-1]),

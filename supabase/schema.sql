@@ -22,6 +22,10 @@ create table if not exists screened_stocks (
   close numeric not null,
   market_cap numeric not null,
   rsi numeric not null,
+  -- 랭킹 방식: passed=false 행은 전 조건 통과가 아닌 근접 후보(참고용).
+  -- 이력/성적표 집계는 passed=true만 사용 (screened_stocks_ranking.sql 참고).
+  passed boolean not null default true,
+  failed_criteria text[] not null default '{}',
   primary key (date, market, ticker)
 );
 

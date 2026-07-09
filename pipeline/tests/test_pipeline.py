@@ -170,6 +170,64 @@ def test_run_us_pipeline_screens_only_leading_sector_and_cap_qualified_stocks(mo
     assert result.screened_stocks[0].as_of == LAST_BAR_DATE
 
 
+def _near_miss_history(volume_tail=None) -> pd.DataFrame:
+    # _passing_history와 같은 모양이지만 거래량이 증가 → "거래량 미감소" 하나만 미달
+    df = _passing_history()
+    df["Volume"] = [1_000_000.0] * 195 + [1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000]
+    return df
+
+
+def test_run_kr_pipeline_fills_top5_with_labeled_near_misses(monkeypatch, kr_universe_df):
+    monkeypatch.setattr(pl.universe_kr, "get_kr_universe", lambda min_market_cap: kr_universe_df)
+    monkeypatch.setattr(
+        pl.prices_kr, "get_kospi_index_history",
+        lambda today, lookback_days: _index_series(100 + np.linspace(0, 100, 250)),
+    )
+
+    def fake_history(ticker, today, lookback_days):
+        if lookback_days != pl.FULL_HISTORY_LOOKBACK_DAYS:
+            return _flat_history()
+        # AAA는 전 조건 통과, CCC는 거래량 조건 하나만 미달인 근접 종목
+        return _passing_history() if ticker == "AAA" else _near_miss_history()
+
+    monkeypatch.setattr(pl.prices_kr, "get_kr_stock_history", fake_history)
+    monkeypatch.setattr(pl.sectors, "leading_sectors", lambda df, top_n: ["Semiconductors"])
+
+    result = pl.run_kr_pipeline(today=date(2024, 1, 2))
+
+    tickers = [s.ticker for s in result.screened_stocks]
+    assert tickers == ["AAA", "CCC"]  # 통과 종목 먼저, 근접 종목이 뒤를 채움
+    assert result.screened_stocks[0].passed is True
+    assert result.screened_stocks[0].failed_criteria == []
+    assert result.screened_stocks[1].passed is False
+    assert result.screened_stocks[1].failed_criteria == ["거래량 미감소"]
+    # 근접 종목 차트를 위해 히스토리도 저장 대상에 포함
+    assert "CCC" in result.price_history
+
+
+def test_run_kr_pipeline_bear_regime_shows_top_candidates_marked_bear(monkeypatch, kr_universe_df):
+    monkeypatch.setattr(pl.universe_kr, "get_kr_universe", lambda min_market_cap: kr_universe_df)
+    monkeypatch.setattr(
+        pl.prices_kr, "get_kospi_index_history",
+        lambda today, lookback_days: _index_series(100 - np.linspace(0, 50, 250)),
+    )
+
+    def fake_history(ticker, today, lookback_days):
+        return _passing_history() if lookback_days == pl.FULL_HISTORY_LOOKBACK_DAYS else _flat_history()
+
+    monkeypatch.setattr(pl.prices_kr, "get_kr_stock_history", fake_history)
+    monkeypatch.setattr(pl.sectors, "leading_sectors", lambda df, top_n: ["Semiconductors"])
+
+    result = pl.run_kr_pipeline(today=date(2024, 1, 2))
+
+    assert result.regime == "bear"
+    # 하락장에도 상위 후보는 표시하되, 전부 "시장 하락장" 미달로 표시되어 passed=False
+    assert len(result.screened_stocks) > 0
+    for stock in result.screened_stocks:
+        assert stock.passed is False
+        assert "시장 하락장" in stock.failed_criteria
+
+
 def test_run_us_pipeline_returns_no_stocks_when_no_leading_sectors(monkeypatch, us_universe_df):
     monkeypatch.setattr(pl.universe_us, "get_us_universe", lambda: us_universe_df)
     monkeypatch.setattr(

@@ -1,7 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from pipeline.src.screener import passes_pullback_filter
+from pipeline.src.screener import (
+    CRITERION_BOUNCE,
+    CRITERION_IMPULSE,
+    CRITERION_RSI_RISING,
+    CRITERION_VOLUME,
+    evaluate_pullback,
+    passes_pullback_filter,
+)
 
 N_UP_DAYS = 95
 
@@ -116,3 +123,60 @@ def test_fails_when_not_enough_history():
     close = pd.Series(100 + np.linspace(0, 10, 50))
     volume = pd.Series([1_000_000.0] * 50)
     assert passes_pullback_filter(close, volume, close.copy()) is False
+
+
+# ---- evaluate_pullback: 조건별 실패 라벨 (랭킹 표시용) ----
+
+def test_evaluate_full_pass_has_no_failures():
+    close, volume, high = _uptrend_with_recovering_pullback(
+        drop_pct=0.07,
+        volume_pullback=[600_000, 550_000, 500_000, 480_000, 450_000],
+    )
+    ev = evaluate_pullback(close, volume, high)
+    assert ev is not None
+    assert ev.passed is True
+    assert ev.failed == []
+    assert ev.impulse_gain >= 0.15
+
+
+def test_evaluate_labels_volume_failure_only():
+    # "passes" 케이스와 같은 가격 모양, 거래량만 증가 → 거래량 조건 하나만 미달
+    close, volume, high = _uptrend_with_recovering_pullback(
+        drop_pct=0.07,
+        volume_pullback=[1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000],
+    )
+    ev = evaluate_pullback(close, volume, high)
+    assert ev is not None
+    assert ev.passed is False
+    assert ev.failed == [CRITERION_VOLUME]
+
+
+def test_evaluate_labels_rsi_direction_and_bounce_failures():
+    # 단조 하락 꼬리: RSI가 3일 전보다 낮고(하락 중) 종가가 전일 고가를 못 넘음
+    close, volume, high = _uptrend_with_pullback(
+        drop_pct=0.07,
+        volume_pullback=[600_000, 550_000, 500_000, 480_000, 450_000],
+    )
+    ev = evaluate_pullback(close, volume, high)
+    assert ev is not None
+    assert ev.passed is False
+    assert CRITERION_RSI_RISING in ev.failed
+    assert CRITERION_BOUNCE in ev.failed
+
+
+def test_evaluate_labels_impulse_failure():
+    close, volume, high = _uptrend_with_recovering_pullback(
+        drop_pct=0.02,
+        volume_pullback=[600_000, 550_000, 500_000, 480_000, 450_000],
+        gain=12.0,
+    )
+    ev = evaluate_pullback(close, volume, high)
+    assert ev is not None
+    assert CRITERION_IMPULSE in ev.failed
+    assert ev.impulse_gain < 0.15
+
+
+def test_evaluate_returns_none_when_insufficient_history():
+    close = pd.Series(100 + np.linspace(0, 10, 50))
+    volume = pd.Series([1_000_000.0] * 50)
+    assert evaluate_pullback(close, volume, close.copy()) is None
