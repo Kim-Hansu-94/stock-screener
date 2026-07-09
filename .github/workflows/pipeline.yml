@@ -2,13 +2,14 @@ name: Stock Screener Pipeline
 
 on:
   schedule:
-    # 07:47 KST 목표(지연 버퍼 포함) = 22:47 UTC (전날). 월~금 KST = 일~목 UTC
-    # 분을 정각(0)에서 47로 옮김: GitHub Actions 스케줄 워크플로는 SLA 없는
-    # best-effort 실행이며, 정각은 전 세계에서 가장 몰리는 분이라 대기열
-    # 지연이 가장 크다(GitHub 공식 권장: 혼잡 회피 위해 비정각 분 사용).
-    # 실측상 이 저장소는 매번 9~14시간씩 밀려 아침이 아닌 저녁/밤에
-    # 실행되고 있었다. 100% 정시 보장은 안 되지만 비정각 분 + 여유 버퍼로
-    # 지연 리스크를 낮췄다.
+    # ⚠️ 이 schedule은 백업용이다. 본 트리거는 Supabase pg_cron이 매일
+    # 07:47 KST(22:47 UTC)에 workflow_dispatch로 쏜다
+    # (supabase/pg_cron_pipeline_trigger.sql 참고).
+    # GitHub schedule은 SLA 없는 best-effort라 이 저장소에서 매번 9~14시간
+    # 지연됐고(:47 이동으로도 개선 안 됨), 2026-07-09에는 아예 실행되지 않아
+    # 아침 스크리너가 뜨지 않았다. 그래서 정시 실행은 pg_cron에 맡기고,
+    # 이 schedule은 pg_cron이 실패한 날에만 늦게라도 도는 안전망으로 남긴다.
+    # 중복 실행은 아래 precheck 잡이 걸러낸다.
     - cron: '47 22 * * 0-4'
   workflow_dispatch:
     inputs:
@@ -18,7 +19,35 @@ on:
         default: false
 
 jobs:
+  precheck:
+    # schedule 이벤트(백업 경로)일 때만 검사: 최근 18시간 내 성공한 실행이
+    # 있으면 pg_cron이 이미 아침에 돌린 것이므로 중복 실행을 건너뛴다.
+    # workflow_dispatch(pg_cron·수동)는 항상 통과.
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          recent=$(gh run list -R "${{ github.repository }}" -w pipeline.yml \
+            --status success --limit 10 --json createdAt \
+            --jq "[.[] | select(.createdAt > (now - 18*3600 | todate))] | length")
+          if [ "$recent" -gt 0 ]; then
+            echo "최근 18시간 내 성공 실행 ${recent}건 → 백업 schedule 중복 실행 생략"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   run-pipeline:
+    needs: precheck
+    if: needs.precheck.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 240
 
