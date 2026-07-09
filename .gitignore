@@ -6,6 +6,7 @@ pipeline/.env
 pipeline/.kis_token_cache.json
 pipeline/.kis_exch_cache.json
 pipeline/.kis_price_cache.pkl
+pipeline/.kr_universe_cache.pkl
 pipeline/.yfinance_opp_seeded
 pipeline/logs/
 

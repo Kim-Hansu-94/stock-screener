@@ -86,6 +86,16 @@ jobs:
           restore-keys: |
             kis-cache-
 
+      - name: Restore KR universe cache
+        # KRX가 러너 IP를 차단한 날, 최근 성공본 유니버스로 대체하기 위한 캐시.
+        # 성공한 실행만 캐시를 저장하므로(actions/cache 기본 동작) 항상 정상본이다.
+        uses: actions/cache@v4
+        with:
+          path: pipeline/.kr_universe_cache.pkl
+          key: kr-universe-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kr-universe-
+
       - name: Restore opportunity history seed marker
         uses: actions/cache@v4
         with:
