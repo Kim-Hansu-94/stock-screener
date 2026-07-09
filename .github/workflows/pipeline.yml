@@ -2,7 +2,7 @@ name: Stock Screener Pipeline
 
 on:
   schedule:
-    # ⚠️ 이 schedule은 백업용이다. 본 트리거는 Supabase pg_cron이 매일
+    # ⚠️ 이 schedule들은 백업용이다. 본 트리거는 Supabase pg_cron이 매일
     # 06:30 KST(21:30 UTC)에 workflow_dispatch로 쏜다
     # (supabase/pg_cron_pipeline_trigger.sql 참고).
     # 06:30인 이유: 미장 마감(05~06시 KST, 서머타임 여부에 따라 다름) 직후이면서
@@ -11,9 +11,12 @@ on:
     # GitHub schedule은 SLA 없는 best-effort라 이 저장소에서 매번 9~14시간
     # 지연됐고(:47 이동으로도 개선 안 됨), 2026-07-09에는 아예 실행되지 않아
     # 아침 스크리너가 뜨지 않았다. 그래서 정시 실행은 pg_cron에 맡기고,
-    # 이 schedule은 pg_cron이 실패한 날에만 늦게라도 도는 안전망으로 남긴다.
+    # 백업은 pg_cron이 죽은 날(PAT 만료 등)을 대비해 06:30보다 늦은 시각에
+    # 두 번(08:00 · 11:00 KST) 건다. 예전처럼 pg_cron과 같은 시각(21:30)에 걸면
+    # 정상인 날 중복 실행되거나, 죽은 날 GitHub 지연으로 반나절 밀린다.
     # 중복 실행은 아래 precheck 잡이 걸러낸다.
-    - cron: '30 21 * * 0-4'
+    - cron: '0 23 * * 0-4'  # 백업 1: 08:00 KST (월~금)
+    - cron: '0 2 * * 1-5'   # 백업 2: 11:00 KST (월~금)
   workflow_dispatch:
     inputs:
       force_backfill:
@@ -23,8 +26,10 @@ on:
 
 jobs:
   precheck:
-    # schedule 이벤트(백업 경로)일 때만 검사: 최근 18시간 내 성공한 실행이
-    # 있으면 pg_cron이 이미 아침에 돌린 것이므로 중복 실행을 건너뛴다.
+    # schedule 이벤트(백업 경로)일 때만 검사: 최근 18시간 내 성공했거나
+    # 지금 돌고 있는 실행이 있으면 pg_cron이 이미 처리한 것이므로 건너뛴다.
+    # (08:00 KST 백업 시점엔 06:30 실행이 아직 진행 중일 수 있어
+    #  in_progress/queued도 중복으로 간주한다. 자기 자신은 제외.)
     # workflow_dispatch(pg_cron·수동)는 항상 통과.
     runs-on: ubuntu-latest
     outputs:
@@ -39,10 +44,13 @@ jobs:
             exit 0
           fi
           recent=$(gh run list -R "${{ github.repository }}" -w pipeline.yml \
-            --status success --limit 10 --json createdAt \
-            --jq "[.[] | select(.createdAt > (now - 18*3600 | todate))] | length")
+            --limit 20 --json databaseId,createdAt,status,conclusion \
+            --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)
+                       | select(.createdAt > (now - 18*3600 | todate))
+                       | select(.conclusion == \"success\" or .status == \"in_progress\" or .status == \"queued\")
+                  ] | length")
           if [ "$recent" -gt 0 ]; then
-            echo "최근 18시간 내 성공 실행 ${recent}건 → 백업 schedule 중복 실행 생략"
+            echo "최근 18시간 내 성공/진행 중 실행 ${recent}건 → 백업 schedule 중복 실행 생략"
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           else
             echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -120,3 +128,21 @@ jobs:
       - name: Run pipeline
         working-directory: pipeline
         run: python -m src.main
+
+      - name: Revalidate frontend cache
+        # DB 갱신 완료 직후 사이트의 전체 캐시(screener-data 태그)를 한 번에 무효화해
+        # 모든 페이지가 같은 시점의 데이터로 함께 갱신되게 한다.
+        # 실패해도 파이프라인을 실패로 만들지 않는다 — cacheLife('hours')가
+        # 안전망이라 최대 1시간 내 자동 갱신된다.
+        env:
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+        run: |
+          if [ -z "$REVALIDATE_URL" ]; then
+            echo "::warning::REVALIDATE_URL 시크릿 미설정 → 캐시 즉시 무효화 생략 (최대 1시간 내 자동 갱신)"
+            exit 0
+          fi
+          curl -fsS -X POST "$REVALIDATE_URL" \
+            -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+            && echo "프론트 캐시 무효화 완료" \
+            || echo "::warning::캐시 무효화 호출 실패 → cacheLife에 따라 최대 1시간 내 자동 갱신"

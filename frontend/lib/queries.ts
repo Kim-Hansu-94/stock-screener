@@ -1,4 +1,8 @@
-import { cacheLife } from 'next/cache'
+import { cacheLife, cacheTag } from 'next/cache'
+
+// 파이프라인이 매일 아침 DB를 갱신한 직후 /api/revalidate가 이 태그를 일괄 무효화해,
+// 모든 페이지·섹션이 같은 시점의 데이터로 함께 갱신된다. cacheLife는 웹훅 실패 시 안전망.
+export const SCREENER_CACHE_TAG = 'screener-data'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
 import type { DailyBar } from './opportunityScore'
@@ -7,6 +11,7 @@ import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('market_regime')
@@ -23,6 +28,7 @@ export async function getLatestRegime(market: Market): Promise<MarketRegimeRow |
 export async function getLeadingSectors(market: Market, date: string): Promise<LeadingSectorRow[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('leading_sectors')
@@ -38,6 +44,7 @@ export async function getLeadingSectors(market: Market, date: string): Promise<L
 export async function getScreenedStocks(market: Market, date: string): Promise<ScreenedStockRow[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('screened_stocks')
@@ -85,6 +92,7 @@ export async function getUniverseStocks(
 ): Promise<UniverseStockRow[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const supabase = createServerSupabaseClient()
   const PAGE_SIZE = 1000
   const rows: UniverseStockRow[] = []
@@ -119,6 +127,7 @@ export async function getUniverseNameMap(
 ): Promise<Record<string, string>> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   if (tickers.length === 0) return {}
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
@@ -152,6 +161,7 @@ export async function getMonthlyPriceHistory(
 ): Promise<Record<string, PriceHistoryRow[]>> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   if (tickers.length === 0) return {}
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - days)
@@ -191,6 +201,7 @@ export async function getRegimesInRange(
 ): Promise<Record<string, string>> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const supabase = createServerSupabaseClient()
   const { data } = await supabase
     .from('market_regime')
@@ -212,6 +223,7 @@ export async function getScreenedStockPerformance(
 ): Promise<ScreenedStockPerf[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
 
   const supabase = createServerSupabaseClient()
   const today = new Date().toISOString().slice(0, 10)
@@ -297,6 +309,7 @@ export async function getScreenedStockPerformance(
 export async function getExitSignals(market: Market, days = 30): Promise<ExitCheckResult[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
 
   const supabase = createServerSupabaseClient()
   const today = new Date().toISOString().slice(0, 10)
@@ -409,6 +422,7 @@ export async function getExitSignals(market: Market, days = 30): Promise<ExitChe
 export async function getScreenerTrackRecord(market: Market, days = 90): Promise<TrackRecord> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
 
   const supabase = createServerSupabaseClient()
   const today = new Date().toISOString().slice(0, 10)
@@ -541,6 +555,7 @@ export async function getPullbackScreenerWithRisk(
 ): Promise<ScreenedStockWithRisk[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
 
   const supabase = createServerSupabaseClient()
 
@@ -633,6 +648,7 @@ export async function getOpportunityDrawdowns(
 ): Promise<DrawdownSummary[]> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   if (tickers.length === 0) return []
   const cutoff = new Date()
   cutoff.setFullYear(cutoff.getFullYear() - 3)
@@ -676,6 +692,7 @@ export async function getDailyBars(
 ): Promise<Record<string, DailyBar[]>> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   if (tickers.length === 0) return {}
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - DAILY_BARS_CALENDAR_DAYS)

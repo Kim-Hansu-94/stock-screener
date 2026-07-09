@@ -190,7 +190,9 @@ def main() -> None:
 
     print("Gold Standard 패턴 유사도 계산 중...", flush=True)
     matches = compute_pattern_matches(pattern_histories, us_result.universe_df)
-    db.save_pattern_matches(matches, today.isoformat())
+    # computed_at은 날짜가 아니라 실제 계산 시각(KST)을 저장한다.
+    # 날짜만 넣으면 프론트가 UTC 자정으로 해석해 항상 "오전 9:00"으로 표시된다.
+    db.save_pattern_matches(matches, datetime.now(KST).isoformat(timespec="seconds"))
     db.save_recommendation_history(matches, today.isoformat())
 
     # 패턴 매칭 종목 3년 히스토리 보강 (월봉 Bollinger/RSI 렌더링용)

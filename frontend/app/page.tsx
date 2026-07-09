@@ -1,9 +1,10 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { cacheLife } from 'next/cache'
+import { cacheLife, cacheTag } from 'next/cache'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
 import {
+  SCREENER_CACHE_TAG,
   getLatestRegime,
   getLeadingSectors,
   getPriceHistoryByTicker,
@@ -21,6 +22,7 @@ const MARKETS: { market: Market; label: string; universe: string }[] = [
 async function fetchUsdKrwRate(): Promise<number> {
   'use cache'
   cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   try {
     const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW')
     const json = await res.json()
@@ -228,8 +230,9 @@ async function HomeContent() {
           </tbody>
         </table>
         <p className="mt-3 text-xs text-gray-400">
-          매일 오전 8:00 (KST)에 실행되며, 국내 개장(오전 9시) 이전이라 전 영업일 종가를 기준으로 스크리닝합니다.
-          (시가·장중가 아님, GitHub Actions 스케줄 특성상 몇 분 정도 지연될 수 있습니다.)
+          매일 오전 6:30 (KST)에 파이프라인이 자동 실행됩니다. 미장 마감 직후이자 국내 개장(오전 9시) 이전이라
+          전 영업일 종가 기준으로 스크리닝하며, 완료 즉시 사이트 전체 데이터가 함께 갱신됩니다.
+          정시 실행이 실패한 날에는 오전 8시·11시 백업 스케줄이 자동으로 다시 실행합니다.
         </p>
       </div>
 
