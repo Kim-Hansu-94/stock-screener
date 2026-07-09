@@ -96,6 +96,10 @@ export function DiscoverTabs({
               최근 20일 내 52주 신저가를 갱신 중이거나 최근 60일 박스폭이 30%를 넘는(횡보가 아닌) 종목은 제외하고,
               매도 소진 · 변동성 수축(VCP) · 저점 높이기 · 거래량 소진을 합산한 매수 매력도 순으로 정렬합니다.
             </p>
+            <p className="mt-2 text-xs text-gray-400">
+              <span className="font-medium text-gray-500">데이터 출처:</span> 매일 아침 파이프라인이 갱신하는 Supabase 시세로 계산하며, 갱신 완료 즉시 다른 탭과 함께 반영됩니다.
+              각 카드의 &ldquo;기준일&rdquo;은 그 종목 계산에 쓰인 최신 거래일입니다.
+            </p>
             {opportunities.length > 0 && (
               <p className="mt-1 text-xs text-gray-500">
                 국장 <strong>{krCount}개</strong> · 미장 <strong>{usCount}개</strong> (총{' '}
@@ -221,6 +225,9 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
           </span>
           <Badge variant={variant}>-{drawdownStr}%</Badge>
         </CardTitle>
+        <p className="text-xs text-gray-400">
+          기준일: {stock.asOfDate ? new Date(stock.asOfDate).toLocaleDateString('ko-KR') : '알 수 없음'}
+        </p>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">

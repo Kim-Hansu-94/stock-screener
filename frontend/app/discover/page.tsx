@@ -28,8 +28,9 @@ async function computeOpportunities(
   // 하드 필터(신저가 갱신 중·박스폭 초과)를 통과한 종목만 매수 매력도와 함께 남긴다
   const dailyBars = await getDailyBars(market, passing.map((s) => s.ticker))
   const scored = passing.flatMap((s) => {
-    const signals = scoreOpportunity(dailyBars[s.ticker] ?? [])
-    return signals ? [{ summary: s, signals }] : []
+    const bars = dailyBars[s.ticker] ?? []
+    const signals = scoreOpportunity(bars)
+    return signals ? [{ summary: s, signals, asOfDate: bars.at(-1)?.date ?? null }] : []
   })
 
   if (scored.length === 0) return []
@@ -37,7 +38,7 @@ async function computeOpportunities(
   const history = await getMonthlyPriceHistory(market, scored.map(({ summary }) => summary.ticker))
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
-  return scored.map(({ summary: s, signals }) => {
+  return scored.map(({ summary: s, signals, asOfDate }) => {
     const meta = metaMap.get(s.ticker)
     const drawdown = ((s.high3y - s.current_close) / s.high3y) * 100
     return {
@@ -51,6 +52,7 @@ async function computeOpportunities(
       high3y: s.high3y,
       drawdown,
       history: history[s.ticker] ?? [],
+      asOfDate,
       ...signals,
     }
   })

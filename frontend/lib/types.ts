@@ -80,6 +80,8 @@ export interface OpportunityStockRow {
   volumeDry: boolean
   alignedMAs: boolean
   volumeTrigger: boolean
+  /** 이 카드 계산에 쓰인 최신 일봉 날짜 (YYYY-MM-DD) — 실시간 계산이라 종목마다 다를 수 있다 */
+  asOfDate: string | null
 }
 
 export interface DailyReportResult {
