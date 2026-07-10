@@ -1,26 +1,21 @@
--- S&P 500 조정 매수 탭용 테이블 (spec: docs/superpowers/specs/2026-07-10-sp500-dca-tab-design.md)
+-- S&P 500 적립 탭용 테이블 (spec v2: docs/superpowers/specs/2026-07-10-sp500-dca-tab-design.md)
+-- 전략: TIGER 미국S&P500(360750) 매월 정기 매수. 조정 정보는 참고 표시 전용.
 
--- 지수 일봉 + 계산값. stage/cycle_id는 파이프라인이 확정해 저장하고 프론트는 읽기만 한다.
+-- 지수 참고 데이터 (시장 현황 섹션). 파이프라인이 매일 upsert.
 create table if not exists sp500_daily (
   date date primary key,
   close numeric not null,
   high_52w numeric not null,
-  drawdown_pct numeric not null,
-  stage int not null check (stage between 0 and 4),
-  cycle_id int not null,
-  rsi_w numeric,          -- 주봉 RSI(14), 참고 지표
-  ma20_m_gap numeric,     -- 월봉 20이평 이격도 %
-  ma200_d_gap numeric     -- 200일선 이격도 %
+  drawdown_pct numeric not null
 );
 
--- 단계 진입 이벤트. 사이클당 단계별 1개가 불변이므로 (cycle_id, stage) PK로 upsert 멱등.
-create table if not exists sp500_signals (
-  cycle_id int not null,
-  stage int not null check (stage between 1 and 4),
+-- 매수 기록. 프론트 서버 액션이 쓰고, 파이프라인은 건드리지 않는다.
+create table if not exists sp500_purchases (
+  id bigint generated always as identity primary key,
   date date not null,
-  index_close numeric not null,
-  drawdown_pct numeric not null,
-  primary key (cycle_id, stage)
+  shares numeric not null check (shares > 0),
+  price numeric not null check (price > 0),
+  created_at timestamptz not null default now()
 );
 
 -- ETF 시세 (최신만 유지, 매일 덮어씀)
