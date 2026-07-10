@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NavLinks } from "./NavLinks";
+import { ScrollButtons } from "@/components/ScrollButtons";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,6 +37,7 @@ export default function RootLayout({
           </nav>
         </header>
         {children}
+        <ScrollButtons />
       </body>
     </html>
   );

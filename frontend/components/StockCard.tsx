@@ -23,6 +23,12 @@ interface StockCardProps {
 const STOCK_CRITERIA_COUNT = 9
 const MARKET_BEAR_CRITERION = '시장 하락장'
 
+// 현재가 대비 등락률을 부호와 함께 표시 (예: +7.2%, -4.1%)
+function formatSignedPercent(price: number, base: number): string {
+  const pct = ((price - base) / base) * 100
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
+}
+
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const diffH = Math.floor(diffMs / 3_600_000)
@@ -163,13 +169,23 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           {stop !== null && (
             <div>
               <dt className="text-gray-400">손절가</dt>
-              <dd className="text-red-500">{market === 'KR' ? `${Math.round(stop).toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}</dd>
+              <dd className="text-red-500">
+                {market === 'KR' ? `${Math.round(stop).toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}
+                {displayPrice > 0 && (
+                  <span className="ml-1 text-xs text-red-400">({formatSignedPercent(stop, displayPrice)})</span>
+                )}
+              </dd>
             </div>
           )}
           {target !== null && (
             <div>
               <dt className="text-gray-400">목표가</dt>
-              <dd className="text-green-600">{market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}</dd>
+              <dd className="text-green-600">
+                {market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}
+                {displayPrice > 0 && (
+                  <span className="ml-1 text-xs text-green-500">({formatSignedPercent(target, displayPrice)})</span>
+                )}
+              </dd>
             </div>
           )}
         </dl>

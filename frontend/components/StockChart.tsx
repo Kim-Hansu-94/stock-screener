@@ -89,8 +89,8 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
 
     if (bollinger) {
       const bbValues = bollingerBands(closes, bbWindow)
-      const bbColor = '#93c5fd'
-      const bbOpts = { color: bbColor, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false }
+      const bbColor = '#60a5fa'
+      const bbOpts = { color: bbColor, lineWidth: 2 as const, lineStyle: LineStyle.Dashed, lastValueVisible: false, priceLineVisible: false }
 
       const upperSeries = chart.addLineSeries(bbOpts)
       upperSeries.setData(
