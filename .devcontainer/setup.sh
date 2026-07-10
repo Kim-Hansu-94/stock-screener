@@ -4,6 +4,19 @@ set -e
 echo "=== Installing frontend dependencies ==="
 cd frontend && npm install && cd ..
 
+echo "=== Relocating .next cache to container-local disk ==="
+# /workspaces는 Codespaces 영속 디스크(네트워크 기반)라 쓰기 지연이 커서
+# Next.js가 "Slow filesystem detected" 경고를 띄움.
+# .next를 클라우드 컨테이너 내부의 빠른 디스크로 심볼릭 링크 (회사 PC와 무관, 전부 클라우드 내부).
+NEXT_CACHE_DIR="$HOME/.next-cache/stock-screener-frontend"
+mkdir -p "$NEXT_CACHE_DIR"
+if [ ! -L frontend/.next ]; then
+  rm -rf frontend/.next
+  ln -s "$NEXT_CACHE_DIR" frontend/.next
+fi
+# 빌드 청크가 $HOME 쪽에서 실행되면 node_modules 탐색 경로가 어긋나므로 링크 필요
+ln -sfn "$(pwd)/frontend/node_modules" "$NEXT_CACHE_DIR/node_modules"
+
 echo "=== Installing pipeline dependencies ==="
 cd pipeline && pip install -r requirements.txt && cd ..
 

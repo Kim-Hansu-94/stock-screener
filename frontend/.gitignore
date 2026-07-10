@@ -13,8 +13,8 @@
 # testing
 /coverage
 
-# next.js
-/.next/
+# next.js (심볼릭 링크인 경우도 매칭되도록 트레일링 슬래시 없음)
+/.next
 /out/
 
 # production
