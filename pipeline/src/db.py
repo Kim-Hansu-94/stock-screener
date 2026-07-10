@@ -129,3 +129,17 @@ class ScreenerDB:
         ]
         self.client.table("recommendation_history").insert(rows).execute()
         print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)
+
+    def get_sp500_latest_date(self) -> str | None:
+        result = (
+            self.client.table("sp500_daily")
+            .select("date").order("date", desc=True).limit(1).execute()
+        )
+        return result.data[0]["date"] if result.data else None
+
+    def save_sp500_daily(self, rows: list[dict]) -> None:
+        _batch_upsert(self.client, "sp500_daily", rows)
+
+    def save_sp500_etf_quotes(self, rows: list[dict]) -> None:
+        if rows:
+            self.client.table("sp500_etf_quotes").upsert(rows).execute()

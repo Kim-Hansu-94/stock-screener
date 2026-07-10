@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from . import prices_kr, prices_us
+from . import prices_kr, prices_us, sp500_monitor
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
@@ -216,6 +216,14 @@ def main() -> None:
                 })
         db.save_price_history(matched_rows)
         print(f"  → {len(matched_rows)}행 저장", flush=True)
+
+    # S&P 500 적립 탭 데이터. 실패해도 본 파이프라인 결과는 이미 저장됐으므로 계속.
+    print("S&P 500 적립 데이터 수집 중...", flush=True)
+    try:
+        sp500_monitor.run(db, today)
+        print("  → 완료", flush=True)
+    except Exception as exc:
+        print(f"  → 실패 (건너뜀): {exc}", flush=True)
 
     # 모든 히스토리 저장 후 월봉 사전 집계 MV 갱신
     print("월봉 집계(mv_monthly_ohlcv) 갱신 중...", flush=True)
