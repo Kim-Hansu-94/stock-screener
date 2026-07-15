@@ -228,6 +228,38 @@ def test_run_kr_pipeline_bear_regime_shows_top_candidates_marked_bear(monkeypatc
         assert "시장 하락장" in stock.failed_criteria
 
 
+def test_run_us_pipeline_megacap_null_sector_stock_gets_non_null_sector(monkeypatch):
+    # ASML 재현: 나스닥100에만 편입돼 sector=None인 초대형주.
+    # S&P500에 없어 섹터가 끝까지 None으로 남지만, 시총이 US_MEGA_CAP 이상이라
+    # 섹터 게이트를 통과해 스크리닝된다. 예전엔 이 None이 그대로 DB에 실려
+    # screened_stocks.sector NOT NULL 제약(23502)을 위반해 파이프라인이 죽었다.
+    universe = pd.DataFrame([
+        {"ticker": "ASML", "name": "ASML Holding N.V.", "sector": None,
+         "index_membership": "NASDAQ100"},
+    ])
+    monkeypatch.setattr(pl.universe_us, "get_us_universe", lambda: universe)
+    monkeypatch.setattr(
+        pl.prices_us, "get_us_market_caps",
+        lambda tickers: {"ASML": 6.8e11},  # ≥ US_MEGA_CAP ($2,000억)
+    )
+    monkeypatch.setattr(
+        pl.prices_us, "get_sp500_index_history",
+        lambda today, lookback_days: _index_series(100 + np.linspace(0, 100, 250)),
+    )
+    monkeypatch.setattr(
+        pl.prices_us, "get_us_stock_histories",
+        lambda tickers, today, lookback_days: {ticker: _passing_history() for ticker in tickers},
+    )
+    # 주도 섹터가 없어도(빈 리스트) 초대형주 섹터 게이트 면제로 통과해야 한다.
+    monkeypatch.setattr(pl.sectors, "leading_sectors", lambda df, top_n: [])
+
+    result = pl.run_us_pipeline(today=date(2024, 1, 2))
+
+    asml = next((s for s in result.screened_stocks if s.ticker == "ASML"), None)
+    assert asml is not None
+    assert asml.sector is not None
+
+
 def test_run_us_pipeline_returns_no_stocks_when_no_leading_sectors(monkeypatch, us_universe_df):
     monkeypatch.setattr(pl.universe_us, "get_us_universe", lambda: us_universe_df)
     monkeypatch.setattr(

@@ -108,7 +108,10 @@ def _screen_candidates(
             ScreenedStock(
                 ticker=ticker,
                 name=row["name"],
-                sector=row["sector"],
+                # 나스닥100 단독 편입 초대형주(예: ASML)는 S&P500에 없어 섹터가 None으로
+                # 남는데, 초대형주 섹터 게이트 면제로 여기까지 통과한다. screened_stocks.sector
+                # 는 NOT NULL이므로 None이면 "Unknown"으로 대체해 DB upsert 크래시를 막는다.
+                sector=row["sector"] if pd.notna(row["sector"]) else "Unknown",
                 close=float(hist["Close"].iloc[-1]),
                 market_cap=float(row["market_cap"]),
                 rsi=float(rsi(hist["Close"]).iloc[-1]),
