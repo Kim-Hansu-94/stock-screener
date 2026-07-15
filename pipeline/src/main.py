@@ -23,11 +23,22 @@ def _today_kst() -> date:
     return datetime.now(KST).date()
 
 
+def _nan_to_none(value):
+    """NaN(float)을 JSON null로 바꿔 httpx의 allow_nan=False 인코딩 실패를 방지.
+
+    universe_rows는 DataFrame이라 .fillna("")로 막히지만, screened_rows는
+    ScreenedStock 필드를 직접 옮기는 구조라 같은 방어가 없었다 — 업종 데이터가
+    NaN인 종목(예: KOSPI 대형주)이 그대로 DB upsert payload에 들어가 크래시났던 사례 있음.
+    """
+    return None if isinstance(value, float) and value != value else value
+
+
 def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
     screened_rows = [
         {
-            "ticker": s.ticker, "name": s.name, "sector": s.sector,
-            "close": s.close, "market_cap": s.market_cap, "rsi": s.rsi,
+            "ticker": s.ticker, "name": s.name, "sector": _nan_to_none(s.sector),
+            "close": _nan_to_none(s.close), "market_cap": _nan_to_none(s.market_cap),
+            "rsi": _nan_to_none(s.rsi),
             "date": s.as_of.isoformat(),
             "passed": s.passed, "failed_criteria": s.failed_criteria,
         }

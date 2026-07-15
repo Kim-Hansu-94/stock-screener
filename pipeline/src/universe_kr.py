@@ -17,12 +17,16 @@ _RETRY_WAIT_SEC = 40
 
 def _fetch_kr_universe(min_market_cap: float) -> pd.DataFrame:
     listing = fdr.StockListing("KRX")[["Code", "Name", "Market", "Marcap"]]
-    # FinanceDataReader의 KRX-DESC 스키마에서 "Industry" 컬럼이 제거되어(2026-07 확인)
-    # "Sector"만 남았다. 예전엔 KOSPI 종목의 "Sector"가 전부 NaN이라 "Industry"를
-    # 우선 사용했지만, 이제 업종 분류는 "Sector"에만 담겨 있으므로 그대로 사용한다.
-    desc = fdr.StockListing("KRX-DESC")[["Code", "Sector"]].rename(columns={"Sector": "sector"})
+    # KRX-DESC의 "Sector"는 KOSPI 종목엔 전부 NaN이고 KOSDAQ은 시장구분(벤처/우량기업부)만
+    # 담겨 실제 업종 분류가 아니다(2026-07-15 실측, 코스피 100% NaN 확인). 실제 업종 분류는
+    # "Industry"(예: "반도체 제조업")에 있으므로 이를 우선 쓰고 Sector는 fallback으로만 둔다.
+    # (한때 "Industry" 컬럼이 KeyError를 낸 적이 있었는데 그건 KRX 차단으로 응답이 깨졌던
+    # 일시적 문제였고 스키마에서 영구히 사라진 게 아니었다 — Sector 단독 사용으로 바꿨다가
+    # 코스피 초대형주 전체가 sector=NaN이 되어 DB upsert가 깨지는 회귀를 냈다.)
+    desc = fdr.StockListing("KRX-DESC")[["Code", "Industry", "Sector"]]
+    desc["sector"] = desc["Industry"].fillna(desc["Sector"])
 
-    universe = listing.merge(desc, on="Code", how="left")
+    universe = listing.merge(desc[["Code", "sector"]], on="Code", how="left")
     universe = universe.rename(columns={
         "Code": "ticker",
         "Name": "name",
