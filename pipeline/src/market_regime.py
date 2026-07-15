@@ -13,8 +13,7 @@ def determine_market_regime(close: pd.Series) -> str:
     if pd.isna(latest_sma200):
         return "bear"
 
-    latest_close = close.iloc[-1]
     latest_sma50 = sma50.iloc[-1]
-    if latest_close > latest_sma50 and latest_sma50 > latest_sma200:
+    if latest_sma50 > latest_sma200:
         return "bull"
     return "bear"

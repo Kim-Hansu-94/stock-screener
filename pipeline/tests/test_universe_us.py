@@ -15,9 +15,9 @@ FAKE_NASDAQ100_HTML = """
 <html><body>
 <table><tr><th>Other</th></tr><tr><td>irrelevant</td></tr></table>
 <table>
-<tr><th>Ticker</th><th>Company</th><th>ICB Industry</th></tr>
-<tr><td>AAPL</td><td>Apple</td><td>Technology</td></tr>
-<tr><td>PDD</td><td>PDD Holdings</td><td>Consumer Discretionary</td></tr>
+<tr><th>Symbol</th><th>Company Name</th><th>Market Cap</th></tr>
+<tr><td>AAPL</td><td>Apple</td><td>3T</td></tr>
+<tr><td>PDD</td><td>PDD Holdings</td><td>200B</td></tr>
 </table>
 </body></html>
 """
@@ -65,7 +65,7 @@ FAKE_SP600_HTML = """
 
 def _routed_get(url, **kwargs):
     resp = MagicMock()
-    if "Nasdaq-100" in url:
+    if "nasdaq-100-stocks" in url:
         resp.text = FAKE_NASDAQ100_HTML
     elif "S%26P_400" in url:
         resp.text = FAKE_SP400_HTML

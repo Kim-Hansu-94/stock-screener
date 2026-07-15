@@ -16,7 +16,6 @@ RSI_WINDOW = 14
 RSI_LOW = 40
 RSI_HIGH = 60  # raised from 55: 10-20MA zone stocks haven't cooled as far as 20MA-zone stocks
 RSI_DIRECTION_LOOKBACK = 3
-CONSECUTIVE_DOWN_THRESHOLD = 0.01  # 1% per day — minor noise is allowed, sustained drops are not
 VOLUME_DECLINE_THRESHOLD = 0.85  # recent 5d avg vol must drop to 85% of prior 20d avg (was <1.0)
 IMPULSE_LOOKBACK_DAYS = 60
 IMPULSE_MIN_GAIN = 0.15  # 선행 임팩트: 최근 60거래일 수익률 +15% 이상인 종목만
@@ -31,7 +30,6 @@ CRITERION_PULLBACK_ZONE = "눌림 구간 밖"
 CRITERION_RSI_RANGE = "RSI 범위 밖"
 CRITERION_RSI_RISING = "RSI 하락 중"
 CRITERION_VOLUME = "거래량 미감소"
-CRITERION_CONSECUTIVE_DOWN = "연속 급락"
 CRITERION_IMPULSE = "선행 상승 부족"
 CRITERION_BOUNCE = "반등 미확인"
 
@@ -102,13 +100,6 @@ def evaluate_pullback(
     )
     if not volume_declining:
         failed.append(CRITERION_VOLUME)
-
-    # Block only when both consecutive down days AND each drop exceeds threshold.
-    # Trivial noise (<1%/day) in a pullback is normal; sustained selling pressure is not.
-    d1 = (close.iloc[-2] - close.iloc[-3]) / close.iloc[-3]
-    d2 = (close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]
-    if (d1 < -CONSECUTIVE_DOWN_THRESHOLD) and (d2 < -CONSECUTIVE_DOWN_THRESHOLD):
-        failed.append(CRITERION_CONSECUTIVE_DOWN)
 
     # 선행 임팩트: 눌림목 이전에 강한 상승 파동이 있었던 종목만.
     impulse_gain = float(latest_close / close.iloc[-1 - IMPULSE_LOOKBACK_DAYS] - 1)

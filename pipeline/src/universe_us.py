@@ -108,6 +108,30 @@ def _fetch_sp_index(wiki_url: str, membership_label: str) -> pd.DataFrame:
     raise ValueError(f"{wiki_url} 에서 구성종목 테이블을 찾을 수 없음")
 
 
+def _fetch_nasdaq100() -> pd.DataFrame:
+    """나스닥 100 구성종목 추출.
+
+    Wikipedia Nasdaq-100 페이지의 구성종목 표가 삭제되어(2026-07 확인)
+    stockanalysis.com으로 대체. sector 정보는 없음 — S&P500과 겹치는 종목은
+    dedup 시 S&P500(FDR) 쪽 sector가 우선 채택되어 대부분 보존된다.
+    """
+    url = "https://stockanalysis.com/list/nasdaq-100-stocks/"
+    tables = _read_html(url)
+    for t in tables:
+        ticker_col = next(
+            (c for c in t.columns if "symbol" in str(c).lower() or "ticker" in str(c).lower()), None
+        )
+        name_col = next((c for c in t.columns if "company" in str(c).lower()), None)
+        if ticker_col and name_col:
+            return pd.DataFrame({
+                "ticker": t[ticker_col].astype(str),
+                "name": t[name_col].astype(str),
+                "sector": None,
+                "index_membership": "NASDAQ100",
+            })
+    raise ValueError(f"{url} 에서 구성종목 테이블을 찾을 수 없음")
+
+
 def get_us_korean_names() -> dict[str, str]:
     """KIS 해외주식 마스터 파일에서 티커 → 한글 종목명 매핑 반환.
 
@@ -163,9 +187,16 @@ def get_us_universe() -> pd.DataFrame:
     except Exception as e:
         print(f"  S&P 500 실패: {e}")
 
-    # 2. NASDAQ 100 + S&P 400/600 (Wikipedia) — 눌림목 스크리너 대상 지수들
+    # 2. NASDAQ 100 (stockanalysis.com) — 눌림목 스크리너 대상 지수
+    try:
+        nasdaq100 = _fetch_nasdaq100()
+        parts.append(nasdaq100)
+        print(f"  NASDAQ100: {len(nasdaq100)}개")
+    except Exception as e:
+        print(f"  NASDAQ100 실패: {e}")
+
+    # 3. S&P 400/600 (Wikipedia) — 눌림목 스크리너 대상 지수들
     for label, url in [
-        ("NASDAQ100", "https://en.wikipedia.org/wiki/Nasdaq-100"),
         ("S&P400", "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"),
         ("S&P600", "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies"),
     ]:
@@ -192,7 +223,7 @@ def get_us_universe() -> pd.DataFrame:
     universe["ticker"] = universe["ticker"].map(_normalize_ticker)
     universe = universe[universe["ticker"].str.len() > 0]
     # S&P500 → NASDAQ100 → S&P400 → S&P600 → Russell3000 순으로 중복 시 앞쪽 우선
-    # (sector 정보 보존 + 스크리너 대상 라벨이 Russell3000보다 우선)
+    # (S&P500 sector 정보 보존 + 스크리너 대상 라벨이 Russell3000보다 우선)
     universe = universe.drop_duplicates(subset="ticker", keep="first")
     print(f"  → 합산 유니버스: {len(universe)}개 (중복 제거 후)")
 
