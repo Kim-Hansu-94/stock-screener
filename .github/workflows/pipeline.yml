@@ -114,9 +114,19 @@ jobs:
           restore-keys: |
             opp-seeded-v2-
 
+      - name: Restore KR opportunity history seed marker
+        uses: actions/cache@v4
+        with:
+          path: |
+            pipeline/.kr_opp_seeded
+            pipeline/.kr_opp_seeded_tickers
+          key: kr-opp-seeded-v1-${{ steps.date.outputs.date }}
+          restore-keys: |
+            kr-opp-seeded-v1-
+
       - name: Force full backfill (seed 파일 삭제)
         if: ${{ github.event.inputs.force_backfill == 'true' }}
-        run: rm -f pipeline/.yfinance_opp_seeded pipeline/.yfinance_opp_seeded_tickers
+        run: rm -f pipeline/.yfinance_opp_seeded pipeline/.yfinance_opp_seeded_tickers pipeline/.kr_opp_seeded pipeline/.kr_opp_seeded_tickers
 
       - name: Create .env from secrets
         run: |

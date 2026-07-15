@@ -14,6 +14,9 @@ from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline
 KST = timezone(timedelta(hours=9))
 _SEED_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded"
 _SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded_tickers"
+_KR_SEED_FILE = Path(__file__).parent.parent / ".kr_opp_seeded"
+_KR_SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".kr_opp_seeded_tickers"
+_KR_OPP_LOOKBACK_DAYS = 1095  # 3년
 
 
 def _today_kst() -> date:
@@ -108,6 +111,39 @@ def _supplement_kr_price_history(
         print(f"  → {len(rows)}행 저장", flush=True)
 
 
+def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days: int) -> list[dict]:
+    """KOSPI 티커별 OHLCV를 순차 다운로드해 stock_price_history 행으로 변환.
+
+    KIS API 기반이라 미장(prices_us.get_opportunity_histories)처럼 배치 다운로드가
+    불가능 — backfill_kr_opportunities.py와 동일하게 티커당 개별 호출한다.
+    """
+    rows: list[dict] = []
+    failed = 0
+    for ticker in tickers:
+        try:
+            hist = prices_kr.get_kr_stock_history(ticker, today, lookback_days)
+        except Exception:
+            failed += 1
+            continue
+        if hist.empty:
+            continue
+        clean = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+        for idx, row in clean.iterrows():
+            rows.append({
+                "ticker": ticker,
+                "market": "KR",
+                "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"]),
+            })
+    if failed:
+        print(f"  KR 기회 종목 다운로드 실패 {failed}개", flush=True)
+    return rows
+
+
 def main() -> None:
     load_dotenv()
     today = _today_kst()
@@ -119,6 +155,44 @@ def main() -> None:
     # 최근 추천 종목 중 오늘 스크리너를 통과하지 못한 종목의 가격 보완
     # (통과하지 못하면 당일 종가가 stock_price_history에 누락되어 +1~+3일 수익률 계산 불가)
     _supplement_kr_price_history(db, kr_result, today)
+
+    # KOSPI 기회 종목 히스토리 (미래먹거리 횡보·조정 스크리너용)
+    # .kr_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단 — US 패턴과 동일
+    print("KR 기회 종목 히스토리 수집 중...", flush=True)
+    kr_opp_mask = kr_result.universe_df["index_membership"] == "KOSPI"
+    kr_opp_tickers = kr_result.universe_df.loc[kr_opp_mask, "ticker"].tolist()
+
+    if _KR_SEED_FILE.exists():
+        kr_seed_date = date.fromisoformat(_KR_SEED_FILE.read_text().strip())
+        kr_incremental_days = max((today - kr_seed_date).days + 7, 14)
+        kr_seeded_tickers = (
+            set(json.loads(_KR_SEEDED_TICKERS_FILE.read_text()))
+            if _KR_SEEDED_TICKERS_FILE.exists()
+            else set()
+        )
+        kr_new_tickers = [t for t in kr_opp_tickers if t not in kr_seeded_tickers]
+        kr_existing_tickers = [t for t in kr_opp_tickers if t in kr_seeded_tickers]
+
+        kr_opp_rows: list[dict] = []
+        if kr_new_tickers:
+            print(f"  신규/미시드 {len(kr_new_tickers)}개 3년 전체 다운로드...", flush=True)
+            kr_opp_rows.extend(
+                _collect_kr_opportunity_rows(kr_new_tickers, today, _KR_OPP_LOOKBACK_DAYS)
+            )
+        if kr_existing_tickers:
+            print(f"  기존 {len(kr_existing_tickers)}개 증분 ({kr_incremental_days}일)...", flush=True)
+            kr_opp_rows.extend(
+                _collect_kr_opportunity_rows(kr_existing_tickers, today, kr_incremental_days)
+            )
+    else:
+        print("  최초 실행: 3년 전체 다운로드", flush=True)
+        kr_opp_rows = _collect_kr_opportunity_rows(kr_opp_tickers, today, _KR_OPP_LOOKBACK_DAYS)
+
+    if kr_opp_rows:
+        db.save_price_history(kr_opp_rows)
+    print(f"  → {len(kr_opp_rows)}행 저장", flush=True)
+    _KR_SEED_FILE.write_text(today.isoformat())
+    _KR_SEEDED_TICKERS_FILE.write_text(json.dumps(kr_opp_tickers))
 
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))

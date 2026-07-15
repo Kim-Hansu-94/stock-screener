@@ -10,6 +10,11 @@ from pipeline.src.pipeline import MarketPipelineResult, ScreenedStock
 def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     # as_of는 wall-clock today(2024-01-02)와 일부러 다르게 주어, 파이프라인이
     # 실제 마지막 봉의 날짜를 그대로 전달하는지(= today로 덮어쓰지 않는지) 검증한다.
+    # universe_df는 main.py가 index_membership 컬럼을 참조하므로(KOSPI 기회 종목
+    # 필터링) production과 동일한 형태(ticker/name/sector/index_membership)로 채운다.
+    kr_universe_df = pd.DataFrame([
+        {"ticker": "005930", "name": "Samsung", "sector": "Semiconductors", "index_membership": "KOSPI"},
+    ])
     kr_result = MarketPipelineResult(
         market="KR", regime="bull", as_of=date(2024, 1, 3), leading_sectors=["Semiconductors"],
         screened_stocks=[ScreenedStock(ticker="005930", name="Samsung", sector="Semiconductors",
@@ -18,6 +23,7 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
             {"Open": [100], "High": [105], "Low": [99], "Close": [104], "Volume": [1000]},
             index=pd.to_datetime(["2024-01-02"]),
         )},
+        universe_df=kr_universe_df,
     )
     # universe_df는 main.py가 index_membership 컬럼을 참조하므로(기회 종목/Russell 분류)
     # production과 동일한 형태(ticker/name/sector/index_membership)로 채워야 한다.
@@ -35,6 +41,7 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "_SEED_FILE", tmp_path / ".yfinance_opp_seeded")
     monkeypatch.setattr(main_module, "_SEEDED_TICKERS_FILE", tmp_path / ".yfinance_opp_seeded_tickers")
     monkeypatch.setattr(main_module.prices_us, "get_opportunity_histories", lambda *a, **k: {})
+    monkeypatch.setattr(main_module.prices_kr, "get_kr_stock_history", lambda *a, **k: pd.DataFrame())
 
     fake_db = MagicMock()
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))
