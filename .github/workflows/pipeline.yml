@@ -23,6 +23,13 @@ on:
         description: '기회 종목 3년 전체 재다운로드 (seed 파일 삭제)'
         type: boolean
         default: false
+      mode:
+        description: '실행 범위 (full=전체, kr_only=한국장 마감 후 KR만 갱신)'
+        type: choice
+        options:
+          - full
+          - kr_only
+        default: full
 
 jobs:
   precheck:
@@ -137,7 +144,8 @@ jobs:
 
       - name: Run pipeline
         working-directory: pipeline
-        run: python -m src.main
+        # mode=kr_only(저녁 pg_cron 트리거)일 때만 --kr-only. schedule/기본은 전체 실행.
+        run: python -m src.main ${{ github.event.inputs.mode == 'kr_only' && '--kr-only' || '' }}
 
       - name: Revalidate frontend cache
         # DB 갱신 완료 직후 사이트의 전체 캐시(screener-data 태그)를 한 번에 무효화해

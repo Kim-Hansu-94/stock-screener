@@ -30,7 +30,7 @@ select vault.create_secret('<PAT>', 'github_pat_actions');
 --     (select id from vault.secrets where name = 'github_pat_actions'),
 --     '<새 PAT>');
 
--- 2) 매일 06:30 KST(21:30 UTC, 일~목 UTC = 월~금 KST 새벽)에 파이프라인 트리거
+-- 2) 매일 06:30 KST(21:30 UTC, 일~목 UTC = 월~금 KST 새벽)에 파이프라인 트리거 (전체 실행)
 select cron.schedule(
   'trigger-stock-pipeline',
   '30 21 * * 0-4',
@@ -44,6 +44,29 @@ select cron.schedule(
       'Content-Type', 'application/json'
     ),
     body := '{"ref":"master"}'::jsonb
+  )
+  $$
+);
+
+-- 2b) 매일 16:30 KST(07:30 UTC, 월~금)에 KR 전용 파이프라인 트리거.
+--   06:30 실행은 한국장 개장(09:00) 전이라 KR 데이터가 늘 전날치로 밀린다.
+--   한국장 마감(15:30) 직후 이 트리거가 당일 KR 종가를 반영한다.
+--   inputs.mode=kr_only → 워크플로가 `python -m src.main --kr-only`로 실행해
+--   미장(이 시각엔 폐장) 블록과 무거운 yfinance/Russell 수집을 건너뛴다.
+--   workflow_dispatch라 precheck(18h 중복 방지)를 항상 통과한다.
+select cron.schedule(
+  'trigger-stock-pipeline-kr-evening',
+  '30 7 * * 1-5',
+  $$
+  select net.http_post(
+    url := 'https://api.github.com/repos/Kim-Hansu-94/stock-screener/actions/workflows/pipeline.yml/dispatches',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'github_pat_actions'),
+      'Accept', 'application/vnd.github+json',
+      'User-Agent', 'supabase-pg-cron',
+      'Content-Type', 'application/json'
+    ),
+    body := '{"ref":"master","inputs":{"mode":"kr_only"}}'::jsonb
   )
   $$
 );

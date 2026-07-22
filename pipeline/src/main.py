@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -156,6 +157,13 @@ def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days:
 
 
 def main() -> None:
+    # --kr-only: 한국장 마감(15:30 KST) 이후 저녁 실행 전용 모드.
+    # 정규 06:30 KST 실행은 한국장 개장 전이라 KR 데이터가 항상 전날치로 밀린다.
+    # 저녁에 이 모드로 한 번 더 돌려 당일 KR 종가를 반영하되, 이 시각엔 미장이
+    # 닫혀 있어(다음 개장 22:30~) US 데이터는 아침과 동일하므로 US 블록 전체와
+    # 무거운 yfinance/Russell 수집을 건너뛴다.
+    kr_only = "--kr-only" in sys.argv
+
     load_dotenv()
     today = _today_kst()
     db = ScreenerDB.from_env()
@@ -204,6 +212,14 @@ def main() -> None:
     print(f"  → {len(kr_opp_rows)}행 저장", flush=True)
     _KR_SEED_FILE.write_text(today.isoformat())
     _KR_SEEDED_TICKERS_FILE.write_text(json.dumps(kr_opp_tickers))
+
+    if kr_only:
+        # 월봉 사전 집계 MV를 갱신해 방금 저장한 KR 당일 데이터가 화면(월봉 차트·
+        # 횡보/조정 탭)에 즉시 반영되게 한 뒤, US 블록 없이 종료한다.
+        print("KR 전용 실행 — 월봉 집계(mv_monthly_ohlcv) 갱신 후 종료", flush=True)
+        db.refresh_monthly_ohlcv()
+        print("  → 완료", flush=True)
+        return
 
     us_result = run_us_pipeline(today)
     db.save_pipeline_result(_to_db_result(us_result, today))
