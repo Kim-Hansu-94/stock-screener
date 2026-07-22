@@ -62,6 +62,15 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
   )
 }
 
+// PostgREST caps a single response at max_rows=1000. A flat `.in(tickers)` query over
+// ~100 bars/ticker silently truncates once ~10+ tickers are requested, and because the
+// rows come back date-ascending the truncation drops each ticker's most RECENT bars —
+// leaving some tickers under the 65-bar minimum that computeStopTarget/isUptrend needs,
+// which then reports "손익비 —" for stocks that actually qualify. So we batch the ticker
+// list and page each batch to completion, exactly like getDailyBars.
+const PRICE_HISTORY_BATCH = 15
+const PRICE_HISTORY_PAGE = 1000
+
 export async function getPriceHistoryByTicker(
   market: Market,
   tickers: string[],
@@ -74,18 +83,35 @@ export async function getPriceHistoryByTicker(
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
   const supabase = createServerSupabaseClient()
-  const { data, error } = await supabase
-    .from('stock_price_history')
-    .select('ticker, market, date, open, high, low, close, volume')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: true })
 
-  if (error) throw new Error(error.message)
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += PRICE_HISTORY_BATCH) {
+    batches.push(tickers.slice(i, i + PRICE_HISTORY_BATCH))
+  }
+
+  const fetchBatch = async (batch: string[]): Promise<PriceHistoryRow[]> => {
+    const rows: PriceHistoryRow[] = []
+    for (let from = 0; ; from += PRICE_HISTORY_PAGE) {
+      const { data, error } = await supabase
+        .from('stock_price_history')
+        .select('ticker, market, date, open, high, low, close, volume')
+        .eq('market', market)
+        .in('ticker', batch)
+        .gte('date', cutoffStr)
+        .order('ticker', { ascending: true })
+        .order('date', { ascending: true })
+        .range(from, from + PRICE_HISTORY_PAGE - 1)
+      if (error) throw new Error(error.message)
+      rows.push(...((data ?? []) as PriceHistoryRow[]))
+      if (!data || data.length < PRICE_HISTORY_PAGE) break
+    }
+    return rows
+  }
+
+  const batchResults = await Promise.all(batches.map(fetchBatch))
 
   const grouped: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (data ?? []) as PriceHistoryRow[]) {
+  for (const row of batchResults.flat()) {
     grouped[row.ticker] ??= []
     grouped[row.ticker].push(row)
   }
