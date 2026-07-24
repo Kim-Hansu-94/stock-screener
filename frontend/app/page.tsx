@@ -12,7 +12,7 @@ import {
   getUniverseNameMap,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
-import { computeStopTarget, filterBarsAsOf } from '@/lib/risk'
+import { computeStopTarget, filterBarsAsOf, type RiskReason } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
@@ -32,7 +32,7 @@ async function fetchUsdKrwRate(): Promise<number> {
   }
 }
 
-type RiskInfo = { stop: number | null; target: number | null; riskReward: number | null }
+type RiskInfo = { stop: number | null; target: number | null; riskReward: number | null; reason: RiskReason }
 
 interface MarketSectionData {
   market: Market
@@ -179,6 +179,7 @@ async function HomeContent() {
                         stop={section.riskMap[stock.ticker]?.stop ?? null}
                         target={section.riskMap[stock.ticker]?.target ?? null}
                         riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
+                        riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
                       />
                     ))}
                   </div>
