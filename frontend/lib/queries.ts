@@ -76,6 +76,11 @@ export async function getPriceHistoryByTicker(
   tickers: string[],
   days = 150,
 ): Promise<Record<string, PriceHistoryRow[]>> {
+  // 홈 화면에서 가장 무거운 쿼리(전 종목 × ~150일 봉)인데 데이터는 하루 한 번만
+  // 바뀐다. 다른 쿼리들과 같은 태그로 캐시해 매 방문마다 Supabase 왕복을 없앤다.
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   if (tickers.length === 0) return {}
 
   const cutoff = new Date()
