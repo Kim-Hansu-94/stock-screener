@@ -1,13 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
-import { StockChart } from './StockChart'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
 import type { RiskReason } from '@/lib/risk'
 import { translateSector } from '@/lib/sectorMap'
+
+// lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
+// 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
+const StockChart = dynamic(
+  () => import('./StockChart').then((mod) => mod.StockChart),
+  { ssr: false, loading: () => <p className="py-8 text-center text-xs text-gray-400">차트 로딩 중...</p> },
+)
 
 interface StockCardProps {
   stock: ScreenedStockRow
@@ -18,6 +25,9 @@ interface StockCardProps {
   target: number | null
   riskReward: number | null
   riskReason: RiskReason
+  // 실시간 가격은 StockCardGrid가 섹션 단위로 일괄 조회해 내려준다.
+  livePrice: number | null
+  priceLoading: boolean
 }
 
 // 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록,
@@ -49,10 +59,8 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, livePrice, priceLoading }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [livePrice, setLivePrice] = useState<number | null>(null)
-  const [priceLoading, setPriceLoading] = useState(true)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
   const changePercent = calculateChangePercent(history.map((row) => row.close))
@@ -62,22 +70,6 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
   // 하락장 날은 시장 조건 1개가 더해져 분모가 10, 평상시엔 9.
   const totalCriteria =
     STOCK_CRITERIA_COUNT + (stock.failed_criteria.includes(MARKET_BEAR_CRITERION) ? 1 : 0)
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(`/api/prices?tickers=${stock.ticker}&market=${market}`)
-        if (!res.ok) return
-        const data = (await res.json()) as Record<string, number | null>
-        setLivePrice(data[stock.ticker] ?? null)
-      } catch {
-        // silently fall back to stored close
-      } finally {
-        setPriceLoading(false)
-      }
-    }
-    load()
-  }, [stock.ticker, market])
 
   useEffect(() => {
     if (!isExpanded || news !== null) return
