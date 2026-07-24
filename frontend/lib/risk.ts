@@ -33,15 +33,34 @@ function computeSMA(bars: PriceBar[], period: number): number | null {
   return slice.reduce((sum, b) => sum + b.close, 0) / period
 }
 
+// Why computeStopTarget declined to produce a risk-reward figure. Surfaced to the UI
+// so a blank "—" reads as an explained state ("not in an uptrend") rather than an error.
+export type RiskReason =
+  | 'ok'
+  | 'insufficient_data' // fewer bars than the SMA60+lookback trend check needs
+  | 'below_sma60' // price sits under its 60-day average (no established uptrend)
+  | 'sma60_falling' // 60-day average is flat/declining, not rising
+  | 'stop_above_entry' // structural stop landed at or above entry (no measurable risk)
+
+type TrendStatus = Extract<RiskReason, 'insufficient_data' | 'below_sma60' | 'sma60_falling'> | 'uptrend'
+
+// Granular version of the uptrend gate: same thresholds as isUptrend, but reports WHICH
+// condition failed so callers can explain a declined risk-reward instead of just nulling it.
+export function trendStatus(bars: PriceBar[]): TrendStatus {
+  if (bars.length < TREND_SMA_PERIOD + TREND_LOOKBACK) return 'insufficient_data'
+  const smaNow = computeSMA(bars, TREND_SMA_PERIOD)
+  const smaPrior = computeSMA(bars.slice(0, -TREND_LOOKBACK), TREND_SMA_PERIOD)
+  if (smaNow === null || smaPrior === null) return 'insufficient_data'
+  const latestClose = bars.at(-1)!.close
+  if (latestClose <= smaNow) return 'below_sma60'
+  if (smaNow <= smaPrior) return 'sma60_falling'
+  return 'uptrend'
+}
+
 // Requires price above a rising SMA60 so a downtrending stock's tight ATR stop
 // doesn't produce a misleadingly high risk-reward ratio (RR ignores trend direction otherwise)
 export function isUptrend(bars: PriceBar[]): boolean {
-  if (bars.length < TREND_SMA_PERIOD + TREND_LOOKBACK) return false
-  const smaNow = computeSMA(bars, TREND_SMA_PERIOD)
-  const smaPrior = computeSMA(bars.slice(0, -TREND_LOOKBACK), TREND_SMA_PERIOD)
-  if (smaNow === null || smaPrior === null) return false
-  const latestClose = bars.at(-1)!.close
-  return latestClose > smaNow && smaNow > smaPrior
+  return trendStatus(bars) === 'uptrend'
 }
 
 // Plain "still above its 60-day average" check, for re-evaluating a position already
@@ -94,9 +113,13 @@ const STOP_BUFFER_ATR_MULT = 0.5
 export function computeStopTarget(
   bars: PriceBar[],
   entry: number,
-): { stop: number | null; target: number | null; riskReward: number | null } {
-  if (bars.length < 10 || !isUptrend(bars)) {
-    return { stop: null, target: null, riskReward: null }
+): { stop: number | null; target: number | null; riskReward: number | null; reason: RiskReason } {
+  if (bars.length < 10) {
+    return { stop: null, target: null, riskReward: null, reason: 'insufficient_data' }
+  }
+  const trend = trendStatus(bars)
+  if (trend !== 'uptrend') {
+    return { stop: null, target: null, riskReward: null, reason: trend }
   }
 
   const recent20 = bars.slice(-20)
@@ -109,7 +132,7 @@ export function computeStopTarget(
   // Take the tighter (higher) of the two stops
   const rawStop = Math.max(swingStop, atrStop)
 
-  if (rawStop >= entry) return { stop: null, target: null, riskReward: null }
+  if (rawStop >= entry) return { stop: null, target: null, riskReward: null, reason: 'stop_above_entry' }
   const stop = rawStop
   const risk = entry - stop
 
@@ -129,5 +152,5 @@ export function computeStopTarget(
     target = entry + 2 * risk
   }
 
-  return { stop, target, riskReward: (target - entry) / risk }
+  return { stop, target, riskReward: (target - entry) / risk, reason: 'ok' }
 }

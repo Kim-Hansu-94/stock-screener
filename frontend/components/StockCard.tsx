@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from './StockChart'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
+import type { RiskReason } from '@/lib/risk'
 import { translateSector } from '@/lib/sectorMap'
 
 interface StockCardProps {
@@ -16,6 +17,16 @@ interface StockCardProps {
   stop: number | null
   target: number | null
   riskReward: number | null
+  riskReason: RiskReason
+}
+
+// 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록,
+// 대부분은 "상승추세 미형성" 계열이라 계산을 생략한 정상 상태임을 설명한다.
+const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
+  below_sma60: '추세 미형성 · 60일선 아래',
+  sma60_falling: '추세 둔화 · 60일 평균 하락',
+  insufficient_data: '데이터 부족',
+  stop_above_entry: '손절 산출 불가',
 }
 
 // 종목 단위 눌림목 조건 개수 — pipeline/src/screener.py의 CRITERION_* 9개와 동기 유지.
@@ -38,7 +49,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [livePrice, setLivePrice] = useState<number | null>(null)
   const [priceLoading, setPriceLoading] = useState(true)
@@ -162,9 +173,15 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           </div>
           <div>
             <dt className="text-gray-400">손익비</dt>
-            <dd className={`font-semibold ${riskReward === null ? 'text-gray-400' : riskReward >= 2.0 ? 'text-green-600' : riskReward >= 1.5 ? 'text-amber-500' : 'text-red-500'}`}>
-              {riskReward !== null ? `${riskReward.toFixed(2)}R` : '—'}
-            </dd>
+            {riskReward !== null ? (
+              <dd className={`font-semibold ${riskReward >= 2.0 ? 'text-green-600' : riskReward >= 1.5 ? 'text-amber-500' : 'text-red-500'}`}>
+                {riskReward.toFixed(2)}R
+              </dd>
+            ) : (
+              <dd className="text-xs text-gray-400">
+                {riskReason === 'ok' ? '—' : RISK_REASON_LABEL[riskReason]}
+              </dd>
+            )}
           </div>
           {stop !== null && (
             <div>
