@@ -160,10 +160,33 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
     return <p className="text-sm text-gray-500">차트 데이터가 없습니다.</p>
   }
 
+  const legendMaSet = monthly ? MONTHLY_MOVING_AVERAGES : DAILY_MOVING_AVERAGES
+  const maUnit = monthly ? '개월선' : '일선'
+
   return (
     <div>
+      <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+        {legendMaSet.map(({ window, color }) => (
+          <span key={window} className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-3.5 rounded-full" style={{ backgroundColor: color }} />
+            {window}
+            {maUnit}
+          </span>
+        ))}
+        {bollinger && (
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-3.5" style={{ borderTop: '2px dashed #60a5fa' }} />
+            볼린저밴드
+          </span>
+        )}
+      </div>
       <div ref={containerRef} />
-      {rsi && <div ref={rsiRef} className="mt-1" />}
+      {rsi && (
+        <>
+          <p className="mt-1 text-[11px] text-gray-500">RSI ({monthly ? 6 : 14})</p>
+          <div ref={rsiRef} />
+        </>
+      )}
     </div>
   )
 }
