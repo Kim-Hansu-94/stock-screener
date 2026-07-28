@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from '@/components/StockChart'
 import type {
   DailyReportResult,
@@ -87,7 +88,7 @@ export function DailyReport() {
       {visible.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {visible.map((stock) => (
-            <DailyResultCard key={stock.ticker} stock={stock} />
+            <DailyResultCard key={stock.ticker} stock={stock} usdKrwRate={data.usdKrwRate} />
           ))}
         </div>
       )}
@@ -143,7 +144,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-function DailyResultCard({ stock }: { stock: DailyReportResult }) {
+function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdKrwRate: number }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
@@ -204,6 +205,10 @@ function DailyResultCard({ stock }: { stock: DailyReportResult }) {
           <div>
             <dt className="text-xs text-gray-400">현재가</dt>
             <dd>{latestClose != null ? `$${latestClose.toFixed(2)}` : '-'}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">시가총액</dt>
+            <dd>{stock.marketCap != null ? formatKrwAmount(stock.marketCap * usdKrwRate) : '—'}</dd>
           </div>
         </dl>
         <div ref={sentinelRef} className="mt-4 min-h-80">

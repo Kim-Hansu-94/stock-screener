@@ -102,11 +102,14 @@ create table if not exists stock_universe (
   name_kr           text,
   sector            text,
   index_membership  text,
+  -- 시가총액 (KR: 원, US: 달러). 파이프라인이 매일 갱신하며, 미확인 종목은 null.
+  market_cap        numeric,
   updated_at        text not null,
   primary key (ticker, market)
 );
 -- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS name_kr text;
+-- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS market_cap numeric;
 
 -- 월봉 OHLCV 집계 (Supabase max_rows=1000 우회용 RPC)
 create or replace function get_monthly_ohlcv(

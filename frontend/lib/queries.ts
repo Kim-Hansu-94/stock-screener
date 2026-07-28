@@ -6,7 +6,21 @@ export const SCREENER_CACHE_TAG = 'screener-data'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
 import type { DailyBar } from './opportunityScore'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow } from './types'
+
+// 미국 시총·주가의 원화 환산용 환율. 실패 시 대략적인 고정값으로 폴백.
+export async function fetchUsdKrwRate(): Promise<number> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW')
+    const json = await res.json()
+    return json.rates.KRW as number
+  } catch {
+    return 1380
+  }
+}
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {
   'use cache'
@@ -176,6 +190,30 @@ export async function getUniverseNameMap(
   const map: Record<string, string> = {}
   for (const row of (data ?? []) as { ticker: string; name_kr: string | null }[]) {
     if (row.name_kr) map[row.ticker] = row.name_kr
+  }
+  return map
+}
+
+// stock_universe에서 시가총액만 조회. market_cap 컬럼이 아직 없는 배포(ALTER 미실행)나
+// 파이프라인 미갱신 상태에서도 화면이 깨지지 않도록, 실패하면 빈 맵을 반환한다.
+export async function getUniverseMarketCaps(
+  market: Market,
+  tickers: string[],
+): Promise<MarketCapMap> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  if (tickers.length === 0) return {}
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_universe')
+    .select('ticker, market_cap')
+    .eq('market', market)
+    .in('ticker', tickers)
+  if (error) return {}
+  const map: MarketCapMap = {}
+  for (const row of (data ?? []) as { ticker: string; market_cap: number | null }[]) {
+    if (row.market_cap != null && row.market_cap > 0) map[row.ticker] = row.market_cap
   }
   return map
 }

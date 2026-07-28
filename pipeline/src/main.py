@@ -65,6 +65,14 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
     if not result.universe_df.empty:
         clean_universe = result.universe_df.fillna("")
         for _, row in clean_universe.iterrows():
+            # fillna("")를 거치면 NaN이 ""가 되므로 숫자 컬럼은 여기서 다시 걸러낸다.
+            # 시총 미확인 종목(US 유니버스의 0.0 채움 포함)은 null로 저장해
+            # 프론트가 "—"로 표시할 수 있게 한다.
+            raw_cap = row.get("market_cap")
+            try:
+                market_cap = float(raw_cap) if raw_cap not in ("", None) and float(raw_cap) > 0 else None
+            except (TypeError, ValueError):
+                market_cap = None
             universe_rows.append({
                 "ticker": row["ticker"],
                 "market": result.market,
@@ -72,6 +80,7 @@ def _to_db_result(result: MarketPipelineResult, today: date) -> PipelineResult:
                 "name_kr": row.get("name_kr", ""),
                 "sector": row.get("sector", ""),
                 "index_membership": row.get("index_membership", ""),
+                "market_cap": market_cap,
                 "updated_at": today.isoformat(),
             })
 

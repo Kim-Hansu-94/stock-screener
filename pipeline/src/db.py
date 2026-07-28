@@ -61,7 +61,18 @@ class ScreenerDB:
             _batch_upsert(self.client, "stock_price_history", result.price_history)
 
         if result.universe_metadata:
-            _batch_upsert(self.client, "stock_universe", result.universe_metadata)
+            try:
+                _batch_upsert(self.client, "stock_universe", result.universe_metadata)
+            except Exception as exc:
+                # market_cap 컬럼이 아직 없는 배포(ALTER TABLE 미실행)에서도 파이프라인이
+                # 죽지 않도록, 해당 컬럼만 빼고 한 번 더 시도한다.
+                if "market_cap" not in str(exc):
+                    raise
+                stripped = [
+                    {k: v for k, v in row.items() if k != "market_cap"}
+                    for row in result.universe_metadata
+                ]
+                _batch_upsert(self.client, "stock_universe", stripped)
 
     def save_price_history(self, rows: list[dict]) -> None:
         if rows:

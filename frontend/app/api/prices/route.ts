@@ -1,32 +1,35 @@
 import type { NextRequest } from 'next/server'
+import { cacheLife } from 'next/cache'
 import YahooFinance from 'yahoo-finance2'
 const yahooFinance = new YahooFinance()
 
 const KIS_BASE = 'https://openapi.koreainvestment.com:9443'
 
-// Module-level token cache (persists within a serverless function instance)
-let kisToken: { value: string; expiresAt: number } | null = null
-
-async function getKisAccessToken(): Promise<string | null> {
-  if (kisToken && kisToken.expiresAt > Date.now() + 60_000) {
-    return kisToken.value
-  }
+// KIS 접근토큰은 24시간 유효한데, 모듈 변수 캐시는 서버리스 인스턴스가 새로 뜰 때마다
+// (콜드 스타트) 사라져 방문마다 재발급되는 일이 잦았다. 'use cache'는 인스턴스 간
+// 공유되는 데이터 캐시에 저장되므로 재발급이 시간당 1회 수준으로 줄어든다.
+// 실패 시 throw해 실패 결과가 캐시에 남지 않게 한다 (다음 호출이 재시도).
+async function issueKisToken(): Promise<string> {
+  'use cache'
+  cacheLife('hours')
   const appKey = process.env.KIS_APP_KEY
   const appSecret = process.env.KIS_APP_SECRET
-  if (!appKey || !appSecret) return null
+  if (!appKey || !appSecret) throw new Error('KIS credentials not configured')
 
+  const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ grant_type: 'client_credentials', appkey: appKey, appsecret: appSecret }),
+  })
+  if (!res.ok) throw new Error(`KIS token request failed: ${res.status}`)
+  const data = (await res.json()) as { access_token?: string }
+  if (!data.access_token) throw new Error('KIS token response missing access_token')
+  return data.access_token
+}
+
+async function getKisAccessToken(): Promise<string | null> {
   try {
-    const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ grant_type: 'client_credentials', appkey: appKey, appsecret: appSecret }),
-    })
-    if (!res.ok) return null
-    const data = (await res.json()) as { access_token?: string }
-    const token = data.access_token
-    if (!token) return null
-    kisToken = { value: token, expiresAt: Date.now() + 23 * 3_600_000 }
-    return token
+    return await issueKisToken()
   } catch {
     return null
   }

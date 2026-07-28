@@ -1,6 +1,23 @@
+import { cacheLife } from 'next/cache'
+import YahooFinance from 'yahoo-finance2'
 import { createServerSupabaseClient } from '@/lib/supabase'
-import { getMonthlyPriceHistory } from '@/lib/queries'
+import { fetchUsdKrwRate, getMonthlyPriceHistory } from '@/lib/queries'
 import type { DailyReportResult, DailyReportResponse } from '@/lib/types'
+
+// 추천 종목(러셀 3000 포함)은 stock_universe에 없는 종목이 있어 시총을 Yahoo에서
+// 일괄 조회한다. 탭을 열 때마다 재조회하지 않도록 시간 단위로 캐시. 실패 시 throw해
+// 캐시에 남기지 않고, 호출부에서 빈 맵으로 폴백한다.
+async function getUsMarketCaps(tickers: string[]): Promise<Record<string, number>> {
+  'use cache'
+  cacheLife('hours')
+  const yf = new YahooFinance()
+  const quotes = (await yf.quote(tickers)) as unknown as Array<{ symbol?: string; marketCap?: number }>
+  const map: Record<string, number> = {}
+  for (const q of quotes) {
+    if (q.symbol && typeof q.marketCap === 'number' && q.marketCap > 0) map[q.symbol] = q.marketCap
+  }
+  return map
+}
 
 export async function GET() {
   const supabase = createServerSupabaseClient()
@@ -52,7 +69,11 @@ export async function GET() {
       .map((r) => [r.ticker, r.name_kr]),
   )
 
-  const histByTicker = await getMonthlyPriceHistory('US', tickers)
+  const [histByTicker, usdKrwRate, marketCaps] = await Promise.all([
+    getMonthlyPriceHistory('US', tickers),
+    fetchUsdKrwRate(),
+    getUsMarketCaps(tickers).catch(() => ({}) as Record<string, number>),
+  ])
 
   const results: DailyReportResult[] = matchData.map((m) => ({
     ticker: m.ticker,
@@ -65,10 +86,12 @@ export async function GET() {
     matchedBottom: m.matched_bottom,
     volumeTriggered: m.volume_triggered,
     history: histByTicker[m.ticker] ?? [],
+    marketCap: marketCaps[m.ticker] ?? null,
   }))
 
   return Response.json({
     generatedAt: matchData[0]?.computed_at ?? new Date().toISOString(),
     results,
+    usdKrwRate,
   } satisfies DailyReportResponse)
 }

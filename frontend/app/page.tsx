@@ -1,10 +1,9 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { cacheLife, cacheTag } from 'next/cache'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCardGrid } from '@/components/StockCardGrid'
 import {
-  SCREENER_CACHE_TAG,
+  fetchUsdKrwRate,
   getLatestRegime,
   getLeadingSectors,
   getPriceHistoryByTicker,
@@ -18,19 +17,6 @@ const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
   { market: 'US', label: '미국', universe: 'S&P 1500 · NASDAQ 100' },
 ]
-
-async function fetchUsdKrwRate(): Promise<number> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-  try {
-    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=KRW')
-    const json = await res.json()
-    return json.rates.KRW as number
-  } catch {
-    return 1380
-  }
-}
 
 type RiskInfo = { stop: number | null; target: number | null; riskReward: number | null; reason: RiskReason }
 
