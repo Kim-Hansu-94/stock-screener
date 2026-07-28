@@ -15,21 +15,39 @@ function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
 }
 
 // 보유/감시 종목이 횡보·조정 스크리너 기준(매수 매력도)에 도달했는지 매일 보여주는 카드.
-// 기준을 새로 통과한 날은 파이프라인이 GitHub 이슈로도 알린다 (watchlist.py).
+// 파이프라인(watchlist.py)이 아침·저녁 실행마다 평가해 갱신한다.
 export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
   if (rows.length === 0) return null
 
+  const anyQualified = rows.some((row) => row.qualified)
+
   return (
-    <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section
+      className={`space-y-3 rounded-xl border bg-white p-5 shadow-sm ${
+        anyQualified ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-gray-200'
+      }`}
+    >
       <div>
-        <h2 className="text-base font-semibold text-gray-900">감시 종목</h2>
+        <h2 className="text-base font-semibold text-gray-900">
+          감시 종목
+          {anyQualified && (
+            <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">
+              📈 매수 신호 발생
+            </span>
+          )}
+        </h2>
         <p className="mt-0.5 text-xs text-gray-400">
-          횡보·조정 스크리너 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 평가합니다.
-          기준을 새로 통과하면 GitHub 이슈로 알림이 갑니다.
+          횡보·조정 스크리너 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 아침·저녁 평가합니다.
+          기준을 통과하면 이 카드가 초록색으로 바뀝니다.
         </p>
       </div>
       {rows.map((row) => (
-        <div key={`${row.market}-${row.ticker}`} className="rounded-lg border border-gray-100 p-3">
+        <div
+          key={`${row.market}-${row.ticker}`}
+          className={`rounded-lg border p-3 ${
+            row.qualified ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-100'
+          }`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-semibold text-gray-900">
               {row.name || row.ticker}{' '}
