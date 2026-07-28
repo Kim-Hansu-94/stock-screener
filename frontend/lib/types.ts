@@ -51,6 +51,9 @@ export interface UniverseStockRow {
   updated_at: string
 }
 
+/** 시가총액 조회 결과 (KR: 원, US: 달러). 컬럼 미배포·미수집이면 값이 없다. */
+export type MarketCapMap = Record<string, number>
+
 export interface SimilarStockResult {
   ticker: string
   name: string
@@ -86,6 +89,8 @@ export interface OpportunityStockRow {
   volumeTrigger: boolean
   /** 이 카드 계산에 쓰인 최신 일봉 날짜 (YYYY-MM-DD) — 실시간 계산이라 종목마다 다를 수 있다 */
   asOfDate: string | null
+  /** 시가총액 (KR: 원, US: 달러). 미수집이면 null. */
+  marketCap: number | null
 }
 
 export interface DailyReportResult {
@@ -99,11 +104,15 @@ export interface DailyReportResult {
   matchedBottom: string          // e.g. "하락률 67% · 저점 유지 28일 · 거래량 +45%"
   volumeTriggered: boolean
   history: PriceHistoryRow[]
+  /** 시가총액 (달러). 조회 실패 시 null. */
+  marketCap: number | null
 }
 
 export interface DailyReportResponse {
   generatedAt: string
   results: DailyReportResult[]
+  /** 시총 원화 환산용 환율 */
+  usdKrwRate: number
 }
 
 export interface NewsArticle {

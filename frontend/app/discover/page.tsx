@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars } from '@/lib/queries'
+import { fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps } from '@/lib/queries'
 import { scoreOpportunity } from '@/lib/opportunityScore'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
@@ -35,7 +35,11 @@ async function computeOpportunities(
 
   if (scored.length === 0) return []
 
-  const history = await getMonthlyPriceHistory(market, scored.map(({ summary }) => summary.ticker))
+  const finalTickers = scored.map(({ summary }) => summary.ticker)
+  const [history, marketCaps] = await Promise.all([
+    getMonthlyPriceHistory(market, finalTickers),
+    getUniverseMarketCaps(market, finalTickers),
+  ])
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
   return scored.map(({ summary: s, signals, asOfDate }) => {
@@ -53,6 +57,7 @@ async function computeOpportunities(
       drawdown,
       history: history[s.ticker] ?? [],
       asOfDate,
+      marketCap: marketCaps[s.ticker] ?? null,
       ...signals,
     }
   })
@@ -78,6 +83,8 @@ async function DiscoverContent() {
   let opportunities: OpportunityStockRow[] = []
   let opportunityError: string | null = null
 
+  const usdKrwRate = await fetchUsdKrwRate()
+
   try {
     opportunities = await loadOpportunities()
   } catch (cause) {
@@ -88,6 +95,7 @@ async function DiscoverContent() {
     <DiscoverTabs
       opportunities={opportunities}
       opportunityError={opportunityError}
+      usdKrwRate={usdKrwRate}
     />
   )
 }

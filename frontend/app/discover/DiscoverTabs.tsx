@@ -6,6 +6,7 @@ import { SimilaritySearch } from './SimilaritySearch'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { translateSector, broadSector } from '@/lib/sectorMap'
+import { formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
@@ -20,9 +21,11 @@ const TABS: { id: Tab; label: string }[] = [
 export function DiscoverTabs({
   opportunities,
   opportunityError,
+  usdKrwRate,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
+  usdKrwRate: number
 }) {
   const [tab, setTab] = useState<Tab>('report')
   const [sectorFilter, setSectorFilter] = useState<string | null>(null)
@@ -149,7 +152,7 @@ export function DiscoverTabs({
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {filteredOpportunities.map((stock) => (
-                <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} />
+                <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} usdKrwRate={usdKrwRate} />
               ))}
             </div>
           )}
@@ -167,7 +170,7 @@ function formatRelativeTime(iso: string): string {
   return `${Math.floor(diffH / 24)}일 전`
 }
 
-function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
+function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; usdKrwRate: number }) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
@@ -246,6 +249,14 @@ function OpportunityCard({ stock }: { stock: OpportunityStockRow }) {
           <div>
             <dt className="text-xs text-gray-400">3년 고점</dt>
             <dd>{formatPrice(stock.high3y)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">시가총액</dt>
+            <dd>
+              {stock.marketCap != null
+                ? formatKrwAmount(stock.market === 'KR' ? stock.marketCap : stock.marketCap * usdKrwRate)
+                : '—'}
+            </dd>
           </div>
         </dl>
         <div className="mt-3 flex flex-wrap gap-1.5">
