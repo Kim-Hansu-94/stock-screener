@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { LeadingSectors } from '@/components/LeadingSectors'
-import { StockCardGrid } from '@/components/StockCardGrid'
+import { StockCard } from '@/components/StockCard'
 import {
   fetchUsdKrwRate,
   getLatestRegime,
@@ -154,18 +154,21 @@ async function HomeContent() {
                       후보이며, 어떤 조건이 미달인지 카드에 표시됩니다. 참고용으로만 보세요.
                     </p>
                   )}
-                  <StockCardGrid
-                    market={section.market}
-                    usdKrwRate={usdKrwRate}
-                    cards={section.stocks.map((stock) => ({
-                      stock,
-                      history: section.priceHistory[stock.ticker] ?? [],
-                      stop: section.riskMap[stock.ticker]?.stop ?? null,
-                      target: section.riskMap[stock.ticker]?.target ?? null,
-                      riskReward: section.riskMap[stock.ticker]?.riskReward ?? null,
-                      riskReason: section.riskMap[stock.ticker]?.reason ?? ('insufficient_data' as const),
-                    }))}
-                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {section.stocks.map((stock) => (
+                      <StockCard
+                        key={stock.ticker}
+                        stock={stock}
+                        history={section.priceHistory[stock.ticker] ?? []}
+                        market={section.market}
+                        usdKrwRate={usdKrwRate}
+                        stop={section.riskMap[stock.ticker]?.stop ?? null}
+                        target={section.riskMap[stock.ticker]?.target ?? null}
+                        riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
+                        riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
+                      />
+                    ))}
+                  </div>
                 </>
               )}
             </>
