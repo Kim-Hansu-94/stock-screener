@@ -11,6 +11,7 @@ from . import prices_kr, prices_us, sp500_monitor
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
+from .watchlist import run_watchlist
 
 KST = timezone(timedelta(hours=9))
 _SEED_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded"
@@ -221,6 +222,9 @@ def main() -> None:
     print(f"  → {len(kr_opp_rows)}행 저장", flush=True)
     _KR_SEED_FILE.write_text(today.isoformat())
     _KR_SEEDED_TICKERS_FILE.write_text(json.dumps(kr_opp_tickers))
+
+    # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
+    run_watchlist(db, today)
 
     if kr_only:
         # 월봉 사전 집계 MV를 갱신해 방금 저장한 KR 당일 데이터가 화면(월봉 차트·

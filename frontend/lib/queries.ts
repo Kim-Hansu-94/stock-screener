@@ -6,7 +6,22 @@ export const SCREENER_CACHE_TAG = 'screener-data'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
 import type { DailyBar } from './opportunityScore'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow, WatchlistStatusRow } from './types'
+
+// 감시 종목(보유 종목) 상태. 테이블 미생성(CREATE TABLE 미실행) 상태에서도
+// 홈 화면이 깨지지 않도록 실패 시 빈 배열을 반환한다.
+export async function getWatchlistStatus(): Promise<WatchlistStatusRow[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('watchlist_status')
+    .select('*')
+    .order('ticker', { ascending: true })
+  if (error) return []
+  return (data ?? []) as WatchlistStatusRow[]
+}
 
 // 미국 시총·주가의 원화 환산용 환율. 실패 시 대략적인 고정값으로 폴백.
 export async function fetchUsdKrwRate(): Promise<number> {

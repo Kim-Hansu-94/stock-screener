@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
+import { WatchlistCard } from '@/components/WatchlistCard'
 import {
   fetchUsdKrwRate,
   getLatestRegime,
@@ -9,6 +10,7 @@ import {
   getPriceHistoryByTicker,
   getScreenedStocks,
   getUniverseNameMap,
+  getWatchlistStatus,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 import { computeStopTarget, filterBarsAsOf, type RiskReason } from '@/lib/risk'
@@ -115,13 +117,15 @@ function RegimeCriteria({ regime }: { regime: Regime | null }) {
 
 async function HomeContent() {
   await connection()
-  const [sections, usdKrwRate] = await Promise.all([
+  const [sections, usdKrwRate, watchlist] = await Promise.all([
     Promise.all(MARKETS.map(({ market, label, universe }) => loadMarketSection(market, label, universe))),
     fetchUsdKrwRate(),
+    getWatchlistStatus(),
   ])
 
   return (
     <>
+      <WatchlistCard rows={watchlist} />
       {sections.map((section) => (
         <section key={section.market} className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div>
