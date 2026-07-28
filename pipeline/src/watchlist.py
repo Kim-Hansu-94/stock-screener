@@ -2,18 +2,14 @@
 
 횡보·조정 스크리너와 동일한 기준(frontend/lib/opportunityScore.ts의 하드 필터·
 매수 매력도 점수를 그대로 포팅)으로 감시 종목을 매일 평가해 watchlist_status에
-저장한다. 기준을 "새로" 통과한 날(직전 평가는 미통과)에는 GitHub 이슈를 만들어
-저장소 소유자에게 이메일 알림이 가게 한다.
+저장한다. 결과는 홈 화면 "감시 종목" 카드(WatchlistCard)에 표시된다.
 
 숫자 상수를 바꿀 때는 frontend/lib/opportunityScore.ts와 반드시 함께 바꿀 것.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import date, timedelta
-
-import requests
 
 from .db import ScreenerDB
 
@@ -206,60 +202,6 @@ def _fetch_bars(db: ScreenerDB, ticker: str, market: str, today: date) -> list[d
     ]
 
 
-def _notify_github_issue(name: str, ticker: str, status: dict) -> None:
-    """감시 종목이 기준을 새로 통과한 날 GitHub 이슈 생성 → 소유자 이메일 알림.
-
-    GITHUB_TOKEN/GITHUB_REPOSITORY가 없거나(로컬 실행) API가 실패해도
-    파이프라인은 계속 진행한다 — 알림은 부가 기능이지 필수 단계가 아니다.
-    """
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        print("  GITHUB_TOKEN/GITHUB_REPOSITORY 미설정 → 이슈 알림 생략", flush=True)
-        return
-
-    checks = [
-        ("저점 유지", f"{status['days_since_low']}일"),
-        ("VCP 변동성 수축", "✓" if status["vcp"] else "✗"),
-        ("저점 높이기", "✓" if status["higher_lows"] else "✗"),
-        ("거래량 소진", "✓" if status["volume_dry"] else "✗"),
-        ("이평 정배열", "✓" if status["aligned_mas"] else "✗"),
-        ("거래량 트리거", "⚡" if status["volume_trigger"] else "—"),
-    ]
-    body_lines = [
-        f"**{name}({ticker})** 이(가) 횡보·조정 스크리너 기준을 통과했습니다.",
-        "",
-        f"- 매수 매력도: **{round(status['score'] * 100)}점**",
-        f"- 3년 고점 대비 조정폭: {status['drawdown']:.1f}%",
-        "",
-        "| 항목 | 상태 |",
-        "|---|---|",
-    ]
-    body_lines += [f"| {k} | {v} |" for k, v in checks]
-    body_lines += ["", "사이트 종목발굴 → 횡보 조정 종목 탭에서 차트를 확인하세요."]
-
-    try:
-        res = requests.post(
-            f"https://api.github.com/repos/{repo}/issues",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-            },
-            json={
-                "title": f"📈 감시 종목 매수 신호: {name}({ticker})",
-                "body": "\n".join(body_lines),
-                "labels": ["watchlist-alert"],
-            },
-            timeout=30,
-        )
-        if res.status_code == 201:
-            print(f"  → 알림 이슈 생성: {res.json().get('html_url', '')}", flush=True)
-        else:
-            print(f"  → 이슈 생성 실패 ({res.status_code}): {res.text[:200]}", flush=True)
-    except Exception as exc:  # noqa: BLE001
-        print(f"  → 이슈 생성 실패: {exc}", flush=True)
-
-
 def run_watchlist(db: ScreenerDB, today: date) -> None:
     if not WATCHLIST:
         return
@@ -268,16 +210,6 @@ def run_watchlist(db: ScreenerDB, today: date) -> None:
         try:
             bars = _fetch_bars(db, ticker, market, today)
             status = evaluate_watch(bars)
-
-            prev = (
-                db.client.table("watchlist_status")
-                .select("qualified")
-                .eq("ticker", ticker)
-                .eq("market", market)
-                .maybe_single()
-                .execute()
-            )
-            prev_qualified = bool(prev.data["qualified"]) if prev and prev.data else False
 
             db.client.table("watchlist_status").upsert({
                 "ticker": ticker,
@@ -289,9 +221,6 @@ def run_watchlist(db: ScreenerDB, today: date) -> None:
 
             label = "통과 ✓" if status["qualified"] else f"대기 ({status['reason']})"
             print(f"  {name}({ticker}): {label}", flush=True)
-
-            if status["qualified"] and not prev_qualified:
-                _notify_github_issue(name, ticker, status)
         except Exception as exc:  # noqa: BLE001
             # 테이블 미생성 등으로 실패해도 파이프라인 본체는 계속 진행
             print(f"  {name}({ticker}) 평가 실패: {exc}", flush=True)
