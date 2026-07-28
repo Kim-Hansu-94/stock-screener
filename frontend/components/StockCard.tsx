@@ -25,9 +25,6 @@ interface StockCardProps {
   target: number | null
   riskReward: number | null
   riskReason: RiskReason
-  // 실시간 가격은 StockCardGrid가 섹션 단위로 일괄 조회해 내려준다.
-  livePrice: number | null
-  priceLoading: boolean
 }
 
 // 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록,
@@ -59,7 +56,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, livePrice, priceLoading }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
@@ -81,18 +78,10 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
       .finally(() => setNewsLoading(false))
   }, [isExpanded, newsQuery, news])
 
-  const displayPrice = livePrice ?? stock.close
-  const isLive = livePrice !== null
-
   const formatPrice = (price: number) =>
     market === 'US'
       ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${Math.round(price * usdKrwRate).toLocaleString('ko-KR')}원`
       : `${price.toLocaleString('ko-KR')}원`
-
-  const pipelinePrice =
-    market === 'US'
-      ? `$${stock.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      : `${stock.close.toLocaleString('ko-KR')}원`
 
   const marketCapDisplay =
     market === 'US' ? formatKrwAmount(stock.market_cap * usdKrwRate) : formatKrwAmount(stock.market_cap)
@@ -140,16 +129,8 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
       <CardContent>
         <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
           <div>
-            <dt className="flex items-center gap-1 text-gray-400">
-              현재가
-              {!priceLoading && isLive && (
-                <span className="rounded bg-green-50 px-1 text-xs font-medium text-green-600">실시간</span>
-              )}
-            </dt>
-            <dd className={priceLoading ? 'text-gray-300' : ''}>{priceLoading ? '...' : formatPrice(displayPrice)}</dd>
-            {!priceLoading && isLive && (
-              <dd className="mt-0.5 text-xs text-gray-400">파이프라인: {pipelinePrice}</dd>
-            )}
+            <dt className="text-gray-400">종가</dt>
+            <dd>{formatPrice(stock.close)}</dd>
           </div>
           <div>
             <dt className="text-gray-400">시가총액</dt>
@@ -180,8 +161,8 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
               <dt className="text-gray-400">손절가</dt>
               <dd className="text-red-500">
                 {market === 'KR' ? `${Math.round(stop).toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}
-                {displayPrice > 0 && (
-                  <span className="ml-1 text-xs text-red-400">({formatSignedPercent(stop, displayPrice)})</span>
+                {stock.close > 0 && (
+                  <span className="ml-1 text-xs text-red-400">({formatSignedPercent(stop, stock.close)})</span>
                 )}
               </dd>
             </div>
@@ -191,8 +172,8 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
               <dt className="text-gray-400">목표가</dt>
               <dd className="text-green-600">
                 {market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}
-                {displayPrice > 0 && (
-                  <span className="ml-1 text-xs text-green-500">({formatSignedPercent(target, displayPrice)})</span>
+                {stock.close > 0 && (
+                  <span className="ml-1 text-xs text-green-500">({formatSignedPercent(target, stock.close)})</span>
                 )}
               </dd>
             </div>
