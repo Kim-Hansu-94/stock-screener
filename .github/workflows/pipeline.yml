@@ -68,6 +68,10 @@ jobs:
     if: needs.precheck.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    permissions:
+      contents: read
+      # 감시 종목(watchlist)이 매수 기준을 새로 통과한 날 알림 이슈를 만들기 위함
+      issues: write
 
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +149,9 @@ jobs:
       - name: Run pipeline
         working-directory: pipeline
         # mode=kr_only(저녁 pg_cron 트리거)일 때만 --kr-only. schedule/기본은 전체 실행.
+        # GITHUB_TOKEN: 감시 종목 매수 신호 발생 시 알림 이슈 생성용 (watchlist.py)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -m src.main ${{ github.event.inputs.mode == 'kr_only' && '--kr-only' || '' }}
 
       - name: Revalidate frontend cache

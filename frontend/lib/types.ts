@@ -54,6 +54,27 @@ export interface UniverseStockRow {
 /** 시가총액 조회 결과 (KR: 원, US: 달러). 컬럼 미배포·미수집이면 값이 없다. */
 export type MarketCapMap = Record<string, number>
 
+/** 감시 종목(보유 종목) 상태 — pipeline/src/watchlist.py가 매 실행마다 갱신 */
+export interface WatchlistStatusRow {
+  ticker: string
+  market: Market
+  name: string | null
+  date: string
+  qualified: boolean
+  reason: string | null
+  drawdown: number | null
+  in_drawdown_band: boolean | null
+  no_new_low: boolean | null
+  box_ok: boolean | null
+  score: number | null
+  days_since_low: number | null
+  vcp: boolean | null
+  higher_lows: boolean | null
+  volume_dry: boolean | null
+  aligned_mas: boolean | null
+  volume_trigger: boolean | null
+}
+
 export interface SimilarStockResult {
   ticker: string
   name: string

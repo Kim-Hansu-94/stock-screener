@@ -111,6 +111,29 @@ create table if not exists stock_universe (
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS name_kr text;
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS market_cap numeric;
 
+-- 감시 종목(보유 종목) 상태. 파이프라인이 매 실행마다 횡보·조정 스크리너 기준으로
+-- 평가해 최신 상태 1행/종목을 유지한다 (pipeline/src/watchlist.py).
+create table if not exists watchlist_status (
+  ticker            text not null,
+  market            text not null check (market in ('KR', 'US')),
+  name              text,
+  date              date not null,          -- 마지막 평가일
+  qualified         boolean not null,       -- 횡보·조정 탭 진입 조건 통과 여부
+  reason            text,                   -- 미통과 사유 (통과 시 null)
+  drawdown          numeric,                -- 3년 고점 대비 조정폭 %
+  in_drawdown_band  boolean,                -- 조정폭 20~60% 범위
+  no_new_low        boolean,                -- 최근 20일 내 신저가 갱신 없음
+  box_ok            boolean,                -- 60일 박스폭 30% 이내 (횡보 확인)
+  score             numeric,                -- 매수 매력도 0~1 (통과 시)
+  days_since_low    int,
+  vcp               boolean,
+  higher_lows       boolean,
+  volume_dry        boolean,
+  aligned_mas       boolean,
+  volume_trigger    boolean,
+  primary key (ticker, market)
+);
+
 -- 월봉 OHLCV 집계 (Supabase max_rows=1000 우회용 RPC)
 create or replace function get_monthly_ohlcv(
   p_market  text,
