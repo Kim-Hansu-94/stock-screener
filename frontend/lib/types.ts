@@ -54,6 +54,25 @@ export interface UniverseStockRow {
 /** 시가총액 조회 결과 (KR: 원, US: 달러). 컬럼 미배포·미수집이면 값이 없다. */
 export type MarketCapMap = Record<string, number>
 
+/** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
+export interface FundamentalsRow {
+  ticker: string
+  market: Market
+  updated_at: string
+  fiscal_year_latest: number | null
+  fiscal_year_prior: number | null
+  revenue_latest: number | null
+  revenue_prior: number | null
+  operating_income_latest: number | null
+  operating_income_prior: number | null
+  net_income_latest: number | null
+  net_income_prior: number | null
+  eps_latest: number | null
+  eps_prior: number | null
+  per: number | null
+  pbr: number | null
+}
+
 /** 감시 종목(보유 종목) 상태 — pipeline/src/watchlist.py가 매 실행마다 갱신 */
 export interface WatchlistStatusRow {
   ticker: string
@@ -120,6 +139,8 @@ export interface OpportunityStockRow {
   longTermDeclining: boolean
   /** 장기 데이터가 실제로 확보됐는지 (false면 장기 수치를 신뢰하면 안 됨) */
   hasLongHistory: boolean
+  /** 실적 요약 — 미수집이면 null */
+  fundamentals: FundamentalsRow | null
 }
 
 export interface DailyReportResult {

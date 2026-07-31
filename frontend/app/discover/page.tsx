@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
-import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps, getLongMonthlyHistory } from '@/lib/queries'
+import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps, getLongMonthlyHistory, getFundamentals } from '@/lib/queries'
 import { scoreOpportunity } from '@/lib/opportunityScore'
 import { buildLongTermContext } from '@/lib/longTermContext'
 import type { Market, OpportunityStockRow } from '@/lib/types'
@@ -38,10 +38,11 @@ async function computeOpportunities(
   if (scored.length === 0) return []
 
   const finalTickers = scored.map(({ summary }) => summary.ticker)
-  const [history, marketCaps, longMonthly] = await Promise.all([
+  const [history, marketCaps, longMonthly, fundamentals] = await Promise.all([
     getMonthlyPriceHistory(market, finalTickers),
     getUniverseMarketCaps(market, finalTickers),
     getLongMonthlyHistory(market, finalTickers),
+    getFundamentals(market, finalTickers),
   ])
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
@@ -74,6 +75,7 @@ async function computeOpportunities(
       longTermDrawdown: longTerm.longTermDrawdown,
       longTermDeclining: longTerm.longTermDeclining,
       hasLongHistory: longTerm.hasLongHistory,
+      fundamentals: fundamentals[s.ticker] ?? null,
       ...signals,
     }
   })

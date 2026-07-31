@@ -127,6 +127,28 @@ create table if not exists stock_long_monthly (
   primary key (ticker, market, month_start)
 );
 
+-- 실적 요약. "주가가 빠질 때 실적도 같이 빠졌는가"를 판정하기 위한 최소 집합으로,
+-- 가치 함정(실적 동반 하락)과 밸류에이션 조정(실적은 유지)을 구분하는 데 쓴다.
+-- 분기 단위로만 바뀌므로 종목당 30일 주기로 갱신한다 (pipeline/src/fundamentals.py).
+create table if not exists stock_fundamentals (
+  ticker                   text not null,
+  market                   text not null check (market in ('KR', 'US')),
+  updated_at               date not null,
+  fiscal_year_latest       int,
+  fiscal_year_prior        int,
+  revenue_latest           numeric,
+  revenue_prior            numeric,
+  operating_income_latest  numeric,
+  operating_income_prior   numeric,
+  net_income_latest        numeric,
+  net_income_prior         numeric,
+  eps_latest               numeric,
+  eps_prior                numeric,
+  per                      numeric,
+  pbr                      numeric,
+  primary key (ticker, market)
+);
+
 -- 감시 종목(보유 종목) 상태. 파이프라인이 매 실행마다 횡보·조정 스크리너 기준으로
 -- 평가해 최신 상태 1행/종목을 유지한다 (pipeline/src/watchlist.py).
 create table if not exists watchlist_status (

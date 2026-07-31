@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from . import prices_kr, prices_us, sp500_monitor
 from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
+from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 from .watchlist import run_watchlist
@@ -226,6 +227,8 @@ def main() -> None:
 
     # 장기(10년) 월봉 — 미시드 종목만 1회 수집하므로 정상 운영 중엔 비용이 거의 없다
     seed_long_monthly(db, "KR", kr_opp_tickers, today)
+    # 실적 요약 — 30일 지난 종목만, 1회 실행당 상한을 두고 나눠 채운다
+    refresh_fundamentals(db, "KR", kr_opp_tickers, today)
 
     # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
     run_watchlist(db, today)
@@ -293,6 +296,7 @@ def main() -> None:
     _SEEDED_TICKERS_FILE.write_text(json.dumps(opp_tickers))
 
     seed_long_monthly(db, "US", opp_tickers, today)
+    refresh_fundamentals(db, "US", opp_tickers, today)
 
     # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.
     # KIS API(순차)는 스크리너 대상(S&P1500+NASDAQ100)만 받으므로 나머지는 여기서 별도 처리.
