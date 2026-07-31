@@ -19,7 +19,10 @@ WATCHLIST: list[tuple[str, str, str]] = [
 ]
 
 # ── frontend/lib/opportunityScore.ts 와 동일한 상수 ──
-MIN_BARS = 120
+# 저점 높이기는 120일씩 두 구간(총 1년)을 비교한다 — 60일 대비로는 장기 하락 중의
+# 중간 반등도 통과해 계단식 하락의 계단참을 바닥으로 오인했다.
+HIGHER_LOW_WINDOW = 120
+MIN_BARS = HIGHER_LOW_WINDOW * 2
 YEAR_WINDOW = 252
 RECENT_LOW_WINDOW = 20
 BOX_WINDOW = 60
@@ -125,9 +128,9 @@ def evaluate_watch(bars: list[dict]) -> dict:
     vcp_ratio = _atr(bars, 20) / atr60 if atr60 > 0 else 1.0
     vcp_score = _clamp01((1 - vcp_ratio) / 0.4)
 
-    recent60_low = min(b["low"] for b in bars[-60:])
-    prior60_low = min(b["low"] for b in bars[-120:-60])
-    higher_lows = recent60_low > prior60_low
+    recent_low = min(b["low"] for b in bars[-HIGHER_LOW_WINDOW:])
+    prior_low = min(b["low"] for b in bars[-HIGHER_LOW_WINDOW * 2 : -HIGHER_LOW_WINDOW])
+    higher_lows = recent_low > prior_low
 
     vol_ratio = _mean(volumes[-20:]) / _mean(volumes[-60:-20])
     if vol_ratio < 0.5:

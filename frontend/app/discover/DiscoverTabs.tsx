@@ -103,6 +103,11 @@ export function DiscoverTabs({
             <p className="mt-2 text-xs text-emerald-700">
               <span className="font-medium">매수 등급 기준:</span> {BUY_GRADE_CRITERIA}
             </p>
+            <p className="mt-2 text-xs text-amber-700">
+              <span className="font-medium">읽을 때 주의:</span> 점수는 최근 6~12개월 가격 움직임만 봅니다.
+              조정폭 판정 기준인 &ldquo;3년 고점&rdquo;이 이미 하락 중턱일 수 있어, 카드에 10년 고점 대비
+              하락률을 함께 표시하고 장기 하락 종목에는 경고를 붙입니다. 차트도 10년 구간으로 보여줍니다.
+            </p>
             <p className="mt-2 text-xs text-gray-400">
               <span className="font-medium text-gray-500">데이터 출처:</span> 매일 아침 파이프라인이 갱신하는 Supabase 시세로 계산하며, 갱신 완료 즉시 다른 탭과 함께 반영됩니다.
               각 카드의 &ldquo;기준일&rdquo;은 그 종목 계산에 쓰인 최신 거래일입니다.
@@ -257,6 +262,19 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
             <dt className="text-xs text-gray-400">3년 고점</dt>
             <dd>{formatPrice(stock.high3y)}</dd>
           </div>
+          {stock.hasLongHistory && stock.longTermHigh != null && (
+            <div>
+              <dt className="text-xs text-gray-400">10년 고점</dt>
+              <dd className={stock.longTermDeclining ? 'text-amber-700' : undefined}>
+                {formatPrice(stock.longTermHigh)}
+                {stock.longTermDrawdown != null && (
+                  <span className="ml-1 text-xs text-gray-400">
+                    ({stock.longTermDrawdown.toFixed(0)}% 아래)
+                  </span>
+                )}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-xs text-gray-400">시가총액</dt>
             <dd>
@@ -288,7 +306,19 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
           {stock.volumeTrigger && (
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">거래량 급증</span>
           )}
+          {stock.longTermDeclining && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+              ⚠️ 장기 하락 추세
+            </span>
+          )}
         </div>
+        {stock.longTermDeclining && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            3년 고점이 10년 고점보다 한참 낮습니다. 최근 몇 달의 바닥 다지기 모양과 별개로,
+            여러 해에 걸친 하락이 이어지는 중일 수 있습니다. 점수는 최근 구간만 보므로
+            아래 10년 차트로 큰 그림을 먼저 확인하세요.
+          </p>
+        )}
         <div ref={sentinelRef} className="mt-4 min-h-80">
           {chartReady && (
             <StockChart monthly bollinger rsi preAggregated history={stock.history} />

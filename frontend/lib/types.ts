@@ -112,6 +112,14 @@ export interface OpportunityStockRow {
   asOfDate: string | null
   /** 시가총액 (KR: 원, US: 달러). 미수집이면 null. */
   marketCap: number | null
+  /** 장기(10년) 고점. 3년 창 밖의 진짜 최고점 — 미시드면 null */
+  longTermHigh: number | null
+  /** 장기 고점 대비 하락률 % */
+  longTermDrawdown: number | null
+  /** 3년 고점이 장기 고점보다 크게 낮음 = 여러 해에 걸친 하락 */
+  longTermDeclining: boolean
+  /** 장기 데이터가 실제로 확보됐는지 (false면 장기 수치를 신뢰하면 안 됨) */
+  hasLongHistory: boolean
 }
 
 export interface DailyReportResult {

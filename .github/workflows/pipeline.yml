@@ -131,6 +131,16 @@ jobs:
           restore-keys: |
             kr-opp-seeded-v1-
 
+      - name: Restore long-term monthly seed marker
+        # 10년 월봉은 과거 확정값이라 종목당 1회만 수집한다. 이 마커가 사라지면
+        # 전 종목을 다시 받게 되므로 캐시로 유지한다.
+        uses: actions/cache@v4
+        with:
+          path: pipeline/.long_monthly_seeded_tickers
+          key: long-monthly-v1-${{ steps.date.outputs.date }}
+          restore-keys: |
+            long-monthly-v1-
+
       - name: Force full backfill (seed 파일 삭제)
         if: ${{ github.event.inputs.force_backfill == 'true' }}
         run: rm -f pipeline/.yfinance_opp_seeded pipeline/.yfinance_opp_seeded_tickers pipeline/.kr_opp_seeded pipeline/.kr_opp_seeded_tickers

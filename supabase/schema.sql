@@ -111,6 +111,22 @@ create table if not exists stock_universe (
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS name_kr text;
 -- ALTER TABLE stock_universe ADD COLUMN IF NOT EXISTS market_cap numeric;
 
+-- 장기(10년) 월봉. stock_price_history는 3년치만 보관하므로 그 이전 구간의 고점을
+-- 볼 수 없어, 2021년 고점 같은 진짜 최고점이 조정폭 계산에서 통째로 빠졌다.
+-- 과거 월봉은 확정된 값이라 변하지 않으므로 신규 종목만 1회 시드하고,
+-- 최근 3년은 mv_monthly_ohlcv와 합쳐 읽는다 (pipeline/src/long_history.py).
+create table if not exists stock_long_monthly (
+  ticker       text not null,
+  market       text not null check (market in ('KR', 'US')),
+  month_start  date not null,
+  open         numeric,
+  high         numeric,
+  low          numeric,
+  close        numeric,
+  volume       bigint,
+  primary key (ticker, market, month_start)
+);
+
 -- 감시 종목(보유 종목) 상태. 파이프라인이 매 실행마다 횡보·조정 스크리너 기준으로
 -- 평가해 최신 상태 1행/종목을 유지한다 (pipeline/src/watchlist.py).
 create table if not exists watchlist_status (

@@ -1,8 +1,9 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
-import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps } from '@/lib/queries'
+import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps, getLongMonthlyHistory } from '@/lib/queries'
 import { scoreOpportunity } from '@/lib/opportunityScore'
+import { buildLongTermContext } from '@/lib/longTermContext'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
@@ -37,15 +38,25 @@ async function computeOpportunities(
   if (scored.length === 0) return []
 
   const finalTickers = scored.map(({ summary }) => summary.ticker)
-  const [history, marketCaps] = await Promise.all([
+  const [history, marketCaps, longMonthly] = await Promise.all([
     getMonthlyPriceHistory(market, finalTickers),
     getUniverseMarketCaps(market, finalTickers),
+    getLongMonthlyHistory(market, finalTickers),
   ])
   const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
   return scored.map(({ summary: s, signals, asOfDate }) => {
     const meta = metaMap.get(s.ticker)
     const drawdown = ((s.high3y - s.current_close) / s.high3y) * 100
+    const recentMonthly = history[s.ticker] ?? []
+    const currentClose = recentMonthly.at(-1)?.close ?? s.current_close
+    // 3년 창 밖 고점까지 반영한 장기 맥락. 차트도 병합 시리즈를 쓴다.
+    const longTerm = buildLongTermContext(
+      longMonthly[s.ticker] ?? [],
+      recentMonthly,
+      currentClose,
+      s.high3y,
+    )
     return {
       ticker: s.ticker,
       name: meta?.name ?? s.ticker,
@@ -53,12 +64,16 @@ async function computeOpportunities(
       sector: meta?.sector ?? null,
       index_membership: meta?.index_membership ?? null,
       market,
-      currentClose: history[s.ticker]?.at(-1)?.close ?? s.current_close,
+      currentClose,
       high3y: s.high3y,
       drawdown,
-      history: history[s.ticker] ?? [],
+      history: longTerm.monthly.length > 0 ? longTerm.monthly : recentMonthly,
       asOfDate,
       marketCap: marketCaps[s.ticker] ?? null,
+      longTermHigh: longTerm.longTermHigh,
+      longTermDrawdown: longTerm.longTermDrawdown,
+      longTermDeclining: longTerm.longTermDeclining,
+      hasLongHistory: longTerm.hasLongHistory,
       ...signals,
     }
   })

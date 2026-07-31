@@ -59,6 +59,24 @@ def test_shallow_drawdown_rejected_by_band():
     assert "조정폭" in status["reason"]
 
 
+def test_mid_decline_bounce_is_not_higher_lows():
+    """2년 하락 중 마지막 6개월만 반등한 형태 — 1년 단위 비교로는 저점 상승이 아니다.
+
+    프론트(opportunityScore.test.ts)의 동일 시나리오와 짝을 이룬다.
+    """
+    bars: list[dict] = []
+    for i in range(140):
+        bars.append(_bar(i, 300 - (i * 100) / 139, spread=3.0))
+    for i in range(60):
+        bars.append(_bar(140 + i, 200 - (i * 45) / 59, spread=2.0, volume=900.0))
+    for i in range(60):
+        bars.append(_bar(200 + i, 160 + (i * 30) / 59, spread=2.0, volume=700.0))
+
+    status = evaluate_watch(bars)
+    assert status["qualified"] is True, status["reason"]
+    assert status["higher_lows"] is False
+
+
 def test_formed_base_qualifies_with_signals():
     status = evaluate_watch(_base_forming_bars())
     assert status["qualified"] is True, status["reason"]
