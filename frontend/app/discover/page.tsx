@@ -1,111 +1,91 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
-import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps, getLongMonthlyHistory, getFundamentals } from '@/lib/queries'
-import { scoreOpportunity } from '@/lib/opportunityScore'
+import {
+  SCREENER_CACHE_TAG,
+  fetchUsdKrwRate,
+  getFundamentals,
+  getLongMonthlyHistory,
+  getMonthlyPriceHistory,
+  getOpportunitySnapshot,
+  getUniverseMarketCaps,
+} from '@/lib/queries'
 import { buildLongTermContext } from '@/lib/longTermContext'
-import type { Market, OpportunityStockRow } from '@/lib/types'
+import type { Market, OpportunitySnapshotRow, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 
-const MIN_DRAWDOWN = 20
-const MAX_DRAWDOWN = 60
-
-async function computeOpportunities(
-  universe: { ticker: string; name: string; name_kr?: string; sector: string | null; index_membership: string | null }[],
+// 조정폭 집계·일봉 수집·점수 계산은 파이프라인이 미리 끝내 opportunity_snapshot에
+// 넣어둔다(pipeline/src/opportunities.py). 여기서는 그 결과에 차트·실적·시총만
+// 붙인다 — 예전처럼 요청마다 유니버스 전체를 훑지 않는다.
+async function attachDetails(
+  rows: OpportunitySnapshotRow[],
   market: Market,
 ): Promise<OpportunityStockRow[]> {
-  if (universe.length === 0) return []
+  if (rows.length === 0) return []
+  const tickers = rows.map((r) => r.ticker)
 
-  const tickers = universe.map((u) => u.ticker)
-  const summaries = await getOpportunityDrawdowns(market, tickers)
-
-  const passing = summaries.filter((s) => {
-    if (s.high3y <= 0) return false
-    const dd = ((s.high3y - s.current_close) / s.high3y) * 100
-    return dd >= MIN_DRAWDOWN && dd <= MAX_DRAWDOWN
-  })
-
-  if (passing.length === 0) return []
-
-  // 하드 필터(신저가 갱신 중·박스폭 초과)를 통과한 종목만 매수 매력도와 함께 남긴다
-  const dailyBars = await getDailyBars(market, passing.map((s) => s.ticker))
-  const scored = passing.flatMap((s) => {
-    const bars = dailyBars[s.ticker] ?? []
-    const signals = scoreOpportunity(bars)
-    return signals ? [{ summary: s, signals, asOfDate: bars.at(-1)?.date ?? null }] : []
-  })
-
-  if (scored.length === 0) return []
-
-  const finalTickers = scored.map(({ summary }) => summary.ticker)
-  const [history, marketCaps, longMonthly, fundamentals] = await Promise.all([
-    getMonthlyPriceHistory(market, finalTickers),
-    getUniverseMarketCaps(market, finalTickers),
-    getLongMonthlyHistory(market, finalTickers),
-    getFundamentals(market, finalTickers),
+  const [monthly, longMonthly, marketCaps, fundamentals] = await Promise.all([
+    getMonthlyPriceHistory(market, tickers),
+    getLongMonthlyHistory(market, tickers),
+    getUniverseMarketCaps(market, tickers),
+    getFundamentals(market, tickers),
   ])
-  const metaMap = new Map(universe.map((u) => [u.ticker, u]))
 
-  return scored.map(({ summary: s, signals, asOfDate }) => {
-    const meta = metaMap.get(s.ticker)
-    const drawdown = ((s.high3y - s.current_close) / s.high3y) * 100
-    const recentMonthly = history[s.ticker] ?? []
-    const currentClose = recentMonthly.at(-1)?.close ?? s.current_close
-    // 3년 창 밖 고점까지 반영한 장기 맥락. 차트도 병합 시리즈를 쓴다.
+  return rows.map((row) => {
+    const recentMonthly = monthly[row.ticker] ?? []
     const longTerm = buildLongTermContext(
-      longMonthly[s.ticker] ?? [],
+      longMonthly[row.ticker] ?? [],
       recentMonthly,
-      currentClose,
-      s.high3y,
+      row.current_close,
+      row.high3y,
     )
     return {
-      ticker: s.ticker,
-      name: meta?.name ?? s.ticker,
-      name_kr: meta?.name_kr,
-      sector: meta?.sector ?? null,
-      index_membership: meta?.index_membership ?? null,
+      ticker: row.ticker,
+      name: row.name ?? row.ticker,
+      name_kr: row.name_kr ?? undefined,
+      sector: row.sector,
+      index_membership: row.index_membership,
       market,
-      currentClose,
-      high3y: s.high3y,
-      drawdown,
+      currentClose: row.current_close,
+      high3y: row.high3y,
+      drawdown: row.drawdown,
       history: longTerm.monthly.length > 0 ? longTerm.monthly : recentMonthly,
-      asOfDate,
-      marketCap: marketCaps[s.ticker] ?? null,
+      score: row.score,
+      daysSinceLow: row.days_since_low ?? 0,
+      vcp: row.vcp ?? false,
+      higherLows: row.higher_lows ?? false,
+      volumeDry: row.volume_dry ?? false,
+      alignedMAs: row.aligned_mas ?? false,
+      volumeTrigger: row.volume_trigger ?? false,
+      asOfDate: row.as_of_date,
+      marketCap: marketCaps[row.ticker] ?? null,
       longTermHigh: longTerm.longTermHigh,
       longTermDrawdown: longTerm.longTermDrawdown,
       longTermDeclining: longTerm.longTermDeclining,
       hasLongHistory: longTerm.hasLongHistory,
-      fundamentals: fundamentals[s.ticker] ?? null,
-      ...signals,
+      fundamentals: fundamentals[row.ticker] ?? null,
     }
   })
 }
 
-// 개별 쿼리(일봉·월봉·조정폭)는 각각 캐시되지만, 그것만으로는 방문마다 수백 종목 ×
-// 400일 일봉(수 MB)을 캐시에서 꺼내 scoreOpportunity를 다시 돌려야 해 탭이 느렸다.
-// 최종 결과(카드 수십 개)를 통째로 캐시해 그 재계산을 없앤다.
 async function loadOpportunities(): Promise<OpportunityStockRow[]> {
   'use cache'
   cacheLife('hours')
   cacheTag(SCREENER_CACHE_TAG)
-  const [usUniverse, krUniverse] = await Promise.all([
-    getUniverseStocks('US', ['NASDAQ100', 'S&P500']),
-    getUniverseStocks('KR', ['KOSPI']),
-  ])
+  const snapshot = await getOpportunitySnapshot()
+  if (snapshot.length === 0) return []
 
-  const [usOpps, krOpps] = await Promise.all([
-    computeOpportunities(usUniverse, 'US'),
-    computeOpportunities(krUniverse, 'KR'),
+  const [us, kr] = await Promise.all([
+    attachDetails(snapshot.filter((r) => r.market === 'US'), 'US'),
+    attachDetails(snapshot.filter((r) => r.market === 'KR'), 'KR'),
   ])
 
   // 매수 매력도 순 정렬, 동점이면 하락률 큰 순
-  return [...usOpps, ...krOpps].sort((a, b) => b.score - a.score || b.drawdown - a.drawdown)
+  return [...us, ...kr].sort((a, b) => b.score - a.score || b.drawdown - a.drawdown)
 }
 
 async function DiscoverContent() {
   await connection()
-  let opportunities: OpportunityStockRow[] = []
-  let opportunityError: string | null = null
 
   // 환율과 기회 종목은 서로 무관하므로 함께 기다린다 (순차 대기 제거)
   const [usdKrwRate, opportunityResult] = await Promise.all([
@@ -118,13 +98,11 @@ async function DiscoverContent() {
       }),
     ),
   ])
-  opportunities = opportunityResult.rows
-  opportunityError = opportunityResult.error
 
   return (
     <DiscoverTabs
-      opportunities={opportunities}
-      opportunityError={opportunityError}
+      opportunities={opportunityResult.rows}
+      opportunityError={opportunityResult.error}
       usdKrwRate={usdKrwRate}
     />
   )
