@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
+import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
@@ -98,6 +99,9 @@ export function DiscoverTabs({
               코스피 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
               최근 20일 내 52주 신저가를 갱신 중이거나 최근 60일 박스폭이 30%를 넘는(횡보가 아닌) 종목은 제외하고,
               매도 소진 · 변동성 수축(VCP) · 저점 높이기 · 거래량 소진을 합산한 매수 매력도 순으로 정렬합니다.
+            </p>
+            <p className="mt-2 text-xs text-emerald-700">
+              <span className="font-medium">매수 등급 기준:</span> {BUY_GRADE_CRITERIA}
             </p>
             <p className="mt-2 text-xs text-gray-400">
               <span className="font-medium text-gray-500">데이터 출처:</span> 매일 아침 파이프라인이 갱신하는 Supabase 시세로 계산하며, 갱신 완료 즉시 다른 탭과 함께 반영됩니다.
@@ -202,6 +206,7 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
   const drawdownStr = stock.drawdown.toFixed(1)
   const variant =
     stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
+  const grade = buyGrade(stock.score, stock.higherLows)
 
   const formatPrice = (price: number) =>
     stock.market === 'KR'
@@ -262,8 +267,8 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
           </div>
         </dl>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-            매력도 {Math.round(stock.score * 100)}점
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${BUY_GRADE_CLASS[grade]}`}>
+            매력도 {Math.round(stock.score * 100)}점 · {BUY_GRADE_LABEL[grade]}
           </span>
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
             저점 유지 {stock.daysSinceLow}일

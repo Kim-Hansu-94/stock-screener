@@ -1,4 +1,5 @@
 import type { WatchlistStatusRow } from '@/lib/types'
+import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
 
 function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
   return (
@@ -19,7 +20,15 @@ function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
 export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
   if (rows.length === 0) return null
 
-  const anyQualified = rows.some((row) => row.qualified)
+  // 초록불 조건 = 스크리너 기준 통과 + 매수 등급(관망 아님). 통과만으로는
+  // 매수 신호로 보지 않는다 — 등급 기준은 횡보·조정 탭과 동일하다.
+  const grades = new Map(
+    rows.map((row) => [
+      `${row.market}-${row.ticker}`,
+      row.qualified ? buyGrade(row.score, row.higher_lows) : ('watch' as const),
+    ]),
+  )
+  const anyQualified = [...grades.values()].some((grade) => grade !== 'watch')
 
   return (
     <section
@@ -38,14 +47,18 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
         </h2>
         <p className="mt-0.5 text-xs text-gray-400">
           횡보·조정 스크리너 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 아침·저녁 평가합니다.
-          기준을 통과하면 이 카드가 초록색으로 바뀝니다.
+        </p>
+        <p className="mt-1 text-xs text-emerald-700">
+          <span className="font-medium">초록불 조건:</span> 위 기준 통과 + {BUY_GRADE_CRITERIA}
         </p>
       </div>
       {rows.map((row) => (
         <div
           key={`${row.market}-${row.ticker}`}
           className={`rounded-lg border p-3 ${
-            row.qualified ? 'border-emerald-300 bg-emerald-50/60' : 'border-gray-100'
+            grades.get(`${row.market}-${row.ticker}`) !== 'watch'
+              ? 'border-emerald-300 bg-emerald-50/60'
+              : 'border-gray-100'
           }`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -54,8 +67,13 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
               <span className="font-normal text-gray-400">({row.ticker})</span>
             </span>
             {row.qualified ? (
-              <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white">
-                매수 기준 통과 · 매력도 {Math.round((row.score ?? 0) * 100)}점
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  BUY_GRADE_CLASS[grades.get(`${row.market}-${row.ticker}`) ?? 'watch']
+                }`}
+              >
+                매력도 {Math.round((row.score ?? 0) * 100)}점 ·{' '}
+                {BUY_GRADE_LABEL[grades.get(`${row.market}-${row.ticker}`) ?? 'watch']}
               </span>
             ) : (
               <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
