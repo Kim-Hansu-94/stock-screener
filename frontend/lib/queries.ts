@@ -233,6 +233,58 @@ export async function getUniverseMarketCaps(
   return map
 }
 
+// 장기(10년) 월봉. stock_long_monthly는 과거 확정 구간이라 갱신이 거의 없고,
+// 최근 3년은 mv_monthly_ohlcv(getMonthlyPriceHistory)가 매일 갱신한다. 둘을
+// 합쳐야 "진짜 최고점"과 10년 차트를 모두 얻는다. 테이블 미생성 시 빈 맵.
+const LONG_MONTHLY_BATCH = 60
+
+export async function getLongMonthlyHistory(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, PriceHistoryRow[]>> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  if (tickers.length === 0) return {}
+  const supabase = createServerSupabaseClient()
+
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += LONG_MONTHLY_BATCH) {
+    batches.push(tickers.slice(i, i + LONG_MONTHLY_BATCH))
+  }
+
+  type LongRow = { ticker: string; month_start: string; open: number; high: number; low: number; close: number; volume: number }
+
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const { data, error } = await supabase
+        .from('stock_long_monthly')
+        .select('ticker, month_start, open, high, low, close, volume')
+        .eq('market', market)
+        .in('ticker', batch)
+        .order('month_start', { ascending: true })
+      if (error) return [] as LongRow[]
+      return (data ?? []) as LongRow[]
+    }),
+  )
+
+  const grouped: Record<string, PriceHistoryRow[]> = {}
+  for (const row of results.flat()) {
+    grouped[row.ticker] ??= []
+    grouped[row.ticker].push({
+      ticker: row.ticker,
+      market,
+      date: row.month_start,
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
+      volume: row.volume,
+    })
+  }
+  return grouped
+}
+
 type DrawdownSummary = {
   ticker: string
   high3y: number
@@ -779,7 +831,8 @@ export async function getOpportunityDrawdowns(
 // queries onto the DB at once and trips statement_timeout on a cold cache.
 const DAILY_BARS_BATCH = 15
 const DAILY_BARS_PAGE = 1000
-const DAILY_BARS_CALENDAR_DAYS = 400
+// 저점 높이기가 240거래일(≈1년)을 두 구간으로 비교하므로 여유를 둔 창.
+const DAILY_BARS_CALENDAR_DAYS = 500
 const DAILY_BARS_CONCURRENCY = 6
 
 export async function getDailyBars(

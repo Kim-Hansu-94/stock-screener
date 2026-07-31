@@ -28,7 +28,12 @@ export interface OpportunitySignals {
   volumeTrigger: boolean
 }
 
-const MIN_BARS = 120
+// 저점 높이기 비교 창. 60일(6개월) 대비로는 장기 하락 중의 중간 반등도 "저점이
+// 올라왔다"로 잡혀, 계단식 하락의 계단참을 바닥으로 오인했다. 120일씩(총 1년)
+// 비교해 한 해 단위로 저점이 실제로 올라왔는지를 본다.
+const HIGHER_LOW_WINDOW = 120
+// 저점 높이기 비교에 2구간(240봉)이 필요하다.
+const MIN_BARS = HIGHER_LOW_WINDOW * 2
 const YEAR_WINDOW = 252
 const RECENT_LOW_WINDOW = 20
 const BOX_WINDOW = 60
@@ -87,10 +92,12 @@ export function scoreOpportunity(bars: DailyBar[]): OpportunitySignals | null {
   const vcpRatio = atr60 > 0 ? atr(bars, 20) / atr60 : 1
   const vcpScore = clamp01((1 - vcpRatio) / 0.4)
 
-  // 저점 높이기 (0.25): 최근 60일 저점 > 그 앞 60일 저점
-  const recent60Low = Math.min(...bars.slice(-60).map((b) => b.low))
-  const prior60Low = Math.min(...bars.slice(-120, -60).map((b) => b.low))
-  const higherLows = recent60Low > prior60Low
+  // 저점 높이기 (0.25): 최근 120일 저점 > 그 앞 120일 저점 (1년 단위 비교)
+  const recentLow = Math.min(...bars.slice(-HIGHER_LOW_WINDOW).map((b) => b.low))
+  const priorLow = Math.min(
+    ...bars.slice(-HIGHER_LOW_WINDOW * 2, -HIGHER_LOW_WINDOW).map((b) => b.low),
+  )
+  const higherLows = recentLow > priorLow
 
   // 거래량 소진 (0.20): 최근 20일 / 직전 40일 거래량 비율, 0.5~0.8 구간이 최고점
   const volRatio = mean(volumes.slice(-20)) / mean(volumes.slice(-60, -20))

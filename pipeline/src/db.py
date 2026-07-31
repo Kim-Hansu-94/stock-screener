@@ -74,6 +74,10 @@ class ScreenerDB:
                 ]
                 _batch_upsert(self.client, "stock_universe", stripped)
 
+    def save_long_monthly(self, rows: list[dict]) -> None:
+        if rows:
+            _batch_upsert(self.client, "stock_long_monthly", rows)
+
     def save_price_history(self, rows: list[dict]) -> None:
         if rows:
             _batch_upsert(self.client, "stock_price_history", rows)

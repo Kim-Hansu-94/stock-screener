@@ -28,8 +28,8 @@ function goodBase(): DailyBar[] {
 }
 
 describe('scoreOpportunity 하드 필터', () => {
-  it('데이터가 120봉 미만이면 null', () => {
-    expect(scoreOpportunity(goodBase().slice(0, 100))).toBeNull()
+  it('데이터가 240봉(저점 높이기 2구간) 미만이면 null', () => {
+    expect(scoreOpportunity(goodBase().slice(0, 239))).toBeNull()
   })
 
   it('최근 20일 내 52주 신저가 갱신(하락 진행 중) 종목은 제외', () => {
@@ -64,6 +64,27 @@ describe('scoreOpportunity 하드 필터', () => {
     if (result !== null) {
       expect(Number.isFinite(result.score)).toBe(true)
     }
+  })
+})
+
+describe('저점 높이기 1년 비교', () => {
+  it('장기 하락 중의 중간 반등은 저점 높이기로 인정하지 않는다', () => {
+    // 2년에 걸친 하락 중 마지막 6개월만 반등한 형태.
+    // 옛 기준(60일 vs 직전 60일)이라면 반등 구간 저점(159) > 직전 구간 저점(154)이라
+    // "저점이 올라왔다"로 통과했겠지만, 1년 단위로 보면 직전 1년 저점이 198이라
+    // 여전히 내려오는 중임이 드러난다.
+    const bars: DailyBar[] = []
+    for (let i = 0; i < 140; i++) bars.push(bar(i, 300 - (i * 100) / 139, 3, 1_000_000))
+    for (let i = 0; i < 60; i++) bars.push(bar(140 + i, 200 - (i * 45) / 59, 2, 900_000))
+    for (let i = 0; i < 60; i++) bars.push(bar(200 + i, 160 + (i * 30) / 59, 2, 700_000))
+
+    const result = scoreOpportunity(bars)
+    expect(result).not.toBeNull()
+    expect(result!.higherLows).toBe(false)
+  })
+
+  it('1년 단위로 저점이 실제 올라온 종목은 인정한다', () => {
+    expect(scoreOpportunity(goodBase())!.higherLows).toBe(true)
   })
 })
 
