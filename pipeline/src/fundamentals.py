@@ -23,6 +23,9 @@ from .db import ScreenerDB
 # 후보 풀이 앞에 오므로, 이 상한이면 화면에 뜨는 종목은 1회 실행으로 모두 채워진다.
 # 실패한 종목은 stale로 남아 다음 실행에서 자동 재시도된다.
 MAX_PER_RUN = 400
+# 중간 저장 단위. 전부 받은 뒤 한 번에 저장하면 실행이 중단될 때 그때까지의 수집분이
+# 통째로 날아간다. 저장된 종목은 updated_at이 갱신돼 다음 실행에서 건너뛴다.
+SAVE_CHUNK = 50
 # 실적은 분기 단위로 바뀌므로 이 기간이 지난 종목만 다시 받는다.
 MAX_AGE_DAYS = 30
 # 우선순위 판정용 — frontend/app/discover/page.tsx의 조정폭 밴드와 동일해야 한다.
@@ -171,22 +174,37 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
     batch = pending[:MAX_PER_RUN]
     print(f"{market} 실적 수집 ({len(batch)}/{len(pending)}개 대상)...", flush=True)
 
-    rows: list[dict] = []
+    pending_rows: list[dict] = []
+    saved = 0
     failed = 0
-    for ticker in batch:
+
+    def flush() -> None:
+        """모아둔 만큼 즉시 저장. 실행이 중간에 끊겨도 여기까지는 남는다."""
+        nonlocal pending_rows, saved
+        if not pending_rows:
+            return
+        try:
+            db.save_fundamentals(pending_rows)
+            saved += len(pending_rows)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  실적 저장 실패 ({len(pending_rows)}개): {exc}", flush=True)
+        pending_rows = []
+
+    for n, ticker in enumerate(batch, 1):
         try:
             data = _extract(_yahoo_symbol(ticker, market))
         except Exception:  # noqa: BLE001
             data = None
         if data is None:
             failed += 1
-            continue
-        rows.append({"ticker": ticker, "market": market, "updated_at": today.isoformat(), **data})
+        else:
+            pending_rows.append(
+                {"ticker": ticker, "market": market, "updated_at": today.isoformat(), **data}
+            )
+        # 중간 저장 — 러너가 죽거나 취소돼도 직전 청크까지의 수집분은 보존된다.
+        if n % SAVE_CHUNK == 0:
+            flush()
+            print(f"  진행 {n}/{len(batch)} (저장 {saved} · 실패 {failed})", flush=True)
 
-    if rows:
-        try:
-            db.save_fundamentals(rows)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  실적 저장 실패: {exc}", flush=True)
-            return
-    print(f"  → {len(rows)}개 저장 (실패 {failed}개)", flush=True)
+    flush()
+    print(f"  → {saved}개 저장 (실패 {failed}개)", flush=True)
