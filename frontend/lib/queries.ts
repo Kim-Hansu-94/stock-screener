@@ -6,7 +6,7 @@ export const SCREENER_CACHE_TAG = 'screener-data'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
 import type { DailyBar } from './opportunityScore'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow, WatchlistStatusRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow, WatchlistStatusRow, FundamentalsRow } from './types'
 
 // 감시 종목(보유 종목) 상태. 테이블 미생성(CREATE TABLE 미실행) 상태에서도
 // 홈 화면이 깨지지 않도록 실패 시 빈 배열을 반환한다.
@@ -283,6 +283,27 @@ export async function getLongMonthlyHistory(
     })
   }
   return grouped
+}
+
+// 실적 요약. 테이블 미생성·미수집이면 빈 맵을 돌려주고 화면은 해당 섹션을 숨긴다.
+export async function getFundamentals(
+  market: Market,
+  tickers: string[],
+): Promise<Record<string, FundamentalsRow>> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  if (tickers.length === 0) return {}
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('stock_fundamentals')
+    .select('*')
+    .eq('market', market)
+    .in('ticker', tickers)
+  if (error) return {}
+  const map: Record<string, FundamentalsRow> = {}
+  for (const row of (data ?? []) as FundamentalsRow[]) map[row.ticker] = row
+  return map
 }
 
 type DrawdownSummary = {

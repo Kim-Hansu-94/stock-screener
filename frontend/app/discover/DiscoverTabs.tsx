@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
+import { EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, assessEarnings } from '@/lib/fundamentals'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
@@ -212,6 +213,7 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
   const variant =
     stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
   const grade = buyGrade(stock.score, stock.higherLows)
+  const earnings = assessEarnings(stock.fundamentals)
 
   const formatPrice = (price: number) =>
     stock.market === 'KR'
@@ -318,6 +320,57 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
             여러 해에 걸친 하락이 이어지는 중일 수 있습니다. 점수는 최근 구간만 보므로
             아래 10년 차트로 큰 그림을 먼저 확인하세요.
           </p>
+        )}
+
+        {earnings.verdict !== 'unknown' && (
+          <div className="mt-3 rounded-lg border border-gray-100 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">실적</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${EARNINGS_CLASS[earnings.verdict]}`}>
+                {EARNINGS_LABEL[earnings.verdict]}
+              </span>
+              {earnings.years.prior != null && earnings.years.latest != null && (
+                <span className="text-xs text-gray-400">
+                  {earnings.years.prior} → {earnings.years.latest}
+                </span>
+              )}
+            </div>
+            <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+              {earnings.revenueChange != null && (
+                <div className="flex gap-1">
+                  <dt className="text-gray-400">매출</dt>
+                  <dd className={earnings.revenueChange < 0 ? 'text-red-500' : 'text-emerald-600'}>
+                    {earnings.revenueChange >= 0 ? '+' : ''}
+                    {earnings.revenueChange.toFixed(0)}%
+                  </dd>
+                </div>
+              )}
+              {earnings.profitChange != null && (
+                <div className="flex gap-1">
+                  <dt className="text-gray-400">순이익</dt>
+                  <dd className={earnings.profitChange < 0 ? 'text-red-500' : 'text-emerald-600'}>
+                    {earnings.profitChange >= 0 ? '+' : ''}
+                    {earnings.profitChange.toFixed(0)}%
+                  </dd>
+                </div>
+              )}
+              {stock.fundamentals?.per != null && (
+                <div className="flex gap-1">
+                  <dt className="text-gray-400">PER</dt>
+                  <dd>{stock.fundamentals.per.toFixed(1)}</dd>
+                </div>
+              )}
+              {stock.fundamentals?.pbr != null && (
+                <div className="flex gap-1">
+                  <dt className="text-gray-400">PBR</dt>
+                  <dd>{stock.fundamentals.pbr.toFixed(2)}</dd>
+                </div>
+              )}
+            </dl>
+            <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+              {EARNINGS_NOTE[earnings.verdict]}
+            </p>
+          </div>
         )}
         <div ref={sentinelRef} className="mt-4 min-h-80">
           {chartReady && (
