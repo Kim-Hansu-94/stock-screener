@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps } from '@/lib/queries'
+import { cacheLife, cacheTag } from 'next/cache'
+import { SCREENER_CACHE_TAG, fetchUsdKrwRate, getUniverseStocks, getOpportunityDrawdowns, getMonthlyPriceHistory, getDailyBars, getUniverseMarketCaps } from '@/lib/queries'
 import { scoreOpportunity } from '@/lib/opportunityScore'
 import type { Market, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
@@ -63,7 +64,13 @@ async function computeOpportunities(
   })
 }
 
+// 개별 쿼리(일봉·월봉·조정폭)는 각각 캐시되지만, 그것만으로는 방문마다 수백 종목 ×
+// 400일 일봉(수 MB)을 캐시에서 꺼내 scoreOpportunity를 다시 돌려야 해 탭이 느렸다.
+// 최종 결과(카드 수십 개)를 통째로 캐시해 그 재계산을 없앤다.
 async function loadOpportunities(): Promise<OpportunityStockRow[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
   const [usUniverse, krUniverse] = await Promise.all([
     getUniverseStocks('US', ['NASDAQ100', 'S&P500']),
     getUniverseStocks('KR', ['KOSPI']),
@@ -83,13 +90,19 @@ async function DiscoverContent() {
   let opportunities: OpportunityStockRow[] = []
   let opportunityError: string | null = null
 
-  const usdKrwRate = await fetchUsdKrwRate()
-
-  try {
-    opportunities = await loadOpportunities()
-  } catch (cause) {
-    opportunityError = cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.'
-  }
+  // 환율과 기회 종목은 서로 무관하므로 함께 기다린다 (순차 대기 제거)
+  const [usdKrwRate, opportunityResult] = await Promise.all([
+    fetchUsdKrwRate(),
+    loadOpportunities().then(
+      (rows) => ({ rows, error: null as string | null }),
+      (cause: unknown) => ({
+        rows: [] as OpportunityStockRow[],
+        error: cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.',
+      }),
+    ),
+  ])
+  opportunities = opportunityResult.rows
+  opportunityError = opportunityResult.error
 
   return (
     <DiscoverTabs

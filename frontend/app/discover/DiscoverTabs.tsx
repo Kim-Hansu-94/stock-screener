@@ -226,7 +226,9 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
               <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
             )}
           </span>
-          <Badge variant={variant}>-{drawdownStr}%</Badge>
+          {/* 점수가 아니라 실제 하락률이므로 %를 유지하되, 매력도 점수와 혼동되지
+              않도록 "고점 대비"를 명시한다. */}
+          <Badge variant={variant}>고점 대비 -{drawdownStr}%</Badge>
         </CardTitle>
         <p className="text-xs text-gray-400">
           기준일: {stock.asOfDate ? new Date(stock.asOfDate).toLocaleDateString('ko-KR') : '알 수 없음'}
