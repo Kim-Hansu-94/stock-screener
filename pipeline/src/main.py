@@ -13,6 +13,7 @@ from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
+from .split_guard import detect_adjusted, report
 from .watchlist import run_watchlist
 
 KST = timezone(timedelta(hours=9))
@@ -135,6 +136,23 @@ def _supplement_kr_price_history(
         print(f"  → {len(rows)}행 저장", flush=True)
 
 
+def _us_histories_to_rows(histories: dict) -> list[dict]:
+    rows: list[dict] = []
+    for ticker, hist in histories.items():
+        for idx, row in hist.iterrows():
+            rows.append({
+                "ticker": ticker,
+                "market": "US",
+                "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
+                "open": float(row.get("Open", 0)),
+                "high": float(row.get("High", 0)),
+                "low": float(row.get("Low", 0)),
+                "close": float(row.get("Close", 0)),
+                "volume": int(row.get("Volume", 0)),
+            })
+    return rows
+
+
 def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days: int) -> list[dict]:
     """KOSPI 티커별 OHLCV를 순차 다운로드해 stock_price_history 행으로 변환.
 
@@ -212,9 +230,19 @@ def main() -> None:
             )
         if kr_existing_tickers:
             print(f"  기존 {len(kr_existing_tickers)}개 증분 ({kr_incremental_days}일)...", flush=True)
-            kr_opp_rows.extend(
-                _collect_kr_opportunity_rows(kr_existing_tickers, today, kr_incremental_days)
+            incremental = _collect_kr_opportunity_rows(
+                kr_existing_tickers, today, kr_incremental_days
             )
+            # 액면분할 등으로 과거가가 소급 조정된 종목은 증분만 덮어쓰면 DB 안에
+            # 가짜 급락이 남는다. 겹치는 날짜의 종가로 감지해 전체를 다시 받는다.
+            readjusted = detect_adjusted(db, "KR", incremental)
+            report("KR", readjusted)
+            if readjusted:
+                incremental = [r for r in incremental if r["ticker"] not in set(readjusted)]
+                incremental.extend(
+                    _collect_kr_opportunity_rows(readjusted, today, _KR_OPP_LOOKBACK_DAYS)
+                )
+            kr_opp_rows.extend(incremental)
     else:
         print("  최초 실행: 3년 전체 다운로드", flush=True)
         kr_opp_rows = _collect_kr_opportunity_rows(kr_opp_tickers, today, _KR_OPP_LOOKBACK_DAYS)
@@ -270,26 +298,23 @@ def main() -> None:
             )
         if existing_tickers:
             print(f"  기존 {len(existing_tickers)}개 증분 ({incremental_days}일)...", flush=True)
-            opp_histories.update(
-                prices_us.get_opportunity_histories(existing_tickers, today, lookback_days=incremental_days)
+            incremental = prices_us.get_opportunity_histories(
+                existing_tickers, today, lookback_days=incremental_days
             )
+            # 액면분할 등으로 과거가가 소급 조정된 종목은 증분만 덮어쓰면 DB 안에
+            # 가짜 급락이 남는다. 겹치는 날짜의 종가로 감지해 전체를 다시 받는다.
+            readjusted = detect_adjusted(db, "US", _us_histories_to_rows(incremental))
+            report("US", readjusted)
+            if readjusted:
+                incremental.update(
+                    prices_us.get_opportunity_histories(readjusted, today, lookback_days=1095)
+                )
+            opp_histories.update(incremental)
     else:
         print("  최초 실행: 3년 전체 다운로드", flush=True)
         opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=1095)
 
-    opp_rows: list[dict] = []
-    for ticker, hist in opp_histories.items():
-        for idx, row in hist.iterrows():
-            opp_rows.append({
-                "ticker": ticker,
-                "market": "US",
-                "date": idx.date().isoformat() if hasattr(idx, "date") else str(idx)[:10],
-                "open": float(row.get("Open", 0)),
-                "high": float(row.get("High", 0)),
-                "low": float(row.get("Low", 0)),
-                "close": float(row.get("Close", 0)),
-                "volume": int(row.get("Volume", 0)),
-            })
+    opp_rows = _us_histories_to_rows(opp_histories)
     db.save_price_history(opp_rows)
     print(f"  → {len(opp_rows)}행 저장", flush=True)
     _SEED_FILE.write_text(today.isoformat())
