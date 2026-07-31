@@ -5,8 +5,7 @@ import { cacheLife, cacheTag } from 'next/cache'
 export const SCREENER_CACHE_TAG = 'screener-data'
 import { createServerSupabaseClient } from './supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from './risk'
-import type { DailyBar } from './opportunityScore'
-import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow, WatchlistStatusRow, FundamentalsRow } from './types'
+import type { DayReturn, ExitCheckResult, ExitStatus, LeadingSectorRow, Market, MarketCapMap, MarketRegimeRow, PriceHistoryRow, ScreenedStockPerf, ScreenedStockRow, ScreenedStockWithRisk, TrackRecord, UniverseStockRow, WatchlistStatusRow, FundamentalsRow, OpportunitySnapshotRow } from './types'
 
 // 감시 종목(보유 종목) 상태. 테이블 미생성(CREATE TABLE 미실행) 상태에서도
 // 홈 화면이 깨지지 않도록 실패 시 빈 배열을 반환한다.
@@ -96,7 +95,7 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
 // rows come back date-ascending the truncation drops each ticker's most RECENT bars —
 // leaving some tickers under the 65-bar minimum that computeStopTarget/isUptrend needs,
 // which then reports "손익비 —" for stocks that actually qualify. So we batch the ticker
-// list and page each batch to completion, exactly like getDailyBars.
+// list and page each batch to completion.
 const PRICE_HISTORY_BATCH = 15
 const PRICE_HISTORY_PAGE = 1000
 
@@ -336,6 +335,22 @@ export async function getLongMonthlyHistory(
   return grouped
 }
 
+// 파이프라인이 미리 계산한 횡보·조정 후보. 예전에는 페이지가 요청마다 유니버스
+// 1,460종목의 조정폭을 집계하고 통과 종목의 일봉 14만 행을 받아 점수를 다시
+// 계산했다(왕복 30회 이상). 이제 이 표만 읽는다. 테이블 미생성 시 빈 배열.
+export async function getOpportunitySnapshot(): Promise<OpportunitySnapshotRow[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('opportunity_snapshot')
+    .select('*')
+    .order('score', { ascending: false })
+  if (error) return []
+  return (data ?? []) as OpportunitySnapshotRow[]
+}
+
 // 실적 요약. 테이블 미생성·미수집이면 빈 맵을 돌려주고 화면은 해당 섹션을 숨긴다.
 export async function getFundamentals(
   market: Market,
@@ -355,13 +370,6 @@ export async function getFundamentals(
   const map: Record<string, FundamentalsRow> = {}
   for (const row of (data ?? []) as FundamentalsRow[]) map[row.ticker] = row
   return map
-}
-
-type DrawdownSummary = {
-  ticker: string
-  high3y: number
-  current_close: number
-  row_count: number
 }
 
 // Monthly OHLCV via SQL aggregation. Batched to stay under PostgREST max_rows=1000
@@ -844,106 +852,4 @@ export async function getPullbackScreenerWithRisk(
   )
 }
 
-// Computes 3-year high + current close in the DB (bypasses PostgREST max_rows=1000).
-// The aggregation is per-ticker independent, so we split the universe into batches and
-// run them in parallel — each batch scans far fewer price rows and stays well under the
-// statement timeout that a single 1000-ticker call was hitting.
-const OPP_DRAWDOWN_BATCH = 250
 
-export async function getOpportunityDrawdowns(
-  market: Market,
-  tickers: string[],
-): Promise<DrawdownSummary[]> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-  if (tickers.length === 0) return []
-  const cutoff = new Date()
-  cutoff.setFullYear(cutoff.getFullYear() - 3)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-  const supabase = createServerSupabaseClient()
-
-  const batches: string[][] = []
-  for (let i = 0; i < tickers.length; i += OPP_DRAWDOWN_BATCH) {
-    batches.push(tickers.slice(i, i + OPP_DRAWDOWN_BATCH))
-  }
-
-  const results = await Promise.all(
-    batches.map(async (batch) => {
-      const { data, error } = await supabase.rpc('get_opp_drawdowns', {
-        p_market: market,
-        p_tickers: batch,
-        p_cutoff: cutoffStr,
-      })
-      if (error) throw new Error(error.message)
-      return (data ?? []) as DrawdownSummary[]
-    }),
-  )
-
-  return results.flat()
-}
-
-// Fetches ~1 year of daily OHLCV for the drawdown-passing tickers only.
-// PostgREST caps responses at max_rows=1000, so each batch is kept small enough
-// (15 tickers × ~260 bars ≈ 3,900 rows) to page through with .range() in a few
-// round trips. Batches run in bounded waves: KR alone is ~43 batches and both
-// markets load concurrently, so an unbounded Promise.all piles ~56 heap-fetch
-// queries onto the DB at once and trips statement_timeout on a cold cache.
-const DAILY_BARS_BATCH = 15
-const DAILY_BARS_PAGE = 1000
-// 저점 높이기가 240거래일(≈1년)을 두 구간으로 비교하므로 여유를 둔 창.
-const DAILY_BARS_CALENDAR_DAYS = 500
-const DAILY_BARS_CONCURRENCY = 6
-
-export async function getDailyBars(
-  market: Market,
-  tickers: string[],
-): Promise<Record<string, DailyBar[]>> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-  if (tickers.length === 0) return {}
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - DAILY_BARS_CALENDAR_DAYS)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-  const supabase = createServerSupabaseClient()
-
-  const batches: string[][] = []
-  for (let i = 0; i < tickers.length; i += DAILY_BARS_BATCH) {
-    batches.push(tickers.slice(i, i + DAILY_BARS_BATCH))
-  }
-
-  type DailyBarRow = DailyBar & { ticker: string }
-
-  const fetchBatch = async (batch: string[]) => {
-    const rows: DailyBarRow[] = []
-    for (let from = 0; ; from += DAILY_BARS_PAGE) {
-      const { data, error } = await supabase
-        .from('stock_price_history')
-        .select('ticker, date, close, high, low, volume')
-        .eq('market', market)
-        .in('ticker', batch)
-        .gte('date', cutoffStr)
-        .order('ticker', { ascending: true })
-        .order('date', { ascending: true })
-        .range(from, from + DAILY_BARS_PAGE - 1)
-      if (error) throw new Error(error.message)
-      rows.push(...((data ?? []) as DailyBarRow[]))
-      if (!data || data.length < DAILY_BARS_PAGE) break
-    }
-    return rows
-  }
-
-  const results: DailyBarRow[][] = []
-  for (let i = 0; i < batches.length; i += DAILY_BARS_CONCURRENCY) {
-    results.push(
-      ...(await Promise.all(batches.slice(i, i + DAILY_BARS_CONCURRENCY).map(fetchBatch))),
-    )
-  }
-
-  const byTicker: Record<string, DailyBar[]> = {}
-  for (const { ticker, ...barFields } of results.flat()) {
-    ;(byTicker[ticker] ??= []).push(barFields)
-  }
-  return byTicker
-}

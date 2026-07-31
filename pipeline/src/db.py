@@ -78,6 +78,10 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "stock_long_monthly", rows)
 
+    def save_opportunity_snapshot(self, rows: list[dict]) -> None:
+        if rows:
+            _batch_upsert(self.client, "opportunity_snapshot", rows)
+
     def save_fundamentals(self, rows: list[dict]) -> None:
         if rows:
             _batch_upsert(self.client, "stock_fundamentals", rows)

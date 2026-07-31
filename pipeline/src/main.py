@@ -12,6 +12,7 @@ from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
+from .opportunities import refresh_opportunity_snapshot
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 from .split_guard import detect_adjusted, report
 from .watchlist import run_watchlist
@@ -22,6 +23,8 @@ _SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded_tick
 _KR_SEED_FILE = Path(__file__).parent.parent / ".kr_opp_seeded"
 _KR_SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".kr_opp_seeded_tickers"
 _KR_OPP_LOOKBACK_DAYS = 1095  # 3년
+# 횡보·조정 스크리너 대상 미국 지수 (frontend discover/page.tsx와 동일)
+US_OPP_INDEXES = ("NASDAQ100", "S&P500")
 
 
 def _today_kst() -> date:
@@ -258,6 +261,11 @@ def main() -> None:
     # 실적 요약 — 30일 지난 종목만, 1회 실행당 상한을 두고 나눠 채운다
     refresh_fundamentals(db, "KR", kr_opp_tickers, today)
 
+    # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장
+    kr_universe_rows = [r for r in _to_db_result(kr_result, today).universe_metadata
+                        if r.get("index_membership") == "KOSPI"]
+    refresh_opportunity_snapshot(db, "KR", kr_universe_rows, today)
+
     # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
     run_watchlist(db, today)
 
@@ -321,6 +329,11 @@ def main() -> None:
     _SEEDED_TICKERS_FILE.write_text(json.dumps(opp_tickers))
 
     seed_long_monthly(db, "US", opp_tickers, today)
+
+    us_universe_rows = [r for r in _to_db_result(us_result, today).universe_metadata
+                        if r.get("index_membership") in US_OPP_INDEXES]
+    refresh_opportunity_snapshot(db, "US", us_universe_rows, today)
+
     refresh_fundamentals(db, "US", opp_tickers, today)
 
     # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.

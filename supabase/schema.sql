@@ -127,6 +127,32 @@ create table if not exists stock_long_monthly (
   primary key (ticker, market, month_start)
 );
 
+-- 횡보·조정 후보 스냅샷. 이전에는 페이지 요청마다 유니버스 1,460종목의 조정폭을
+-- 집계하고, 통과 종목의 일봉 14만 행을 받아 점수를 다시 계산했다(왕복 30회 이상).
+-- 데이터는 하루 한 번만 바뀌므로 파이프라인이 미리 계산해 여기 저장하고,
+-- 화면은 이 표만 읽는다 (pipeline/src/opportunities.py).
+create table if not exists opportunity_snapshot (
+  ticker            text not null,
+  market            text not null check (market in ('KR', 'US')),
+  computed_at       date not null,
+  name              text,
+  name_kr           text,
+  sector            text,
+  index_membership  text,
+  current_close     numeric,
+  high3y            numeric,
+  drawdown          numeric,
+  score             numeric,
+  days_since_low    int,
+  vcp               boolean,
+  higher_lows       boolean,
+  volume_dry        boolean,
+  aligned_mas       boolean,
+  volume_trigger    boolean,
+  as_of_date        date,
+  primary key (ticker, market)
+);
+
 -- 실적 요약. "주가가 빠질 때 실적도 같이 빠졌는가"를 판정하기 위한 최소 집합으로,
 -- 가치 함정(실적 동반 하락)과 밸류에이션 조정(실적은 유지)을 구분하는 데 쓴다.
 -- 분기 단위로만 바뀌므로 종목당 30일 주기로 갱신한다 (pipeline/src/fundamentals.py).

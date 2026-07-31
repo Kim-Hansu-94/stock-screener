@@ -2,6 +2,11 @@
 // Hard filters reject stocks still in free-fall or not actually basing, then a
 // weighted score ranks how well the base is formed: seller exhaustion, volatility
 // contraction, higher lows, and volume dry-up, plus turn-signal bonuses.
+//
+// NOTE: 실제 채점은 이제 파이프라인이 수행한다 (pipeline/src/watchlist.py의
+// evaluate_watch → opportunity_snapshot). 이 파일은 그 포팅의 기준이 되는
+// 참조 구현이며, 함께 있는 테스트가 알고리즘의 명세 역할을 한다. 상수나 계산을
+// 바꿀 때는 watchlist.py도 반드시 같이 바꿔야 두 쪽이 갈라지지 않는다.
 
 export interface DailyBar {
   date: string

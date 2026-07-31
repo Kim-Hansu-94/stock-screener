@@ -54,6 +54,28 @@ export interface UniverseStockRow {
 /** 시가총액 조회 결과 (KR: 원, US: 달러). 컬럼 미배포·미수집이면 값이 없다. */
 export type MarketCapMap = Record<string, number>
 
+/** 파이프라인이 미리 계산한 횡보·조정 후보 — pipeline/src/opportunities.py */
+export interface OpportunitySnapshotRow {
+  ticker: string
+  market: Market
+  computed_at: string
+  name: string | null
+  name_kr: string | null
+  sector: string | null
+  index_membership: string | null
+  current_close: number
+  high3y: number
+  drawdown: number
+  score: number
+  days_since_low: number | null
+  vcp: boolean | null
+  higher_lows: boolean | null
+  volume_dry: boolean | null
+  aligned_mas: boolean | null
+  volume_trigger: boolean | null
+  as_of_date: string | null
+}
+
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
 export interface FundamentalsRow {
   ticker: string
