@@ -100,6 +100,45 @@ export async function getScreenedStocks(market: Market, date: string): Promise<S
 const PRICE_HISTORY_BATCH = 15
 const PRICE_HISTORY_PAGE = 1000
 
+// stock_price_history를 여러 티커에 대해 읽는 모든 곳이 써야 하는 헬퍼.
+// 위 max_rows=1000 절단은 조용히 일어나 데이터가 "일부만" 돌아오므로,
+// 개별 호출부가 페이지네이션을 빠뜨리면 알아채기 어려운 오작동이 된다.
+async function fetchPriceRowsPaged<T>(
+  market: Market,
+  tickers: string[],
+  columns: string,
+  cutoffStr: string,
+): Promise<T[]> {
+  if (tickers.length === 0) return []
+  const supabase = createServerSupabaseClient()
+  const batches: string[][] = []
+  for (let i = 0; i < tickers.length; i += PRICE_HISTORY_BATCH) {
+    batches.push(tickers.slice(i, i + PRICE_HISTORY_BATCH))
+  }
+
+  const results = await Promise.all(
+    batches.map(async (batch) => {
+      const rows: T[] = []
+      for (let from = 0; ; from += PRICE_HISTORY_PAGE) {
+        const { data, error } = await supabase
+          .from('stock_price_history')
+          .select(columns)
+          .eq('market', market)
+          .in('ticker', batch)
+          .gte('date', cutoffStr)
+          .order('ticker', { ascending: true })
+          .order('date', { ascending: true })
+          .range(from, from + PRICE_HISTORY_PAGE - 1)
+        if (error) throw new Error(error.message)
+        rows.push(...((data ?? []) as T[]))
+        if (!data || data.length < PRICE_HISTORY_PAGE) break
+      }
+      return rows
+    }),
+  )
+  return results.flat()
+}
+
 export async function getPriceHistoryByTicker(
   market: Market,
   tickers: string[],
@@ -236,7 +275,12 @@ export async function getUniverseMarketCaps(
 // 장기(10년) 월봉. stock_long_monthly는 과거 확정 구간이라 갱신이 거의 없고,
 // 최근 3년은 mv_monthly_ohlcv(getMonthlyPriceHistory)가 매일 갱신한다. 둘을
 // 합쳐야 "진짜 최고점"과 10년 차트를 모두 얻는다. 테이블 미생성 시 빈 맵.
+// PostgREST가 응답을 max_rows=1000으로 자른다. 10년 월봉은 종목당 120행이라
+// 배치 하나가 이 한도를 훌쩍 넘고, month_start 오름차순이라 잘리면 각 종목의
+// 최근 구간이 통째로 사라진다(실제로 2018-01에서 끊기고 최근 3년으로 건너뛰는
+// 차트가 됐다). getPriceHistoryByTicker와 동일하게 배치를 끝까지 페이지네이션한다.
 const LONG_MONTHLY_BATCH = 60
+const LONG_MONTHLY_PAGE = 1000
 
 export async function getLongMonthlyHistory(
   market: Market,
@@ -257,14 +301,21 @@ export async function getLongMonthlyHistory(
 
   const results = await Promise.all(
     batches.map(async (batch) => {
-      const { data, error } = await supabase
-        .from('stock_long_monthly')
-        .select('ticker, month_start, open, high, low, close, volume')
-        .eq('market', market)
-        .in('ticker', batch)
-        .order('month_start', { ascending: true })
-      if (error) return [] as LongRow[]
-      return (data ?? []) as LongRow[]
+      const rows: LongRow[] = []
+      for (let from = 0; ; from += LONG_MONTHLY_PAGE) {
+        const { data, error } = await supabase
+          .from('stock_long_monthly')
+          .select('ticker, month_start, open, high, low, close, volume')
+          .eq('market', market)
+          .in('ticker', batch)
+          .order('ticker', { ascending: true })
+          .order('month_start', { ascending: true })
+          .range(from, from + LONG_MONTHLY_PAGE - 1)
+        if (error) return rows
+        rows.push(...((data ?? []) as LongRow[]))
+        if (!data || data.length < LONG_MONTHLY_PAGE) break
+      }
+      return rows
     }),
   )
 
@@ -418,18 +469,15 @@ export async function getScreenedStockPerformance(
   prePeriodDate.setDate(prePeriodDate.getDate() - 150)
   const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
 
-  const { data: priceData, error: priceError } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, high, low, close')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', prePeriodStr)
-    .order('date', { ascending: true })
-
-  if (priceError) throw new Error(priceError.message)
+  const priceData = await fetchPriceRowsPaged<PriceBar & { ticker: string }>(
+    market,
+    tickers,
+    'ticker, date, high, low, close',
+    prePeriodStr,
+  )
 
   const priceMap: Record<string, PriceBar[]> = {}
-  for (const row of (priceData ?? []) as (PriceBar & { ticker: string })[]) {
+  for (const row of priceData) {
     priceMap[row.ticker] ??= []
     priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
   }
@@ -503,18 +551,15 @@ export async function getExitSignals(market: Market, days = 30): Promise<ExitChe
   prePeriodDate.setDate(prePeriodDate.getDate() - 150)
   const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
 
-  const { data: priceData, error: priceError } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, high, low, close')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', prePeriodStr)
-    .order('date', { ascending: true })
-
-  if (priceError) throw new Error(priceError.message)
+  const priceData = await fetchPriceRowsPaged<PriceBar & { ticker: string }>(
+    market,
+    tickers,
+    'ticker, date, high, low, close',
+    prePeriodStr,
+  )
 
   const priceMap: Record<string, PriceBar[]> = {}
-  for (const row of (priceData ?? []) as (PriceBar & { ticker: string })[]) {
+  for (const row of priceData) {
     priceMap[row.ticker] ??= []
     priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
   }
@@ -636,18 +681,15 @@ export async function getScreenerTrackRecord(market: Market, days = 90): Promise
   prePeriodDate.setDate(prePeriodDate.getDate() - 150)
   const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
 
-  const { data: priceData, error: priceError } = await supabase
-    .from('stock_price_history')
-    .select('ticker, date, high, low, close')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', prePeriodStr)
-    .order('date', { ascending: true })
-
-  if (priceError) throw new Error(priceError.message)
+  const priceData = await fetchPriceRowsPaged<PriceBar & { ticker: string }>(
+    market,
+    tickers,
+    'ticker, date, high, low, close',
+    prePeriodStr,
+  )
 
   const priceMap: Record<string, PriceBar[]> = {}
-  for (const row of (priceData ?? []) as (PriceBar & { ticker: string })[]) {
+  for (const row of priceData) {
     priceMap[row.ticker] ??= []
     priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
   }
@@ -757,18 +799,15 @@ export async function getPullbackScreenerWithRisk(
   cutoff.setDate(cutoff.getDate() - 150)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  const { data: priceData, error: priceError } = await supabase
-    .from('stock_price_history')
-    .select('ticker, market, date, open, high, low, close, volume')
-    .eq('market', market)
-    .in('ticker', tickers)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: true })
-
-  if (priceError) throw new Error(priceError.message)
+  const priceData = await fetchPriceRowsPaged<PriceHistoryRow>(
+    market,
+    tickers,
+    'ticker, market, date, open, high, low, close, volume',
+    cutoffStr,
+  )
 
   const priceMap: Record<string, PriceHistoryRow[]> = {}
-  for (const row of (priceData ?? []) as PriceHistoryRow[]) {
+  for (const row of priceData) {
     priceMap[row.ticker] ??= []
     priceMap[row.ticker].push(row)
   }
