@@ -157,7 +157,8 @@ export function SimilaritySearch() {
 
 function SimilarStockCard({ stock }: { stock: SimilarStockResult }) {
   const [expanded, setExpanded] = useState(false)
-  const simPct = (stock.similarity * 100).toFixed(1)
+  // 다른 탭들과 동일하게 100점 만점 점수로 표기 (% 표기는 확률로 오해되기 쉽다)
+  const score = Math.round(stock.similarity * 100)
   const latestClose = stock.history[stock.history.length - 1]?.close
 
   return (
@@ -167,7 +168,7 @@ function SimilarStockCard({ stock }: { stock: SimilarStockResult }) {
           <span>
             {stock.name} <span className="text-gray-400">({stock.ticker})</span>
           </span>
-          <Badge>유사도 {simPct}%</Badge>
+          <Badge>{score}점</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>

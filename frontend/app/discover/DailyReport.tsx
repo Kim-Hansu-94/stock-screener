@@ -42,7 +42,10 @@ export function DailyReport() {
   if (!data) return null
 
   const { results, generatedAt } = data
+  // 0~1 유사도를 100점 만점 점수로 환산해 표시한다 (% 표기는 "40% 확률" 등으로
+  // 오해되기 쉬워 점수로 통일 — 횡보·조정 탭의 매력도 점수와 같은 형식).
   const MIN_SIMILARITY = 0.40
+  const toScore = (similarity: number) => Math.round(similarity * 100)
   const visible = results.filter((r) => r.similarity >= MIN_SIMILARITY)
   const triggered = visible.filter((r) => r.volumeTriggered)
 
@@ -52,10 +55,10 @@ export function DailyReport() {
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-gray-700">
         {visible.length === 0 ? (
           <p>
-            오늘 전 종목을 스캔한 결과, 유사도 40% 이상인 종목이 없습니다.
+            오늘 전 종목을 스캔한 결과, 40점 이상인 종목이 없습니다.
             {results.length > 0 && (
               <span className="ml-1 text-gray-400">
-                (최고 유사도: {(results[0].similarity * 100).toFixed(1)}% — 기준 미달)
+                (최고 점수: {toScore(results[0].similarity)}점 — 기준 미달)
               </span>
             )}
           </p>
@@ -68,7 +71,7 @@ export function DailyReport() {
                 <>
                   {' '}최고 점수는{' '}
                   <strong>{visible[0].ticker}</strong> ({visible[0].name_kr || visible[0].name})으로,{' '}
-                  <strong>{(visible[0].similarity * 100).toFixed(1)}%</strong>입니다.
+                  <strong>{toScore(visible[0].similarity)}점</strong>입니다.
                 </>
               )}
             </p>
@@ -104,8 +107,11 @@ function CriteriaLegend() {
       </p>
       <dl className="grid gap-x-6 gap-y-2 text-xs text-gray-600 sm:grid-cols-2">
         <div>
-          <dt className="font-medium text-gray-700">Gold Standard 바닥 특성</dt>
-          <dd>QBTS · RGTI · AEVA · JOBY · FCEL 등 검증된 바닥 탈출 패턴과의 유사도</dd>
+          <dt className="font-medium text-gray-700">점수 (100점 만점)</dt>
+          <dd>
+            QBTS · RGTI · AEVA · JOBY · FCEL 등 검증된 바닥 탈출 패턴과 얼마나 닮았는지를
+            100점 만점으로 환산한 값입니다. 40점 이상만 표시합니다.
+          </dd>
         </div>
         <div>
           <dt className="font-medium text-gray-700">하락률</dt>
@@ -145,6 +151,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdKrwRate: number }) {
+  const score = Math.round(stock.similarity * 100)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
@@ -169,7 +176,6 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
     return () => observer.disconnect()
   }, [stock.ticker])
 
-  const simPct = (stock.similarity * 100).toFixed(1)
   const latestClose = stock.history[stock.history.length - 1]?.close
 
   return (
@@ -189,7 +195,7 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
             {stock.volumeTriggered && (
               <Badge className="bg-amber-500 text-white">⚡ 거래량</Badge>
             )}
-            <Badge variant="secondary">{simPct}%</Badge>
+            <Badge variant="secondary">{score}점</Badge>
           </div>
         </CardTitle>
         <p className="text-xs text-gray-400">
