@@ -34,15 +34,28 @@ function computeSMA(bars: PriceBar[], period: number): number | null {
 }
 
 // Why computeStopTarget declined to produce a risk-reward figure. Surfaced to the UI
-// so a blank "—" reads as an explained state ("not in an uptrend") rather than an error.
+// so a blank "—" reads as an explained state rather than an error.
 export type RiskReason =
   | 'ok'
-  | 'insufficient_data' // fewer bars than the SMA60+lookback trend check needs
-  | 'below_sma60' // price sits under its 60-day average (no established uptrend)
-  | 'sma60_falling' // 60-day average is flat/declining, not rising
+  | 'insufficient_data' // fewer bars than the trend/range windows need
   | 'stop_above_entry' // structural stop landed at or above entry (no measurable risk)
+  | 'no_upside' // 박스 상단에 이미 닿아 있어 위쪽 여유가 없음
 
-type TrendStatus = Extract<RiskReason, 'insufficient_data' | 'below_sma60' | 'sma60_falling'> | 'uptrend'
+// 어떤 틀로 계산했는지. 추세 종목과 횡보 종목은 손절·목표를 잡는 근거가 달라
+// 같은 공식을 쓰면 한쪽이 왜곡된다. 화면에서도 이 둘을 구분해 보여준다.
+export type RiskFrame = 'trend' | 'range'
+
+type TrendStatus = 'uptrend' | 'insufficient_data' | 'below_sma60' | 'sma60_falling'
+
+export interface RiskResult {
+  stop: number | null
+  target: number | null
+  riskReward: number | null
+  reason: RiskReason
+  frame: RiskFrame | null
+  /** 진입가와 목표가 사이에 걸린 첫 저항 — 한 번 막힐 수 있는 지점 */
+  wayResistance: number | null
+}
 
 // Granular version of the uptrend gate: same thresholds as isUptrend, but reports WHICH
 // condition failed so callers can explain a declined risk-reward instead of just nulling it.
@@ -110,18 +123,44 @@ function findPivotHighs(
 // to survive a stop-hunt wick without meaningfully widening per-share risk.
 const STOP_BUFFER_ATR_MULT = 0.5
 
-export function computeStopTarget(
-  bars: PriceBar[],
-  entry: number,
-): { stop: number | null; target: number | null; riskReward: number | null; reason: RiskReason } {
-  if (bars.length < 10) {
-    return { stop: null, target: null, riskReward: null, reason: 'insufficient_data' }
-  }
-  const trend = trendStatus(bars)
-  if (trend !== 'uptrend') {
-    return { stop: null, target: null, riskReward: null, reason: trend }
-  }
+// 임팩트(선행 상승) 구간을 찾는 창. screener.py의 IMPULSE_LOOKBACK_DAYS와 같다.
+const IMPULSE_LOOKBACK = 60
+// 횡보 종목의 박스 상단을 재는 창.
+const RANGE_WINDOW = 60
 
+const NO_RISK = { stop: null, target: null, riskReward: null, wayResistance: null } as const
+
+/**
+ * 임팩트 투영(measured move) 목표가.
+ *
+ * 이 스크리너는 "60일 +15% 급등 뒤 얕게 눌린" 자리를 산다. 즉 추세가 다시 이어져
+ * 신고가를 낼 것에 베팅하는데, 목표를 "진입가 위 가장 가까운 저항"으로 잡으면
+ * 방금 눌리기 전 그 고점이 목표가 되어 보상이 1~3%밖에 안 나온다. 손절은
+ * 1.5 ATR이라 손익비가 0.2~0.3까지 떨어졌고, 눌림이 얕을수록(= 강한 종목일수록)
+ * 더 나빠지는 역설이 있었다.
+ *
+ * 대신 직전 상승폭을 눌림 저점에서 다시 투영한다 — 전략의 전제와 같은 가정이다.
+ */
+function measuredMoveTarget(bars: PriceBar[], entry: number): number | null {
+  if (bars.length < IMPULSE_LOOKBACK) return null
+  const window = bars.slice(-IMPULSE_LOOKBACK)
+
+  let highIdx = 0
+  for (let i = 1; i < window.length; i++) {
+    if (window[i].high > window[highIdx].high) highIdx = i
+  }
+  const impulseHigh = window[highIdx].high
+  const impulseLow = Math.min(...window.slice(0, highIdx + 1).map((b) => b.low))
+  const pullbackLow = Math.min(...window.slice(highIdx).map((b) => b.low))
+
+  const height = impulseHigh - impulseLow
+  if (height <= 0) return null
+  const target = pullbackLow + height
+  return target > entry ? target : null
+}
+
+/** 상승 추세 종목: 구조적 손절 + 임팩트 투영 목표 */
+function trendFrame(bars: PriceBar[], entry: number): RiskResult {
   const recent20 = bars.slice(-20)
   const swingLow = Math.min(...recent20.map((p) => p.low))
   const atr = computeATR(recent20)
@@ -132,25 +171,68 @@ export function computeStopTarget(
   // Take the tighter (higher) of the two stops
   const rawStop = Math.max(swingStop, atrStop)
 
-  if (rawStop >= entry) return { stop: null, target: null, riskReward: null, reason: 'stop_above_entry' }
+  if (rawStop >= entry) return { ...NO_RISK, reason: 'stop_above_entry', frame: 'trend' }
   const stop = rawStop
   const risk = entry - stop
 
-  // Target: nearest confirmed pivot high above entry (nearest resistance) →
-  // absolute high over the extended lookback if above entry → fixed 2R as last resort
-  // (only hit when the stock is breaking out to new highs with no resistance overhead).
   const extended = bars.slice(-RESISTANCE_LOOKBACK)
-  const pivotsAboveEntry = findPivotHighs(extended).filter((h) => h > entry)
   const periodHigh = Math.max(...extended.map((p) => p.high))
+  const measured = measuredMoveTarget(bars, entry)
 
+  // 투영이 불가능한 경우에만 기존 방식으로 물러선다: 기간 최고가 → 고정 2R
   let target: number
-  if (pivotsAboveEntry.length > 0) {
-    target = pivotsAboveEntry[0]
-  } else if (periodHigh > entry) {
-    target = periodHigh
-  } else {
-    target = entry + 2 * risk
-  }
+  if (measured !== null) target = measured
+  else if (periodHigh > entry) target = periodHigh
+  else target = entry + 2 * risk
 
-  return { stop, target, riskReward: (target - entry) / risk, reason: 'ok' }
+  // 경유 저항: 목표까지 가는 길에 걸린 첫 저항. 목표를 대체하지는 않고,
+  // "여기서 한 번 막힐 수 있다"를 알리는 용도로만 쓴다.
+  const onTheWay = findPivotHighs(extended).filter((h) => h > entry && h < target)
+
+  return {
+    stop,
+    target,
+    riskReward: (target - entry) / risk,
+    reason: 'ok',
+    frame: 'trend',
+    wayResistance: onTheWay.length > 0 ? onTheWay[0] : null,
+  }
+}
+
+/**
+ * 추세가 없는 종목: 박스 기준.
+ *
+ * 하락·횡보 종목에 추세 틀(좁은 ATR 손절 + 위쪽 목표)을 쓰면 손익비가 실제보다
+ * 좋아 보이는 착시가 생긴다. 그래서 손절은 박스 하단, 목표는 박스 상단으로 잡고
+ * 화면에도 "박스 기준"임을 표시해 추세 종목의 숫자와 섞이지 않게 한다.
+ */
+function rangeFrame(bars: PriceBar[], entry: number): RiskResult {
+  if (bars.length < RANGE_WINDOW) return { ...NO_RISK, reason: 'insufficient_data', frame: null }
+
+  const recent20 = bars.slice(-20)
+  const atr = computeATR(recent20)
+  const swingLow = Math.min(...recent20.map((p) => p.low))
+  const stop = swingLow - STOP_BUFFER_ATR_MULT * atr
+  if (stop >= entry) return { ...NO_RISK, reason: 'stop_above_entry', frame: 'range' }
+
+  const rangeHigh = Math.max(...bars.slice(-RANGE_WINDOW).map((p) => p.high))
+  if (rangeHigh <= entry) return { ...NO_RISK, reason: 'no_upside', frame: 'range' }
+
+  return {
+    stop,
+    target: rangeHigh,
+    riskReward: (rangeHigh - entry) / (entry - stop),
+    reason: 'ok',
+    frame: 'range',
+    wayResistance: null,
+  }
+}
+
+export function computeStopTarget(bars: PriceBar[], entry: number): RiskResult {
+  if (bars.length < 10) return { ...NO_RISK, reason: 'insufficient_data', frame: null }
+
+  const trend = trendStatus(bars)
+  if (trend === 'uptrend') return trendFrame(bars, entry)
+  if (trend === 'insufficient_data') return { ...NO_RISK, reason: 'insufficient_data', frame: null }
+  return rangeFrame(bars, entry)
 }

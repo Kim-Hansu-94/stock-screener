@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
-import type { RiskReason } from '@/lib/risk'
+import type { RiskFrame, RiskReason } from '@/lib/risk'
+import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
 import { translateSector } from '@/lib/sectorMap'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
@@ -25,15 +26,17 @@ interface StockCardProps {
   target: number | null
   riskReward: number | null
   riskReason: RiskReason
+  riskFrame: RiskFrame | null
+  /** 목표가까지 가는 길에 걸린 첫 저항 — 한 번 막힐 수 있는 지점 */
+  wayResistance: number | null
 }
 
-// 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록,
-// 대부분은 "상승추세 미형성" 계열이라 계산을 생략한 정상 상태임을 설명한다.
+// 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록
+// 무엇이 막았는지 설명한다.
 const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
-  below_sma60: '추세 미형성 · 60일선 아래',
-  sma60_falling: '추세 둔화 · 60일 평균 하락',
   insufficient_data: '데이터 부족',
   stop_above_entry: '손절 산출 불가',
+  no_upside: '박스 상단 도달',
 }
 
 // 종목 단위 눌림목 조건 개수 — pipeline/src/screener.py의 CRITERION_* 9개와 동기 유지.
@@ -56,7 +59,7 @@ function formatRelativeTime(iso: string): string {
   return `${diffD}일 전`
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
@@ -146,9 +149,12 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           </div>
           <div>
             <dt className="text-gray-400">손익비</dt>
-            {riskReward !== null ? (
-              <dd className={`font-semibold ${riskReward >= 2.0 ? 'text-green-600' : riskReward >= 1.5 ? 'text-amber-500' : 'text-red-500'}`}>
+            {riskReward !== null && riskFrame !== null ? (
+              <dd className={`font-semibold ${RISK_GRADE_CLASS[riskGrade(riskReward, riskFrame)]}`}>
                 {riskReward.toFixed(2)}R
+                <span className="ml-1 text-xs font-normal text-gray-400">
+                  {RISK_FRAME_LABEL[riskFrame]}
+                </span>
               </dd>
             ) : (
               <dd className="text-xs text-gray-400">
@@ -174,6 +180,21 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
                 {market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}
                 {stock.close > 0 && (
                   <span className="ml-1 text-xs text-green-500">({formatSignedPercent(target, stock.close)})</span>
+                )}
+              </dd>
+            </div>
+          )}
+          {wayResistance !== null && (
+            <div>
+              <dt className="text-gray-400">경유 저항</dt>
+              <dd className="text-gray-500">
+                {market === 'KR'
+                  ? `${Math.round(wayResistance).toLocaleString('ko-KR')}원`
+                  : `$${wayResistance.toFixed(2)}`}
+                {stock.close > 0 && (
+                  <span className="ml-1 text-xs text-gray-400">
+                    ({formatSignedPercent(wayResistance, stock.close)})
+                  </span>
                 )}
               </dd>
             </div>
