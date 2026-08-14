@@ -13,14 +13,14 @@ import {
   getWatchlistStatus,
 } from '@/lib/queries'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
-import { computeStopTarget, filterBarsAsOf, type RiskReason } from '@/lib/risk'
+import { computeStopTarget, filterBarsAsOf, type RiskResult } from '@/lib/risk'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
   { market: 'US', label: '미국', universe: 'S&P 1500 · NASDAQ 100' },
 ]
 
-type RiskInfo = { stop: number | null; target: number | null; riskReward: number | null; reason: RiskReason }
+type RiskInfo = RiskResult
 
 interface MarketSectionData {
   market: Market
@@ -170,6 +170,8 @@ async function HomeContent() {
                         target={section.riskMap[stock.ticker]?.target ?? null}
                         riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
                         riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
+                        riskFrame={section.riskMap[stock.ticker]?.frame ?? null}
+                        wayResistance={section.riskMap[stock.ticker]?.wayResistance ?? null}
                       />
                     ))}
                   </div>
