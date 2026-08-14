@@ -26,6 +26,14 @@ const MONTHLY_MOVING_AVERAGES: Array<{ window: number; color: string }> = [
   { window: 6, color: '#d97706' },
 ]
 
+// 축·크로스헤어 가격에 천단위 구분점을 넣는다. 국장은 원 단위라 정수로, 미장은
+// 달러라 소수 2자리로 — 자릿수가 큰 국장 가격(예: 1326000)이 특히 읽기 어려웠다.
+function formatAxisPrice(price: number): string {
+  return Math.abs(price) >= 1000
+    ? Math.round(price).toLocaleString('en-US')
+    : price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function toMonthlyOHLCV(daily: PriceHistoryRow[]): PriceHistoryRow[] {
   const months: Record<string, PriceHistoryRow[]> = {}
   for (const row of daily) {
@@ -62,6 +70,7 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       width: containerRef.current.clientWidth,
       height: rsi ? 240 : 300,
       crosshair: { mode: CrosshairMode.Normal },
+      localization: { priceFormatter: formatAxisPrice },
     })
 
     const candleSeries = chart.addCandlestickSeries()
