@@ -113,20 +113,18 @@ describe('computeStopTarget pivot significance', () => {
 
     const result = computeStopTarget(bars, entry)
 
-    // 목표가는 이제 임팩트 투영이 잡으므로 전고점(180)보다 위에 있다. 이 테스트의
-    // 관심사인 "얕은 노이즈 봉우리를 저항으로 세지 않는다"는 경유 저항에 적용된다 —
-    // 172.5 노이즈가 아니라 실제로 방어된 180이 경유 저항이어야 한다.
-    expect(result.target!).toBeGreaterThan(180)
-    expect(result.wayResistance).toBeCloseTo(180, 5)
+    // 172.5 노이즈 봉우리는 프로미넌스도 낮고 보상도 1R에 못 미쳐 목표에서 제외되고,
+    // 실제로 방어된 180이 목표가 된다 — 차트에 존재하는 가격이라는 점이 중요하다.
+    expect(result.target).toBeCloseTo(180, 5)
     expect(result.riskReward).toBeGreaterThan(1)
   })
 })
 
 describe('임팩트 투영 목표가', () => {
-  it('전고점이 아니라 직전 상승폭을 투영한 곳을 목표로 삼는다', () => {
-    // 100 → 150 급등(상승폭 50) 후 140까지 눌린 형태.
-    // 옛 방식이면 목표가 전고점 150(보상 10)이라 손익비가 바닥났지만,
-    // 투영 방식은 눌림 저점 140 + 50 = 190을 목표로 본다.
+  it('위쪽에 의미 있는 저항이 없으면 전고점 너머를 목표로 잡는다', () => {
+    // 100 → 150 급등 후 140까지 눌린 형태. 전고점 150은 진입가에서 1R도 안 되는
+    // 거리라 목표로서 의미가 없다(옛 방식이 손익비 0.2대를 만들던 자리).
+    // 이 경우에만 임팩트를 투영해 전고점 위를 목표로 본다.
     const bars: PriceBar[] = []
     for (let i = 0; i < 60; i++) bars.push({ date: dayLabel(i), high: 101, low: 99, close: 100 })
     for (let i = 0; i < 40; i++) {

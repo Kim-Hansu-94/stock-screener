@@ -127,19 +127,39 @@ const STOP_BUFFER_ATR_MULT = 0.5
 const IMPULSE_LOOKBACK = 60
 // 횡보 종목의 박스 상단을 재는 창.
 const RANGE_WINDOW = 60
+// 목표로 인정할 최소 보상(위험 대비). 진입가 코앞의 저항은 목표가 아니라 통과 지점이다.
+const MIN_REWARD_R = 1
+// 어떤 계산이든 넘지 않는 보상 상한 — 파동 감지가 어긋나도 목표가 차트 밖으로 가지 않게.
+const MAX_REWARD_R = 4
 
 const NO_RISK = { stop: null, target: null, riskReward: null, wayResistance: null } as const
 
 /**
- * 임팩트 투영(measured move) 목표가.
+ * 직전 상승 파동(leg)의 시작점 — 임팩트 고점 바로 앞의 확정 스윙 저점.
  *
- * 이 스크리너는 "60일 +15% 급등 뒤 얕게 눌린" 자리를 산다. 즉 추세가 다시 이어져
- * 신고가를 낼 것에 베팅하는데, 목표를 "진입가 위 가장 가까운 저항"으로 잡으면
- * 방금 눌리기 전 그 고점이 목표가 되어 보상이 1~3%밖에 안 나온다. 손절은
- * 1.5 ATR이라 손익비가 0.2~0.3까지 떨어졌고, 눌림이 얕을수록(= 강한 종목일수록)
- * 더 나빠지는 역설이 있었다.
+ * 이걸 "구간 최저가"로 잡으면 60일 내내 오른 종목(예: 은행주)의 파동이 60일
+ * 전체 상승분으로 계산돼, 투영 목표가 차트에 존재하지도 않는 가격으로 튄다.
+ * 실제로 눌렸던 자리만 파동의 시작으로 인정한다.
+ */
+function lastSwingLowBefore(bars: PriceBar[], beforeIdx: number): number | null {
+  for (let i = beforeIdx - PIVOT_WINDOW - 1; i >= PIVOT_WINDOW; i--) {
+    const low = bars[i].low
+    const isLocalMin = bars.slice(i - PIVOT_WINDOW, i + PIVOT_WINDOW + 1).every((b) => b.low >= low)
+    if (!isLocalMin) continue
+    const leftHigh = Math.max(...bars.slice(i - PIVOT_WINDOW, i).map((b) => b.high))
+    const rightHigh = Math.max(...bars.slice(i + 1, i + PIVOT_WINDOW + 1).map((b) => b.high))
+    if (low > 0 && Math.min(leftHigh - low, rightHigh - low) / low >= PIVOT_MIN_PROMINENCE) {
+      return low
+    }
+  }
+  return null
+}
+
+/**
+ * 임팩트 투영(measured move) 목표가 — 신고가 부근이라 위쪽에 저항이 없을 때만 쓴다.
  *
- * 대신 직전 상승폭을 눌림 저점에서 다시 투영한다 — 전략의 전제와 같은 가정이다.
+ * 파동 시작을 특정하지 못하면 투영하지 않는다(null). 억지로 구간 최저가로
+ * 대체하면 위에 적은 대로 목표가 비현실적으로 부풀기 때문이다.
  */
 function measuredMoveTarget(bars: PriceBar[], entry: number): number | null {
   if (bars.length < IMPULSE_LOOKBACK) return null
@@ -149,12 +169,12 @@ function measuredMoveTarget(bars: PriceBar[], entry: number): number | null {
   for (let i = 1; i < window.length; i++) {
     if (window[i].high > window[highIdx].high) highIdx = i
   }
-  const impulseHigh = window[highIdx].high
-  const impulseLow = Math.min(...window.slice(0, highIdx + 1).map((b) => b.low))
-  const pullbackLow = Math.min(...window.slice(highIdx).map((b) => b.low))
+  const impulseLow = lastSwingLowBefore(window, highIdx)
+  if (impulseLow === null) return null
 
-  const height = impulseHigh - impulseLow
+  const height = window[highIdx].high - impulseLow
   if (height <= 0) return null
+  const pullbackLow = Math.min(...window.slice(highIdx).map((b) => b.low))
   const target = pullbackLow + height
   return target > entry ? target : null
 }
@@ -177,17 +197,28 @@ function trendFrame(bars: PriceBar[], entry: number): RiskResult {
 
   const extended = bars.slice(-RESISTANCE_LOOKBACK)
   const periodHigh = Math.max(...extended.map((p) => p.high))
-  const measured = measuredMoveTarget(bars, entry)
+  const pivotsAbove = findPivotHighs(extended).filter((h) => h > entry)
 
-  // 투영이 불가능한 경우에만 기존 방식으로 물러선다: 기간 최고가 → 고정 2R
+  // 차트에 실제로 존재하는 가격을 목표로 삼는 것이 우선이다. 다만 보상이 위험보다
+  // 작은 저항(진입가 코앞의 전고점)은 목표로서 의미가 없어 건너뛴다 — 이것이
+  // 손익비 0.2대를 만들던 원인이었다.
+  const meaningful = pivotsAbove.filter((h) => h - entry >= MIN_REWARD_R * risk)
+
   let target: number
-  if (measured !== null) target = measured
-  else if (periodHigh > entry) target = periodHigh
-  else target = entry + 2 * risk
+  if (meaningful.length > 0) {
+    target = meaningful[0]
+  } else {
+    // 위쪽에 의미 있는 저항이 없음 = 신고가 부근. 이때만 임팩트를 투영한다.
+    const measured = measuredMoveTarget(bars, entry)
+    target = measured ?? Math.max(periodHigh, entry + 2 * risk)
+  }
 
-  // 경유 저항: 목표까지 가는 길에 걸린 첫 저항. 목표를 대체하지는 않고,
+  // 파동 감지가 어긋나도 목표가 차트 밖으로 튀지 않도록 상한을 둔다.
+  target = Math.min(target, entry + MAX_REWARD_R * risk)
+
+  // 경유 저항: 목표까지 가는 길에 걸린 첫 저항. 목표를 대체하지 않고
   // "여기서 한 번 막힐 수 있다"를 알리는 용도로만 쓴다.
-  const onTheWay = findPivotHighs(extended).filter((h) => h > entry && h < target)
+  const onTheWay = pivotsAbove.filter((h) => h < target)
 
   return {
     stop,
