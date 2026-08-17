@@ -73,7 +73,16 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       localization: { priceFormatter: formatAxisPrice },
     })
 
-    const candleSeries = chart.addCandlestickSeries()
+    // lightweight-charts 기본값은 상승=초록/하락=빨강(서양식)이라 명시적으로 덮어써야 한다.
+    // 한국 관례: 상승=빨강(--up), 하락=파랑(--down).
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#f04452',
+      downColor: '#3182f6',
+      borderUpColor: '#f04452',
+      borderDownColor: '#3182f6',
+      wickUpColor: '#f04452',
+      wickDownColor: '#3182f6',
+    })
     candleSeries.setData(
       data.map((row) => ({
         time: row.date,
@@ -116,11 +125,13 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
       )
     }
 
+    // 손절은 현재가 아래(하락) 방향이라 파랑, 목표는 위(상승) 방향이라 빨강 —
+    // StockCard의 손익비 막대와 같은 규칙.
     if (stopPrice !== undefined) {
-      candleSeries.createPriceLine({ price: stopPrice, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '손절' })
+      candleSeries.createPriceLine({ price: stopPrice, color: '#3182f6', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '손절' })
     }
     if (targetPrice !== undefined) {
-      candleSeries.createPriceLine({ price: targetPrice, color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '목표' })
+      candleSeries.createPriceLine({ price: targetPrice, color: '#f04452', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '목표' })
     }
 
     chart.timeScale().fitContent()
@@ -147,8 +158,9 @@ export function StockChart({ history, monthly = false, bollinger = false, rsi = 
           .map((row, index) => ({ time: row.date, value: rsiValues[index] }))
           .filter((p): p is { time: string; value: number } => p.value !== null),
       )
-      rsiSeries.createPriceLine({ price: 70, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
-      rsiSeries.createPriceLine({ price: 30, color: '#22c55e', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
+      // 70/30은 가격 방향이 아니라 과매수·과매도 참고선이라 등락 색(빨강/파랑)을 쓰지 않는다.
+      rsiSeries.createPriceLine({ price: 70, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
+      rsiSeries.createPriceLine({ price: 30, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
       rsiChart.timeScale().fitContent()
     }
 
