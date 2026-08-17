@@ -130,6 +130,35 @@ def test_respects_the_per_run_cap(monkeypatch):
     assert sum(len(s) for s in db.saves) == 5
 
 
+def test_kr_skips_entirely_when_dart_api_key_is_unset(monkeypatch):
+    monkeypatch.delenv("DART_API_KEY", raising=False)
+    db = _CountingDB()
+    _patch(monkeypatch, db, stale=["005930"], extract=lambda _s: {"per": 1.0})
+
+    refresh_fundamentals(db, "KR", ["005930"], TODAY)
+
+    # DART_API_KEY 없이 400종목을 개별 시도해 전부 실패로 남기지 않고, 아예 건너뛴다
+    # (Yahoo _extract는 호출되지 않아야 한다 — KR은 더 이상 Yahoo 경로를 안 쓴다).
+    assert db.saves == []
+
+
+def test_kr_uses_dart_not_yahoo(monkeypatch):
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    db = _CountingDB()
+    _patch(monkeypatch, db, stale=["005930"], extract=lambda _s: (_ for _ in ()).throw(
+        AssertionError("KR 경로는 yfinance _extract를 호출하면 안 된다")
+    ))
+    monkeypatch.setattr(
+        fundamentals.dart_fundamentals, "extract", lambda ticker, year: {"ticker_seen": ticker, "per": None}
+    )
+
+    refresh_fundamentals(db, "KR", ["005930"], TODAY)
+
+    saved = [r for chunk in db.saves for r in chunk]
+    assert saved[0]["ticker"] == "005930"
+    assert saved[0]["ticker_seen"] == "005930"
+
+
 def test_a_save_failure_does_not_abort_the_remaining_chunks(monkeypatch):
     class _FlakyDB(_CountingDB):
         def save_fundamentals(self, rows):
