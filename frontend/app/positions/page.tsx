@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getExitSignals } from '@/lib/queries'
+import { getExitSignals } from '@/lib/queries/performance'
 import { ExitSignalTable } from '@/components/ExitSignalTable'
 
 async function PositionsContent() {

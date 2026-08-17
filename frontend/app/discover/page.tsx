@@ -1,15 +1,14 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
+import { SCREENER_CACHE_TAG, fetchUsdKrwRate } from '@/lib/queries/shared'
 import {
-  SCREENER_CACHE_TAG,
-  fetchUsdKrwRate,
   getFundamentals,
   getLongMonthlyHistory,
   getMonthlyPriceHistory,
   getOpportunitySnapshot,
-  getUniverseMarketCaps,
-} from '@/lib/queries'
+} from '@/lib/queries/opportunities'
+import { getUniverseMarketCaps } from '@/lib/queries/universe'
 import { buildLongTermContext } from '@/lib/longTermContext'
 import type { Market, OpportunitySnapshotRow, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
