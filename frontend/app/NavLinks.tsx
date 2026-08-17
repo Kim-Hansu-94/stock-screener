@@ -21,10 +21,10 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
-            className={`text-sm font-medium transition-colors break-keep ${
+            className={`text-sm transition-colors break-keep ${
               active
-                ? 'text-blue-600 border-b-2 border-blue-600 pb-0.5'
-                : 'text-gray-500 hover:text-gray-900'
+                ? 'border-b-2 border-foreground pb-0.5 font-bold text-foreground'
+                : 'font-medium text-muted-foreground hover:text-foreground'
             }`}
           >
             {label}

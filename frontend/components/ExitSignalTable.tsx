@@ -1,3 +1,4 @@
+import { changeTextClass } from '@/lib/marketColors'
 import type { ExitCheckResult, Market } from '@/lib/types'
 
 interface Props {
@@ -19,14 +20,14 @@ function formatPct(pct: number) {
 function StatusBadge({ item }: { item: ExitCheckResult }) {
   if (item.status === 'stopped_out') {
     return (
-      <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">
+      <span className="inline-flex items-center rounded-md bg-destructive/10 px-2.5 py-0.5 text-xs font-semibold text-destructive">
         손절가 도달
       </span>
     )
   }
   if (item.status === 'target_hit') {
     return (
-      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">
+      <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
         목표가 도달
       </span>
     )
@@ -39,7 +40,7 @@ function StatusBadge({ item }: { item: ExitCheckResult }) {
     )
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+    <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
       보유 유지
     </span>
   )
@@ -60,34 +61,29 @@ export function ExitSignalTable({ items, market }: Props) {
         const stocks = grouped.get(date)!
         return (
           <div key={date}>
-            <p className="mb-2 text-sm font-medium text-gray-500">{date} 추천</p>
+            <p className="mb-2 text-sm font-medium text-muted-foreground">{date} 추천</p>
             <div className="space-y-2">
               {stocks.map((item) => {
-                const returnColor =
-                  item.currentReturnPct > 0
-                    ? 'text-green-600'
-                    : item.currentReturnPct < 0
-                      ? 'text-red-500'
-                      : 'text-gray-500'
+                const returnColor = changeTextClass(item.currentReturnPct)
                 return (
-                  <div key={item.ticker} className="rounded-lg border border-gray-100 p-3">
+                  <div key={item.ticker} className="rounded-lg border border-border p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <span className="block text-sm font-medium text-gray-800">
+                        <span className="block text-sm font-medium text-foreground">
                           {item.name_kr || item.name}
                         </span>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                           {item.ticker}
-                          <span className="mx-1.5 text-gray-200">·</span>
+                          <span className="mx-1.5 text-muted-foreground/50">·</span>
                           매수가 {formatPrice(item.entryPrice, market)}
-                          <span className="mx-1.5 text-gray-200">·</span>
+                          <span className="mx-1.5 text-muted-foreground/50">·</span>
                           현재가 {formatPrice(item.currentPrice, market)}
                           <span className={`ml-1.5 font-mono ${returnColor}`}>
                             ({formatPct(item.currentReturnPct)})
                           </span>
                         </span>
                         {item.exitDate && (
-                          <span className="mt-0.5 block text-xs text-gray-400">{item.exitDate}에 도달</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{item.exitDate}에 도달</span>
                         )}
                       </div>
                       <StatusBadge item={item} />

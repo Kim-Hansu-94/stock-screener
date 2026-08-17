@@ -24,7 +24,7 @@ export function ScrollButtons() {
   if (!visible) return null
 
   const buttonClass =
-    'flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white/90 text-gray-500 shadow-md backdrop-blur-sm transition-colors hover:bg-gray-100 hover:text-gray-900'
+    'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card/90 text-muted-foreground shadow-md backdrop-blur-sm transition-colors hover:bg-muted hover:text-foreground'
 
   return (
     <div className="fixed bottom-5 right-4 z-20 flex flex-col gap-2 sm:right-6">

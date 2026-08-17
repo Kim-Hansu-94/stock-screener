@@ -72,12 +72,14 @@ export const EARNINGS_LABEL: Record<EarningsVerdict, string> = {
   unknown: '실적 데이터 없음',
 }
 
+// 실적 판정은 등락(가격 방향)이 아니라 좋음/나쁨이라 등락 색과 구분한다.
+// 나쁨은 destructive, 좋음은 브랜드 블루, 경고는 앰버(방향과 무관한 주의색)로 둔다.
 export const EARNINGS_CLASS: Record<EarningsVerdict, string> = {
-  loss: 'bg-red-100 text-red-800',
+  loss: 'bg-destructive/10 text-destructive',
   deteriorating: 'bg-amber-100 text-amber-800',
-  mixed: 'bg-gray-100 text-gray-600',
-  resilient: 'bg-emerald-50 text-emerald-700',
-  unknown: 'bg-gray-100 text-gray-400',
+  mixed: 'bg-muted text-muted-foreground',
+  resilient: 'bg-accent text-accent-foreground',
+  unknown: 'bg-muted text-muted-foreground/70',
 }
 
 export const EARNINGS_NOTE: Record<EarningsVerdict, string> = {

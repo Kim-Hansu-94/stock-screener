@@ -2,19 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
 import type { RiskFrame, RiskReason } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
+import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
 import { translateSector } from '@/lib/sectorMap'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
 const StockChart = dynamic(
   () => import('./StockChart').then((mod) => mod.StockChart),
-  { ssr: false, loading: () => <p className="py-8 text-center text-xs text-gray-400">차트 로딩 중...</p> },
+  { ssr: false, loading: () => <p className="py-8 text-center text-xs text-muted-foreground">차트 로딩 중...</p> },
 )
 
 interface StockCardProps {
@@ -44,12 +44,6 @@ const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
 const STOCK_CRITERIA_COUNT = 9
 const MARKET_BEAR_CRITERION = '시장 하락장'
 
-// 현재가 대비 등락률을 부호와 함께 표시 (예: +7.2%, -4.1%)
-function formatSignedPercent(price: number, base: number): string {
-  const pct = ((price - base) / base) * 100
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
-}
-
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const diffH = Math.floor(diffMs / 3_600_000)
@@ -57,6 +51,56 @@ function formatRelativeTime(iso: string): string {
   if (diffH < 24) return `${diffH}시간 전`
   const diffD = Math.floor(diffH / 24)
   return `${diffD}일 전`
+}
+
+/** 손절 ← 현재가 → 목표를 막대 하나로. 빨간 구간이 위험, 파란 구간이 기대. */
+function RiskRewardBar({
+  stop,
+  close,
+  target,
+  market,
+}: {
+  stop: number
+  close: number
+  target: number
+  market: Market
+}) {
+  const span = target - stop
+  if (span <= 0) return null
+  // 현재가가 손절~목표 사이 어디쯤인지. 이 위치가 왼쪽에 가까울수록 손익비가 좋다.
+  const pos = Math.min(100, Math.max(0, ((close - stop) / span) * 100))
+
+  const price = (value: number) =>
+    market === 'KR'
+      ? Math.round(value).toLocaleString('ko-KR')
+      : `$${value.toFixed(2)}`
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* 왼쪽(손절까지)은 하락 구간이라 파랑, 오른쪽(목표까지)은 상승 구간이라 빨강.
+          빨간 구간이 파란 구간보다 길수록 손익비가 좋다는 뜻이 눈으로 읽힌다. */}
+      <div className="relative h-1.5 overflow-hidden rounded-full bg-down">
+        <div
+          className="absolute inset-y-0 right-0 rounded-full bg-up"
+          style={{ left: `${pos}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[11.5px] tabular-nums">
+        <span className="font-semibold text-down">
+          {price(stop)}
+          <span className="ml-1 font-medium text-muted-foreground">
+            손절 {signedPercentBetween(stop, close)}
+          </span>
+        </span>
+        <span className="text-right font-semibold text-up">
+          {price(target)}
+          <span className="ml-1 font-medium text-muted-foreground">
+            목표 {signedPercentBetween(target, close)}
+          </span>
+        </span>
+      </div>
+    </div>
+  )
 }
 
 export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance }: StockCardProps) {
@@ -70,6 +114,7 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
   // 하락장 날은 시장 조건 1개가 더해져 분모가 10, 평상시엔 9.
   const totalCriteria =
     STOCK_CRITERIA_COUNT + (stock.failed_criteria.includes(MARKET_BEAR_CRITERION) ? 1 : 0)
+  const metCriteria = totalCriteria - stock.failed_criteria.length
 
   useEffect(() => {
     if (!isExpanded || news !== null) return
@@ -81,127 +126,131 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
       .finally(() => setNewsLoading(false))
   }, [isExpanded, newsQuery, news])
 
-  const formatPrice = (price: number) =>
+  // 미장은 달러가 주 표기, 원화는 보조로 작게 붙인다.
+  const closeMain =
     market === 'US'
-      ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${Math.round(price * usdKrwRate).toLocaleString('ko-KR')}원`
-      : `${price.toLocaleString('ko-KR')}원`
+      ? `$${stock.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : stock.close.toLocaleString('ko-KR')
+  const closeSub =
+    market === 'US' ? `${Math.round(stock.close * usdKrwRate).toLocaleString('ko-KR')}원` : null
 
   const marketCapDisplay =
     market === 'US' ? formatKrwAmount(stock.market_cap * usdKrwRate) : formatKrwAmount(stock.market_cap)
 
+  const grade = riskReward !== null && riskFrame !== null ? riskGrade(riskReward, riskFrame) : null
+
   return (
     <Card>
-      <CardHeader className="cursor-pointer" onClick={() => setIsExpanded((current) => !current)}>
-        <CardTitle className="flex items-start justify-between text-base">
-          <span>
-            <span className="block">
-              {stock.name_kr || stock.name}{' '}
-              <span className="text-gray-400">({stock.ticker})</span>
+      <CardHeader className="cursor-pointer gap-4" onClick={() => setIsExpanded((current) => !current)}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="truncate text-lg leading-tight font-bold tracking-tight">
+              {stock.name_kr || stock.name}
             </span>
-            {stock.name_kr && (
-              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
-            )}
-          </span>
-          <Badge variant={changePercent !== null && changePercent < 0 ? 'destructive' : 'default'}>
-            {changePercent === null ? '등락률 없음' : `${changePercent.toFixed(2)}%`}
-          </Badge>
-        </CardTitle>
-        <div className="flex flex-wrap items-center gap-1 pt-1">
-          {stock.passed === false ? (
-            <>
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                조건 {totalCriteria - stock.failed_criteria.length}개 충족 (
-                {totalCriteria - stock.failed_criteria.length}/{totalCriteria}) · 참고용
+            <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+              <span className="font-mono font-semibold text-secondary-foreground">{stock.ticker}</span>
+              <span aria-hidden="true">·</span>
+              <span>{translateSector(stock.sector)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{marketCapDisplay}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+            <span className="text-xl leading-none font-bold tracking-tight tabular-nums">
+              {closeMain}
+            </span>
+            <span
+              className={`rounded-md px-1.5 py-0.5 text-sm font-semibold tabular-nums ${changeTintClass(changePercent)}`}
+            >
+              {changePercent === null
+                ? '등락률 없음'
+                : `${changePercent > 0 ? '+' : changePercent < 0 ? '−' : ''}${Math.abs(changePercent).toFixed(2)}%`}
+            </span>
+            {closeSub && <span className="text-xs text-muted-foreground tabular-nums">{closeSub}</span>}
+          </div>
+        </div>
+
+        {stock.passed === false ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-lg bg-muted px-2.5 py-1 text-xs font-semibold text-secondary-foreground tabular-nums">
+              조건 {metCriteria}/{totalCriteria} 충족 · 참고용
+            </span>
+            {stock.failed_criteria.map((criterion) => (
+              <span
+                key={criterion}
+                className="rounded-lg bg-muted px-2 py-1 text-xs text-muted-foreground"
+              >
+                {criterion}
               </span>
-              {stock.failed_criteria.map((criterion) => (
-                <span
-                  key={criterion}
-                  className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500"
-                >
-                  {criterion}
+            ))}
+          </div>
+        ) : (
+          <span className="flex w-fit items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground">
+            <svg viewBox="0 0 16 16" fill="none" className="size-3.5" aria-hidden="true">
+              <path
+                d="M3 8.5l3.2 3.2L13 5"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {totalCriteria}개 조건 모두 충족
+          </span>
+        )}
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-4">
+        {/* 손익비를 카드의 주인공으로. 숫자만 보고 지나치지 않게 손절~목표 막대를 함께 둔다. */}
+        <div className="flex flex-col gap-3.5 rounded-lg bg-muted/60 p-4">
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium text-muted-foreground">손익비</span>
+              {riskReward !== null && grade !== null ? (
+                <span className={`text-2xl leading-none font-extrabold tracking-tight tabular-nums ${RISK_GRADE_CLASS[grade]}`}>
+                  {riskReward.toFixed(2)}
+                  <span className="text-base font-bold">R</span>
                 </span>
-              ))}
-            </>
-          ) : (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              전 조건 충족 ({totalCriteria}/{totalCriteria})
-            </span>
+              ) : (
+                <span className="text-base font-semibold text-muted-foreground">
+                  {riskReason === 'ok' ? '—' : RISK_REASON_LABEL[riskReason]}
+                </span>
+              )}
+            </div>
+            {riskFrame !== null && (
+              <span className="rounded-md bg-secondary px-2 py-1 text-[11px] font-semibold text-secondary-foreground">
+                {RISK_FRAME_LABEL[riskFrame]}
+              </span>
+            )}
+          </div>
+          {stop !== null && target !== null && (
+            <RiskRewardBar stop={stop} close={stock.close} target={target} market={market} />
           )}
         </div>
-      </CardHeader>
-      <CardContent>
-        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
-          <div>
-            <dt className="text-gray-400">종가</dt>
-            <dd>{formatPrice(stock.close)}</dd>
+
+        {/* 지표는 라벨 왼쪽 · 값 오른쪽 리스트로. 2열 그리드보다 스캔이 빠르다. */}
+        <dl className="flex flex-col">
+          <div className="flex items-center justify-between border-t border-border py-2.5 first:border-t-0 first:pt-0">
+            <dt className="text-sm font-medium text-muted-foreground">RSI</dt>
+            <dd className="text-sm font-semibold tabular-nums">{stock.rsi.toFixed(1)}</dd>
           </div>
-          <div>
-            <dt className="text-gray-400">시가총액</dt>
-            <dd>{marketCapDisplay}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-400">섹터</dt>
-            <dd>{translateSector(stock.sector)}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-400">RSI</dt>
-            <dd>{stock.rsi.toFixed(1)}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-400">손익비</dt>
-            {riskReward !== null && riskFrame !== null ? (
-              <dd className={`font-semibold ${RISK_GRADE_CLASS[riskGrade(riskReward, riskFrame)]}`}>
-                {riskReward.toFixed(2)}R
-                <span className="ml-1 text-xs font-normal text-gray-400">
-                  {RISK_FRAME_LABEL[riskFrame]}
-                </span>
-              </dd>
-            ) : (
-              <dd className="text-xs text-gray-400">
-                {riskReason === 'ok' ? '—' : RISK_REASON_LABEL[riskReason]}
-              </dd>
-            )}
-          </div>
-          {stop !== null && (
-            <div>
-              <dt className="text-gray-400">손절가</dt>
-              <dd className="text-red-500">
-                {market === 'KR' ? `${Math.round(stop).toLocaleString('ko-KR')}원` : `$${stop.toFixed(2)}`}
-                {stock.close > 0 && (
-                  <span className="ml-1 text-xs text-red-400">({formatSignedPercent(stop, stock.close)})</span>
-                )}
-              </dd>
-            </div>
-          )}
-          {target !== null && (
-            <div>
-              <dt className="text-gray-400">목표가</dt>
-              <dd className="text-green-600">
-                {market === 'KR' ? `${Math.round(target).toLocaleString('ko-KR')}원` : `$${target.toFixed(2)}`}
-                {stock.close > 0 && (
-                  <span className="ml-1 text-xs text-green-500">({formatSignedPercent(target, stock.close)})</span>
-                )}
-              </dd>
-            </div>
-          )}
           {wayResistance !== null && (
-            <div>
-              <dt className="text-gray-400">경유 저항</dt>
-              <dd className="text-gray-500">
+            <div className="flex items-center justify-between border-t border-border py-2.5">
+              <dt className="text-sm font-medium text-muted-foreground">경유 저항</dt>
+              <dd className="text-sm font-semibold tabular-nums">
                 {market === 'KR'
-                  ? `${Math.round(wayResistance).toLocaleString('ko-KR')}원`
+                  ? Math.round(wayResistance).toLocaleString('ko-KR')
                   : `$${wayResistance.toFixed(2)}`}
-                {stock.close > 0 && (
-                  <span className="ml-1 text-xs text-gray-400">
-                    ({formatSignedPercent(wayResistance, stock.close)})
-                  </span>
-                )}
+                <span className="ml-1.5 text-xs font-medium text-muted-foreground">
+                  {signedPercentBetween(wayResistance, stock.close)}
+                </span>
               </dd>
             </div>
           )}
         </dl>
+
         {isExpanded && (
-          <div className="mt-4">
+          <div>
             <StockChart
               history={history}
               bollinger
@@ -210,11 +259,11 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
               targetPrice={target ?? undefined}
             />
             {newsLoading && (
-              <p className="mt-4 text-xs text-gray-400">뉴스 불러오는 중...</p>
+              <p className="mt-4 text-xs text-muted-foreground">뉴스 불러오는 중...</p>
             )}
             {!newsLoading && news && news.length > 0 && (
-              <div className="mt-4 border-t border-gray-100 pt-3">
-                <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+              <div className="mt-4 border-t border-border pt-3">
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">최신 뉴스</p>
                 <ul className="space-y-2.5">
                   {news.map((article, i) => (
                     <li key={i}>
@@ -222,11 +271,11 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
                         href={article.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                        className="block text-sm leading-snug font-medium hover:text-primary"
                       >
                         {article.title}
                       </a>
-                      <p className="mt-0.5 text-xs text-gray-400">
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         {article.publisher} · {formatRelativeTime(article.publishedAt)}
                       </p>
                     </li>

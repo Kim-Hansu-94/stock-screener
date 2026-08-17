@@ -50,8 +50,8 @@ export function SimilaritySearch() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs text-gray-500">
-        <p className="mb-1 font-semibold text-gray-700">알고리즘</p>
+      <div className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground">
+        <p className="mb-1 font-semibold text-secondary-foreground">알고리즘</p>
         <ol className="list-decimal list-inside space-y-0.5">
           <li>거래대금 하위 20% · 이평선 미수렴 종목 사전 제거 (SMA20·60·120 밀집도 10% 이내)</li>
           <li>변동성 수축 조건: 최근 20일 수익률 σ &lt; 직전 60일 σ × 0.7 (바닥 다지기 확인)</li>
@@ -59,7 +59,7 @@ export function SimilaritySearch() {
           <li>기준 종목의 일별 수익률 Z-score 정규화, 거래량은 로그 변환 후 Z-score 정규화</li>
           <li>슬라이딩 시차(±3일) 코사인 유사도 — 수익률 80% · 거래량 20% 가중 합산 후 상위 20종목 반환</li>
         </ol>
-        <p className="mt-1.5 text-gray-400">
+        <p className="mt-1.5 text-muted-foreground">
           티커만 입력하면 최근 바닥 구간을 자동 감지합니다. 특정 기간을 지정하려면 고급 옵션을 사용하세요.
         </p>
       </div>
@@ -67,27 +67,27 @@ export function SimilaritySearch() {
       {/* 메인 입력 */}
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-500">기준 티커</span>
+          <span className="text-muted-foreground">기준 티커</span>
           <input
             type="text"
             value={ticker}
             onChange={(e) => setTicker(e.target.value.toUpperCase())}
             placeholder="예: AEVA"
-            className="h-9 w-28 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
+            className="h-9 w-28 rounded-md border border-input px-3 text-sm outline-none focus:border-ring"
           />
         </label>
         <button
           type="button"
           onClick={handleSearch}
           disabled={loading || !ticker.trim()}
-          className="h-9 rounded-md bg-blue-600 px-5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="h-9 rounded-md bg-primary px-5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
           {loading ? '검색 중...' : '패턴 검색'}
         </button>
         <button
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
-          className="h-9 px-3 text-xs text-gray-400 hover:text-gray-600"
+          className="h-9 px-3 text-xs text-muted-foreground hover:text-secondary-foreground"
         >
           {showAdvanced ? '고급 옵션 닫기 ▲' : '고급 옵션 (기간 직접 지정) ▼'}
         </button>
@@ -95,34 +95,34 @@ export function SimilaritySearch() {
 
       {/* 고급 옵션: 날짜 직접 지정 */}
       {showAdvanced && (
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-muted p-3">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-gray-500">시작일</span>
+            <span className="text-muted-foreground">시작일</span>
             <input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               min={DATA_MIN}
               max={to || today}
-              className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
+              className="h-9 rounded-md border border-input px-3 text-sm outline-none focus:border-ring"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-gray-500">종료일</span>
+            <span className="text-muted-foreground">종료일</span>
             <input
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               min={from || DATA_MIN}
               max={today}
-              className="h-9 rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-blue-400"
+              className="h-9 rounded-md border border-input px-3 text-sm outline-none focus:border-ring"
             />
           </label>
           {(from || to) && (
             <button
               type="button"
               onClick={() => { setFrom(''); setTo('') }}
-              className="h-9 px-3 text-xs text-gray-400 hover:text-red-500"
+              className="h-9 px-3 text-xs text-muted-foreground hover:text-destructive"
             >
               초기화
             </button>
@@ -130,18 +130,18 @@ export function SimilaritySearch() {
         </div>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* 감지된 기간 표시 */}
       {searched && detectedPeriod && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-muted-foreground">
           분석 기간: {detectedPeriod.from} ~ {detectedPeriod.to}
           {!(from && to) && ' (자동 감지)'}
         </p>
       )}
 
       {searched && results.length === 0 && !error && (
-        <p className="text-sm text-gray-500">유사 패턴 종목을 찾지 못했습니다.</p>
+        <p className="text-sm text-muted-foreground">유사 패턴 종목을 찾지 못했습니다.</p>
       )}
 
       {results.length > 0 && (
@@ -166,19 +166,19 @@ function SimilarStockCard({ stock }: { stock: SimilarStockResult }) {
       <CardHeader className="cursor-pointer" onClick={() => setExpanded((v) => !v)}>
         <CardTitle className="flex items-center justify-between text-base">
           <span>
-            {stock.name} <span className="text-gray-400">({stock.ticker})</span>
+            {stock.name} <span className="text-muted-foreground">({stock.ticker})</span>
           </span>
           <Badge>{score}점</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+        <dl className="grid grid-cols-2 gap-2 text-sm text-secondary-foreground">
           <div>
-            <dt className="text-gray-400">섹터</dt>
+            <dt className="text-muted-foreground">섹터</dt>
             <dd>{stock.sector ?? '-'}</dd>
           </div>
           <div>
-            <dt className="text-gray-400">현재가</dt>
+            <dt className="text-muted-foreground">현재가</dt>
             <dd>{latestClose != null ? `$${latestClose.toFixed(2)}` : '-'}</dd>
           </div>
         </dl>

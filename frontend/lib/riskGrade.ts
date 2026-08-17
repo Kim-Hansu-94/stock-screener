@@ -22,10 +22,13 @@ export function riskGrade(riskReward: number, frame: RiskFrame): RiskGrade {
   return 'poor'
 }
 
+// 빨강·파랑은 등락 방향 전용이다(상승=빨강, 하락=파랑). 손익비 품질에 그 두 색을 쓰면
+// 숫자가 등락률로 오독되므로, 품질은 색조가 아니라 글자의 진하기로 표현한다.
+// 좋은 손익비는 진하게 눈에 들어오고, 낮은 손익비는 흐리게 물러난다.
 export const RISK_GRADE_CLASS: Record<RiskGrade, string> = {
-  good: 'text-green-600',
-  fair: 'text-amber-500',
-  poor: 'text-red-500',
+  good: 'text-foreground',
+  fair: 'text-secondary-foreground',
+  poor: 'text-muted-foreground',
 }
 
 /** 계산 틀 라벨 — 추세 종목과 횡보 종목의 숫자를 섞어 읽지 않도록 표시한다. */

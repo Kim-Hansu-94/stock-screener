@@ -12,12 +12,12 @@ function Stat({
   tone?: 'neutral' | 'positive' | 'negative'
 }) {
   const valueColor =
-    tone === 'positive' ? 'text-red-600' : tone === 'negative' ? 'text-blue-600' : 'text-gray-900'
+    tone === 'positive' ? 'text-destructive' : tone === 'negative' ? 'text-primary' : 'text-foreground'
   return (
-    <div className="rounded-lg bg-gray-50 p-3">
-      <p className="text-xs text-gray-400">{label}</p>
+    <div className="rounded-lg bg-muted p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 text-lg font-semibold ${valueColor}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400">{sub}</p>}
+      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>
   )
 }
@@ -25,7 +25,7 @@ function Stat({
 export function TrackRecordCard({ record }: { record: TrackRecord }) {
   if (record.totalTrades === 0) {
     return (
-      <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-400">
+      <div className="rounded-lg border border-border bg-muted p-4 text-sm text-muted-foreground">
         최근 90일 내 집계할 트레이드 표본이 없습니다.
       </div>
     )
@@ -38,7 +38,7 @@ export function TrackRecordCard({ record }: { record: TrackRecord }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-muted-foreground">
         전체 {record.totalTrades}건 · 청산 {closedCount}건 (첫 추천일 매수 기준)
       </p>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

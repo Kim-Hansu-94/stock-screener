@@ -1,3 +1,4 @@
+import { changeTextClass, regimeTintClass } from '@/lib/marketColors'
 import type { DayReturn, Market, ScreenedStockPerf } from '@/lib/types'
 
 interface Props {
@@ -8,10 +9,10 @@ interface Props {
 
 function ReturnCell({ value }: { value: DayReturn | null }) {
   if (!value) {
-    return <td className="w-12 px-1 py-1.5 text-center text-gray-300">—</td>
+    return <td className="w-12 px-1 py-1.5 text-center text-muted-foreground/50">—</td>
   }
   const pct = value.returnPct
-  const color = pct > 0 ? 'text-green-600' : pct < 0 ? 'text-red-500' : 'text-gray-500'
+  const color = changeTextClass(pct)
   return (
     <td className={`w-12 px-1 py-1.5 text-center font-mono text-xs ${color}`}>
       {pct > 0 ? '+' : ''}
@@ -32,9 +33,9 @@ function formatPct(ratio: number) {
 }
 
 function RRColor(rr: number) {
-  if (rr >= 2.0) return 'text-green-600'
-  if (rr >= 1.5) return 'text-amber-500'
-  return 'text-red-500'
+  if (rr >= 2.0) return 'text-primary'
+  if (rr >= 1.5) return 'text-muted-foreground'
+  return 'text-destructive'
 }
 
 function StopTargetLine({ stock, market }: { stock: ScreenedStockPerf; market: Market }) {
@@ -46,16 +47,16 @@ function StopTargetLine({ stock, market }: { stock: ScreenedStockPerf; market: M
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-      <span className="whitespace-nowrap text-red-500">
+      <span className="whitespace-nowrap text-destructive">
         손절 {formatPrice(stop, market)}
-        <span className="ml-0.5 text-red-400">({formatPct(stopPct)})</span>
+        <span className="ml-0.5 opacity-80">({formatPct(stopPct)})</span>
       </span>
-      <span className="text-gray-300">·</span>
-      <span className="whitespace-nowrap text-green-600">
+      <span className="text-muted-foreground/50">·</span>
+      <span className="whitespace-nowrap text-primary">
         목표 {formatPrice(target, market)}
-        <span className="ml-0.5 text-green-500">({formatPct(targetPct)})</span>
+        <span className="ml-0.5 opacity-80">({formatPct(targetPct)})</span>
       </span>
-      <span className="text-gray-300">·</span>
+      <span className="text-muted-foreground/50">·</span>
       <span className={`whitespace-nowrap font-semibold ${RRColor(riskReward)}`}>
         손익비 {riskReward.toFixed(1)}x
       </span>
@@ -68,9 +69,7 @@ function RegimePill({ regime }: { regime: string | undefined }) {
   const isBull = regime === 'bull'
   return (
     <span
-      className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-        isBull ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-      }`}
+      className={`ml-2 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${regimeTintClass(isBull)}`}
     >
       {isBull ? '상승장' : '하락장'}
     </span>
@@ -93,29 +92,29 @@ export function PerformanceTable({ items, market, regimes }: Props) {
         const stocks = grouped.get(date)!
         return (
           <div key={date}>
-            <p className="mb-2 flex items-center text-sm font-medium text-gray-500">
+            <p className="mb-2 flex items-center text-sm font-medium text-muted-foreground">
               {date}
               <RegimePill regime={regimes?.[date]} />
             </p>
-            <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 text-xs text-gray-400">
+                  <tr className="bg-muted text-xs text-muted-foreground">
                     <th className="px-2 py-1.5 text-left font-medium">종목</th>
                     <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+1일</th>
                     <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+2일</th>
                     <th className="w-14 px-1 py-1.5 text-center font-medium whitespace-nowrap">+3일</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-border">
                   {stocks.map((stock) => (
-                    <tr key={stock.ticker} className="hover:bg-gray-50/50">
+                    <tr key={stock.ticker} className="hover:bg-muted/50">
                       <td className="px-2 py-1.5">
-                        <span className="block text-sm font-medium text-gray-800">{stock.name_kr || stock.name}</span>
-                        <span className="text-xs text-gray-400">
+                        <span className="block text-sm font-medium text-foreground">{stock.name_kr || stock.name}</span>
+                        <span className="text-xs text-muted-foreground">
                           {stock.ticker}
-                          <span className="mx-1.5 text-gray-200">·</span>
-                          <span className="font-mono whitespace-nowrap text-gray-500">{formatPrice(stock.entryPrice, market)}</span>
+                          <span className="mx-1.5 text-muted-foreground/50">·</span>
+                          <span className="font-mono whitespace-nowrap text-muted-foreground">{formatPrice(stock.entryPrice, market)}</span>
                         </span>
                         <StopTargetLine stock={stock} market={market} />
                       </td>
