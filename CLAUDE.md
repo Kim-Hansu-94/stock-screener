@@ -95,7 +95,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | 경로 | 내용 |
 |---|---|
 | `page.tsx` | 홈 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 |
-| `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭 |
+| `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
 | `history/` | 스크리닝 성적표 (과거 추천의 결과) |
 | `positions/` | 보유 포지션 청산 신호 |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
