@@ -1,5 +1,5 @@
 import { revalidateTag } from 'next/cache'
-import { SCREENER_CACHE_TAG } from '@/lib/queries'
+import { SCREENER_CACHE_TAG } from '@/lib/queries/shared'
 
 // 파이프라인(GitHub Actions)이 DB 갱신을 마친 직후 호출하는 웹훅.
 // 사이트의 모든 캐시 쿼리가 같은 태그를 공유하므로, 이 한 번의 호출로

@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getScreenedStockPerformance, getRegimesInRange, getScreenerTrackRecord } from '@/lib/queries'
+import { getScreenedStockPerformance, getRegimesInRange, getScreenerTrackRecord } from '@/lib/queries/performance'
 import { PerformanceTable } from '@/components/PerformanceTable'
 import { TrackRecordCard } from '@/components/TrackRecordCard'
 

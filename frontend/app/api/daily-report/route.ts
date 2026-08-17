@@ -1,7 +1,8 @@
 import { cacheLife } from 'next/cache'
 import YahooFinance from 'yahoo-finance2'
 import { createServerSupabaseClient } from '@/lib/supabase'
-import { fetchUsdKrwRate, getMonthlyPriceHistory } from '@/lib/queries'
+import { fetchUsdKrwRate } from '@/lib/queries/shared'
+import { getMonthlyPriceHistory } from '@/lib/queries/opportunities'
 import type { DailyReportResult, DailyReportResponse } from '@/lib/types'
 
 // 추천 종목(러셀 3000 포함)은 stock_universe에 없는 종목이 있어 시총을 Yahoo에서

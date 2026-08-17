@@ -3,15 +3,15 @@ import { connection } from 'next/server'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { StockCard } from '@/components/StockCard'
 import { WatchlistCard } from '@/components/WatchlistCard'
+import { fetchUsdKrwRate } from '@/lib/queries/shared'
 import {
-  fetchUsdKrwRate,
   getLatestRegime,
   getLeadingSectors,
   getPriceHistoryByTicker,
   getScreenedStocks,
-  getUniverseNameMap,
   getWatchlistStatus,
-} from '@/lib/queries'
+} from '@/lib/queries/screener'
+import { getUniverseNameMap } from '@/lib/queries/universe'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 import { computeStopTarget, filterBarsAsOf, type RiskResult } from '@/lib/risk'
 
