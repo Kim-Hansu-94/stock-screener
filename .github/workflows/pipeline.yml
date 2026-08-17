@@ -151,6 +151,7 @@ jobs:
           echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
           echo "KIS_APP_KEY=${{ secrets.KIS_APP_KEY }}" >> pipeline/.env
           echo "KIS_APP_SECRET=${{ secrets.KIS_APP_SECRET }}" >> pipeline/.env
+          echo "DART_API_KEY=${{ secrets.DART_API_KEY }}" >> pipeline/.env
 
       - name: Run pipeline
         working-directory: pipeline

@@ -4,18 +4,23 @@
 "바닥을 다진 종목"의 차트 모양이 같으면 구분하지 못한다. 둘을 가르는 가장
 결정적인 정보는 하나다 — 주가가 빠질 때 실적도 같이 빠졌는가.
 
-yfinance는 종목당 요청이 필요해 전 종목을 매일 받을 수 없다. 실적은 분기에
-한 번 바뀌므로, 30일이 지난 종목만 대상으로 하고 1회 실행당 상한을 둬서
-여러 실행에 걸쳐 채운다(첫 주에 전체가 채워지고 이후엔 갱신분만 남는다).
+국내 종목은 dart_fundamentals.py(DART 전자공시)로 수집한다 — Yahoo가 국내
+소형주 손익계산서를 잘 못 가지고 있어 계속 "데이터 없음"으로 남는 문제가 있었다.
+미국 종목은 그대로 yfinance를 쓴다. yfinance는 종목당 요청이 필요해 전 종목을
+매일 받을 수 없다. 실적은 분기에 한 번 바뀌므로, 30일이 지난 종목만 대상으로
+하고 1회 실행당 상한을 둬서 여러 실행에 걸쳐 채운다(첫 주에 전체가 채워지고
+이후엔 갱신분만 남는다).
 """
 
 from __future__ import annotations
 
+import os
 from datetime import date, timedelta
 
 import pandas as pd
 import yfinance as yf
 
+from . import dart_fundamentals
 from .db import ScreenerDB
 
 # 1회 실행당 조회 상한. 종목당 2~3초(재무제표 + info 각 1요청)라 전 종목을 한 번에
@@ -158,6 +163,11 @@ def _candidates_first(db: ScreenerDB, market: str, pending: list[str], today: da
 def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today: date) -> None:
     if not tickers:
         return
+    if market == "KR" and not os.environ.get("DART_API_KEY"):
+        # 키 미등록 상태로 400종목을 개별 시도해 전부 실패로 남기는 대신,
+        # 한 줄로 원인을 밝히고 건너뛴다 — 등록되면 다음 실행부터 바로 채워진다.
+        print("KR 실적 수집 생략: DART_API_KEY 미설정", flush=True)
+        return
     try:
         pending = _stale_tickers(db, market, tickers, today)
     except Exception as exc:  # noqa: BLE001
@@ -192,7 +202,10 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
 
     for n, ticker in enumerate(batch, 1):
         try:
-            data = _extract(_yahoo_symbol(ticker, market))
+            if market == "KR":
+                data = dart_fundamentals.extract(ticker, today.year - 1)
+            else:
+                data = _extract(_yahoo_symbol(ticker, market))
         except Exception:  # noqa: BLE001
             data = None
         if data is None:
