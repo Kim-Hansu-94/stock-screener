@@ -16,19 +16,19 @@ async function PositionsContent() {
   return (
     <>
       {!hasData && (
-        <p className="text-sm text-gray-400">최근 30일 내 추천 이력이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">최근 30일 내 추천 이력이 없습니다.</p>
       )}
 
       {krSignals.length > 0 && (
-        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-900">한국 시장</h2>
+        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <h2 className="text-base font-semibold text-foreground">한국 시장</h2>
           <ExitSignalTable items={krSignals} market="KR" />
         </section>
       )}
 
       {usSignals.length > 0 && (
-        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-900">미국 시장</h2>
+        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <h2 className="text-base font-semibold text-foreground">미국 시장</h2>
           <ExitSignalTable items={usSignals} market="US" />
         </section>
       )}
@@ -40,8 +40,8 @@ export default function PositionsPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-5 px-4 py-8">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">보유 종목 점검</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">보유 종목 점검</h1>
+        <p className="text-sm text-muted-foreground">
           최근 30일 추천 종목 중 아직 들고 있을 만한 종목을 점검하고, 매도 신호가 나온 종목을 알려줍니다.
         </p>
       </div>

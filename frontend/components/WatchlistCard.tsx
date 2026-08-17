@@ -6,8 +6,8 @@ function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
     <span
       className={`rounded-full px-2 py-0.5 text-xs ${
         ok
-          ? 'bg-emerald-50 font-medium text-emerald-700'
-          : 'bg-gray-100 text-gray-500'
+          ? 'bg-accent font-semibold text-accent-foreground'
+          : 'bg-muted text-muted-foreground'
       }`}
     >
       {label} {ok ? '✓' : '✗'}
@@ -32,43 +32,43 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
 
   return (
     <section
-      className={`space-y-3 rounded-xl border bg-white p-5 shadow-sm ${
-        anyQualified ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-gray-200'
+      className={`space-y-3 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)] ${
+        anyQualified ? 'ring-2 ring-primary/40' : ''
       }`}
     >
       <div>
-        <h2 className="text-base font-semibold text-gray-900">
+        <h2 className="text-base font-bold">
           감시 종목
           {anyQualified && (
-            <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">
-              📈 매수 신호 발생
+            <span className="ml-2 rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+              매수 신호 발생
             </span>
           )}
         </h2>
-        <p className="mt-0.5 text-xs text-gray-400">
+        <p className="mt-0.5 text-xs text-muted-foreground">
           횡보·조정 스크리너 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 아침·저녁 평가합니다.
         </p>
-        <p className="mt-1 text-xs text-emerald-700">
+        <p className="mt-1 text-xs text-accent-foreground">
           <span className="font-medium">초록불 조건:</span> 위 기준 통과 + {BUY_GRADE_CRITERIA}
         </p>
       </div>
       {rows.map((row) => (
         <div
           key={`${row.market}-${row.ticker}`}
-          className={`rounded-lg border p-3 ${
+          className={`rounded-lg p-3 ${
             grades.get(`${row.market}-${row.ticker}`) !== 'watch'
-              ? 'border-emerald-300 bg-emerald-50/60'
-              : 'border-gray-100'
+              ? 'bg-accent/60 ring-1 ring-primary/25'
+              : 'bg-muted/50'
           }`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-semibold text-gray-900">
+            <span className="text-sm font-bold">
               {row.name || row.ticker}{' '}
-              <span className="font-normal text-gray-400">({row.ticker})</span>
+              <span className="font-mono text-xs font-semibold text-muted-foreground">{row.ticker}</span>
             </span>
             {row.qualified ? (
               <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                className={`rounded-md px-2.5 py-0.5 text-xs font-semibold ${
                   BUY_GRADE_CLASS[grades.get(`${row.market}-${row.ticker}`) ?? 'watch']
                 }`}
               >
@@ -76,7 +76,7 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
                 {BUY_GRADE_LABEL[grades.get(`${row.market}-${row.ticker}`) ?? 'watch']}
               </span>
             ) : (
-              <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+              <span className="rounded-md bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                 대기 중
               </span>
             )}
@@ -94,9 +94,9 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
             )}
           </div>
           {!row.qualified && row.reason && (
-            <p className="mt-2 text-xs text-gray-400">미달: {row.reason}</p>
+            <p className="mt-2 text-xs text-muted-foreground">미달: {row.reason}</p>
           )}
-          <p className="mt-1 text-xs text-gray-300">평가일: {row.date}</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">평가일: {row.date}</p>
         </div>
       ))}
     </section>

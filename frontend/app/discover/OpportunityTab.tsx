@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
 import { EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, assessEarnings } from '@/lib/fundamentals'
+import { changeTextClass } from '@/lib/marketColors'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
 
@@ -31,28 +31,28 @@ export function OpportunityTab({
     : opportunities
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
       <div className="mb-4">
-        <h2 className="text-base font-semibold text-gray-900">미래먹거리 횡보·조정 종목</h2>
-        <p className="mt-0.5 text-xs text-gray-400">
+        <h2 className="text-base font-bold">미래먹거리 횡보·조정 종목</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
           코스피 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
           최근 20일 내 52주 신저가를 갱신 중이거나 최근 60일 박스폭이 30%를 넘는(횡보가 아닌) 종목은 제외하고,
           매도 소진 · 변동성 수축(VCP) · 저점 높이기 · 거래량 소진을 합산한 매수 매력도 순으로 정렬합니다.
         </p>
-        <p className="mt-2 text-xs text-emerald-700">
+        <p className="mt-2 text-xs text-accent-foreground">
           <span className="font-medium">매수 등급 기준:</span> {BUY_GRADE_CRITERIA}
         </p>
-        <p className="mt-2 text-xs text-amber-700">
+        <p className="mt-2 text-xs text-muted-foreground">
           <span className="font-medium">읽을 때 주의:</span> 점수는 최근 6~12개월 가격 움직임만 봅니다.
           조정폭 판정 기준인 &ldquo;3년 고점&rdquo;이 이미 하락 중턱일 수 있어, 카드에 10년 고점 대비
           하락률을 함께 표시하고 장기 하락 종목에는 경고를 붙입니다. 차트도 10년 구간으로 보여줍니다.
         </p>
-        <p className="mt-2 text-xs text-gray-400">
-          <span className="font-medium text-gray-500">데이터 출처:</span> 매일 아침 파이프라인이 갱신하는 Supabase 시세로 계산하며, 갱신 완료 즉시 다른 탭과 함께 반영됩니다.
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium text-muted-foreground">데이터 출처:</span> 매일 아침 파이프라인이 갱신하는 Supabase 시세로 계산하며, 갱신 완료 즉시 다른 탭과 함께 반영됩니다.
           각 카드의 &ldquo;기준일&rdquo;은 그 종목 계산에 쓰인 최신 거래일입니다.
         </p>
         {opportunities.length > 0 && (
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             국장 <strong>{krCount}개</strong> · 미장 <strong>{usCount}개</strong> (총{' '}
             {opportunities.length}개)
           </p>
@@ -66,8 +66,8 @@ export function OpportunityTab({
             onClick={() => setSectorFilter(null)}
             className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
               sectorFilter === null
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:bg-secondary'
             }`}
           >
             전체
@@ -79,8 +79,8 @@ export function OpportunityTab({
               onClick={() => setSectorFilter(sector)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 sectorFilter === sector
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-secondary'
               }`}
             >
               {sector}
@@ -90,13 +90,13 @@ export function OpportunityTab({
       )}
 
       {opportunityError ? (
-        <p className="text-sm text-red-600">{opportunityError}</p>
+        <p className="text-sm text-destructive">{opportunityError}</p>
       ) : opportunities.length === 0 ? (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           해당 조건의 종목이 없습니다. 파이프라인 실행 후 데이터가 채워집니다.
         </p>
       ) : filteredOpportunities.length === 0 ? (
-        <p className="text-sm text-gray-500">해당 섹터에 종목이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">해당 섹터에 종목이 없습니다.</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {filteredOpportunities.map((stock) => (
@@ -146,8 +146,13 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
   }, [stock.ticker, stock.market, stock.name_kr, stock.name])
 
   const drawdownStr = stock.drawdown.toFixed(1)
-  const variant =
-    stock.drawdown >= 40 ? 'destructive' : stock.drawdown >= 25 ? 'secondary' : 'outline'
+  // 조정폭은 고점에서 얼마나 내려왔는지(하락)라서 파랑 계열로 깊이를 표현한다.
+  const drawdownClass =
+    stock.drawdown >= 40
+      ? 'bg-down text-primary-foreground'
+      : stock.drawdown >= 25
+        ? 'bg-down/15 text-down'
+        : 'bg-muted text-muted-foreground'
   const grade = buyGrade(stock.score, stock.higherLows)
   const earnings = assessEarnings(stock.fundamentals)
 
@@ -168,45 +173,47 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
           <span>
             <span className="block">
               {stock.name_kr || stock.name}{' '}
-              <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+              <span className="text-sm font-normal text-muted-foreground">({stock.ticker})</span>
             </span>
             {stock.name_kr && (
-              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
+              <span className="block text-xs font-normal text-muted-foreground">{stock.name}</span>
             )}
           </span>
           {/* 점수가 아니라 실제 하락률이므로 %를 유지하되, 매력도 점수와 혼동되지
               않도록 "고점 대비"를 명시한다. */}
-          <Badge variant={variant}>고점 대비 -{drawdownStr}%</Badge>
+          <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold tabular-nums ${drawdownClass}`}>
+            고점 대비 −{drawdownStr}%
+          </span>
         </CardTitle>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-muted-foreground">
           기준일: {stock.asOfDate ? new Date(stock.asOfDate).toLocaleDateString('ko-KR') : '알 수 없음'}
         </p>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+        <dl className="grid grid-cols-2 gap-2 text-sm text-secondary-foreground">
           <div>
-            <dt className="text-xs text-gray-400">섹터</dt>
+            <dt className="text-xs text-muted-foreground">섹터</dt>
             <dd>{translateSector(stock.sector)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">지수</dt>
+            <dt className="text-xs text-muted-foreground">지수</dt>
             <dd>{marketTag}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">현재가</dt>
+            <dt className="text-xs text-muted-foreground">현재가</dt>
             <dd>{formatPrice(stock.currentClose)}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">3년 고점</dt>
+            <dt className="text-xs text-muted-foreground">3년 고점</dt>
             <dd>{formatPrice(stock.high3y)}</dd>
           </div>
           {stock.hasLongHistory && stock.longTermHigh != null && (
             <div>
-              <dt className="text-xs text-gray-400">10년 고점</dt>
+              <dt className="text-xs text-muted-foreground">10년 고점</dt>
               <dd className={stock.longTermDeclining ? 'text-amber-700' : undefined}>
                 {formatPrice(stock.longTermHigh)}
                 {stock.longTermDrawdown != null && (
-                  <span className="ml-1 text-xs text-gray-400">
+                  <span className="ml-1 text-xs text-muted-foreground">
                     ({stock.longTermDrawdown.toFixed(0)}% 아래)
                   </span>
                 )}
@@ -214,7 +221,7 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
             </div>
           )}
           <div>
-            <dt className="text-xs text-gray-400">시가총액</dt>
+            <dt className="text-xs text-muted-foreground">시가총액</dt>
             <dd>
               {stock.marketCap != null
                 ? formatKrwAmount(stock.market === 'KR' ? stock.marketCap : stock.marketCap * usdKrwRate)
@@ -226,23 +233,23 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${BUY_GRADE_CLASS[grade]}`}>
             매력도 {Math.round(stock.score * 100)}점 · {BUY_GRADE_LABEL[grade]}
           </span>
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">
             저점 유지 {stock.daysSinceLow}일
           </span>
           {stock.vcp && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">VCP ✓</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">VCP ✓</span>
           )}
           {stock.higherLows && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">저점↑</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">저점↑</span>
           )}
           {stock.volumeDry && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">거래량 소진</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">거래량 소진</span>
           )}
           {stock.alignedMAs && (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">정배열</span>
+            <span className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">정배열</span>
           )}
           {stock.volumeTrigger && (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">거래량 급증</span>
+            <span className="rounded-md bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">거래량 급증</span>
           )}
           {stock.longTermDeclining && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
@@ -259,23 +266,23 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
         )}
 
         {earnings.verdict !== 'unknown' && (
-          <div className="mt-3 rounded-lg border border-gray-100 p-2.5">
+          <div className="mt-3 rounded-lg border border-border p-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-gray-500">실적</span>
+              <span className="text-xs font-medium text-muted-foreground">실적</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${EARNINGS_CLASS[earnings.verdict]}`}>
                 {EARNINGS_LABEL[earnings.verdict]}
               </span>
               {earnings.years.prior != null && earnings.years.latest != null && (
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-muted-foreground">
                   {earnings.years.prior} → {earnings.years.latest}
                 </span>
               )}
             </div>
-            <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+            <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
               {earnings.revenueChange != null && (
                 <div className="flex gap-1">
-                  <dt className="text-gray-400">매출</dt>
-                  <dd className={earnings.revenueChange < 0 ? 'text-red-500' : 'text-emerald-600'}>
+                  <dt className="text-muted-foreground">매출</dt>
+                  <dd className={changeTextClass(earnings.revenueChange)}>
                     {earnings.revenueChange >= 0 ? '+' : ''}
                     {earnings.revenueChange.toFixed(0)}%
                   </dd>
@@ -283,8 +290,8 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
               )}
               {earnings.profitChange != null && (
                 <div className="flex gap-1">
-                  <dt className="text-gray-400">순이익</dt>
-                  <dd className={earnings.profitChange < 0 ? 'text-red-500' : 'text-emerald-600'}>
+                  <dt className="text-muted-foreground">순이익</dt>
+                  <dd className={changeTextClass(earnings.profitChange)}>
                     {earnings.profitChange >= 0 ? '+' : ''}
                     {earnings.profitChange.toFixed(0)}%
                   </dd>
@@ -292,18 +299,18 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
               )}
               {stock.fundamentals?.per != null && (
                 <div className="flex gap-1">
-                  <dt className="text-gray-400">PER</dt>
+                  <dt className="text-muted-foreground">PER</dt>
                   <dd>{stock.fundamentals.per.toFixed(1)}</dd>
                 </div>
               )}
               {stock.fundamentals?.pbr != null && (
                 <div className="flex gap-1">
-                  <dt className="text-gray-400">PBR</dt>
+                  <dt className="text-muted-foreground">PBR</dt>
                   <dd>{stock.fundamentals.pbr.toFixed(2)}</dd>
                 </div>
               )}
             </dl>
-            <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
               {EARNINGS_NOTE[earnings.verdict]}
             </p>
           </div>
@@ -315,8 +322,8 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
         </div>
 
         {news !== null && news.length > 0 && (
-          <div className="mt-4 border-t border-gray-100 pt-3">
-            <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">최신 뉴스</p>
             <ul className="space-y-2.5">
               {news.map((article, i) => (
                 <li key={i}>
@@ -324,11 +331,11 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
                     href={article.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                    className="block text-sm leading-snug text-foreground hover:text-primary"
                   >
                     {article.title}
                   </a>
-                  <p className="mt-0.5 text-xs text-gray-400">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {article.publisher} · {formatRelativeTime(article.publishedAt)}
                   </p>
                 </li>

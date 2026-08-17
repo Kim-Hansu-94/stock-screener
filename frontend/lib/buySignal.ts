@@ -28,9 +28,9 @@ export const BUY_GRADE_LABEL: Record<BuyGrade, string> = {
 
 /** 배지 스타일 — 등급이 한눈에 구분되도록 색을 달리한다. */
 export const BUY_GRADE_CLASS: Record<BuyGrade, string> = {
-  strong: 'bg-emerald-600 text-white',
-  consider: 'bg-emerald-50 text-emerald-700',
-  watch: 'bg-gray-100 text-gray-600',
+  strong: 'bg-primary text-primary-foreground',
+  consider: 'bg-accent text-accent-foreground',
+  watch: 'bg-muted text-muted-foreground',
 }
 
 /** 기준을 화면에 그대로 노출할 때 쓰는 설명 문구 */

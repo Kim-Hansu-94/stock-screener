@@ -32,13 +32,13 @@ export function DailyReport() {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-500">
+      <div className="rounded-lg border border-accent bg-accent p-4 text-sm text-accent-foreground">
         패턴 매칭 결과 불러오는 중...
       </div>
     )
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>
+  if (error) return <p className="text-sm text-destructive">{error}</p>
   if (!data) return null
 
   const { results, generatedAt } = data
@@ -52,12 +52,12 @@ export function DailyReport() {
   return (
     <div className="space-y-4">
       <CriteriaLegend />
-      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-gray-700">
+      <div className="rounded-lg border border-accent bg-accent p-4 text-sm leading-relaxed text-secondary-foreground">
         {visible.length === 0 ? (
           <p>
             오늘 전 종목을 스캔한 결과, 40점 이상인 종목이 없습니다.
             {results.length > 0 && (
-              <span className="ml-1 text-gray-400">
+              <span className="ml-1 text-muted-foreground">
                 (최고 점수: {toScore(results[0].similarity)}점 — 기준 미달)
               </span>
             )}
@@ -83,7 +83,7 @@ export function DailyReport() {
             )}
           </>
         )}
-        <p className="mt-2 text-xs text-gray-400">
+        <p className="mt-2 text-xs text-muted-foreground">
           스캔 시각: {new Date(generatedAt).toLocaleString('ko-KR')}
         </p>
       </div>
@@ -105,36 +105,36 @@ function CriteriaLegend() {
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-500">
         종목 선정 기준 안내
       </p>
-      <dl className="grid gap-x-6 gap-y-2 text-xs text-gray-600 sm:grid-cols-2">
+      <dl className="grid gap-x-6 gap-y-2 text-xs text-secondary-foreground sm:grid-cols-2">
         <div>
-          <dt className="font-medium text-gray-700">점수 (100점 만점)</dt>
+          <dt className="font-medium text-secondary-foreground">점수 (100점 만점)</dt>
           <dd>
             QBTS · RGTI · AEVA · JOBY · FCEL 등 검증된 바닥 탈출 패턴과 얼마나 닮았는지를
             100점 만점으로 환산한 값입니다. 40점 이상만 표시합니다.
           </dd>
         </div>
         <div>
-          <dt className="font-medium text-gray-700">하락률</dt>
+          <dt className="font-medium text-secondary-foreground">하락률</dt>
           <dd>52주 최고가 대비 하락폭 (점수 가중치 30%)</dd>
         </div>
         <div>
-          <dt className="font-medium text-gray-700">저점 유지 N일</dt>
+          <dt className="font-medium text-secondary-foreground">저점 유지 N일</dt>
           <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도 (점수 가중치 40%, 가장 중요)</dd>
         </div>
         <div>
-          <dt className="font-medium text-gray-700">거래량 N배</dt>
+          <dt className="font-medium text-secondary-foreground">거래량 N배</dt>
           <dd>최근 20일 거래량 ÷ 직전 40일 거래량. 70% 이상 유지해야 통과 (점수 가중치 30%)</dd>
         </div>
         <div>
-          <dt className="font-medium text-gray-700">VCP ✓ / ✗</dt>
+          <dt className="font-medium text-secondary-foreground">VCP ✓ / ✗</dt>
           <dd>단기(10일) 변동성이 장기(50일) 대비 60% 이하로 수축했는지 여부 — 충족 시 +10점 보너스</dd>
         </div>
         <div>
-          <dt className="font-medium text-gray-700">이평 ✓ / ✗</dt>
+          <dt className="font-medium text-secondary-foreground">이평 ✓ / ✗</dt>
           <dd>현재가 &gt; 5일선 &gt; 10일선 &gt; 20일선 정배열 여부 — 충족 시 +10점 보너스</dd>
         </div>
       </dl>
-      <p className="mt-2 text-[11px] text-gray-400">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상일 때 표시됩니다.
       </p>
     </div>
@@ -185,10 +185,10 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
           <span>
             <span className="block">
               {stock.name_kr || stock.name}{' '}
-              <span className="text-sm font-normal text-gray-400">({stock.ticker})</span>
+              <span className="text-sm font-normal text-muted-foreground">({stock.ticker})</span>
             </span>
             {stock.name_kr && (
-              <span className="block text-xs font-normal text-gray-400">{stock.name}</span>
+              <span className="block text-xs font-normal text-muted-foreground">{stock.name}</span>
             )}
           </span>
           <div className="ml-2 flex flex-shrink-0 gap-1.5">
@@ -198,22 +198,22 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
             <Badge variant="secondary">{score}점</Badge>
           </div>
         </CardTitle>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-muted-foreground">
           {stock.matchedStandard} · {stock.matchedBottom}
         </p>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+        <dl className="grid grid-cols-2 gap-2 text-sm text-secondary-foreground">
           <div>
-            <dt className="text-xs text-gray-400">섹터</dt>
+            <dt className="text-xs text-muted-foreground">섹터</dt>
             <dd>{stock.sector || '미분류'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">현재가</dt>
+            <dt className="text-xs text-muted-foreground">현재가</dt>
             <dd>{latestClose != null ? `$${latestClose.toFixed(2)}` : '-'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">시가총액</dt>
+            <dt className="text-xs text-muted-foreground">시가총액</dt>
             <dd>{stock.marketCap != null ? formatKrwAmount(stock.marketCap * usdKrwRate) : '—'}</dd>
           </div>
         </dl>
@@ -224,8 +224,8 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
         </div>
 
         {news !== null && news.length > 0 && (
-          <div className="mt-4 border-t border-gray-100 pt-3">
-            <p className="mb-2 text-xs font-medium text-gray-400">최신 뉴스</p>
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">최신 뉴스</p>
             <ul className="space-y-2.5">
               {news.map((article, i) => (
                 <li key={i}>
@@ -233,11 +233,11 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
                     href={article.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block text-sm leading-snug text-gray-800 hover:text-blue-600"
+                    className="block text-sm leading-snug text-foreground hover:text-primary"
                   >
                     {article.title}
                   </a>
-                  <p className="mt-0.5 text-xs text-gray-400">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {article.publisher} · {formatRelativeTime(article.publishedAt)}
                   </p>
                 </li>

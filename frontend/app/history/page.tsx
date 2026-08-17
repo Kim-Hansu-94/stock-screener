@@ -24,34 +24,34 @@ async function HistoryContent() {
 
   return (
     <>
-      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-gray-900">90일 종합 성적표</h2>
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">90일 종합 성적표</h2>
         <div className="space-y-4">
           <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-500">한국 시장</p>
+            <p className="text-sm font-medium text-muted-foreground">한국 시장</p>
             <TrackRecordCard record={krTrack} />
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-500">미국 시장</p>
+            <p className="text-sm font-medium text-muted-foreground">미국 시장</p>
             <TrackRecordCard record={usTrack} />
           </div>
         </div>
       </section>
 
       {!hasData && (
-        <p className="text-sm text-gray-400">최근 30일 내 추천 이력이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">최근 30일 내 추천 이력이 없습니다.</p>
       )}
 
       {krPerf.length > 0 && (
-        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-900">한국 시장</h2>
+        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <h2 className="text-base font-semibold text-foreground">한국 시장</h2>
           <PerformanceTable items={krPerf} market="KR" regimes={krRegimes} />
         </section>
       )}
 
       {usPerf.length > 0 && (
-        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-gray-900">미국 시장</h2>
+        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <h2 className="text-base font-semibold text-foreground">미국 시장</h2>
           <PerformanceTable items={usPerf} market="US" regimes={usRegimes} />
         </section>
       )}
@@ -63,8 +63,8 @@ export default function HistoryPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-5 px-4 py-8">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">추천 이력 수익률</h1>
-        <p className="text-sm text-gray-500">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">추천 이력 수익률</h1>
+        <p className="text-sm text-muted-foreground">
           눌림목 스크리너 추천 종목을 매수했다면 +1일 · +2일 · +3일 수익률이 얼마였는지 보여줍니다.
         </p>
       </div>
