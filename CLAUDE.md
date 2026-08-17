@@ -1,13 +1,13 @@
 # 보물지도 (stock-screener) — 구조 지도
 
-작업 시작 전에 이 문서로 "어디에 뭐가 있는지"부터 찾을 것. 특히 `frontend/lib/queries.ts`는
-855줄짜리 단일 파일이라 무작정 읽지 말고, 아래 표로 필요한 함수만 찾아서 Grep/Read.
+작업 시작 전에 이 문서로 "어디에 뭐가 있는지"부터 찾을 것. 특히 `frontend/lib/queries/`는
+화면별로 나뉜 5개 파일이니, 무작정 다 읽지 말고 아래 표로 필요한 파일·함수만 찾아서 Grep/Read.
 
 ## 전체 구조 (데이터 흐름)
 
 ```
 pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
-  GitHub Actions로 매일 실행  →   9개 테이블에 저장      →   queries.ts가 읽어서
+  GitHub Actions로 매일 실행  →   9개 테이블에 저장      →   lib/queries/*가 읽어서
   (schema.sql)                                              페이지에 표시 (Vercel)
 ```
 
@@ -61,7 +61,11 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 | 파일 | 역할 |
 |---|---|
-| `queries.ts` (855줄) | **모든 Supabase 조회 함수.** 도메인 안 나뉘어 있음 — 아래 함수명으로 Grep해서 필요한 것만 읽을 것 |
+| `queries/shared.ts` | `SCREENER_CACHE_TAG`, `fetchUsdKrwRate`, `fetchPriceRowsPaged`(공용 페이지네이션 헬퍼) |
+| `queries/screener.ts` | 홈 화면(`app/page.tsx`) 쿼리 — 눌림목 스크리너 + 감시 카드 |
+| `queries/universe.ts` | 종목 유니버스(이름·섹터·시총) 메타 조회 — 여러 화면 공용 |
+| `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
+| `queries/performance.ts` | 성적표(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `opportunityScore.ts` | 횡보·조정 매력도 점수 **참조 구현** — 실제 채점은 `pipeline/src/watchlist.py`가 포팅해서 수행. 상수 바꿀 때 항상 같이 수정 |
@@ -74,17 +78,17 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `supabase.ts` | Supabase 클라이언트 생성 |
 | `types.ts` (266줄) | 전체 타입 정의 |
 
-`queries.ts` 함수 → 어느 화면에서 쓰는지:
+`queries/*` 함수 → 어느 화면에서 쓰는지:
 
-| 함수 | 화면 |
-|---|---|
-| `getLatestRegime` / `getLeadingSectors` / `getScreenedStocks` / `getPriceHistoryByTicker` | 홈 (`app/page.tsx`) |
-| `getWatchlistStatus` | 홈 감시 카드 |
-| `getOpportunitySnapshot` / `getLongMonthlyHistory` / `getFundamentals` / `getUniverseMarketCaps` | 종목발굴 → 횡보·조정 (`app/discover/page.tsx`) |
-| `getUniverseStocks` / `getUniverseNameMap` | 유니버스 메타 조회 (여러 곳에서 공용) |
-| `getMonthlyPriceHistory` | 오늘의 추천 (`api/daily-report`) |
-| `getScreenedStockPerformance` / `getExitSignals` / `getScreenerTrackRecord` / `getPullbackScreenerWithRisk` | 성적표(`history`)·포지션(`positions`) 페이지 |
-| `fetchUsdKrwRate` | 미장 원화 환산 (여러 곳에서 공용) |
+| 함수 | 파일 | 화면 |
+|---|---|---|
+| `getLatestRegime` / `getLeadingSectors` / `getScreenedStocks` / `getPriceHistoryByTicker` | `screener.ts` | 홈 (`app/page.tsx`) |
+| `getWatchlistStatus` | `screener.ts` | 홈 감시 카드 |
+| `getOpportunitySnapshot` / `getLongMonthlyHistory` / `getFundamentals` | `opportunities.ts` | 종목발굴 → 횡보·조정 (`app/discover/page.tsx`) |
+| `getUniverseStocks` / `getUniverseNameMap` / `getUniverseMarketCaps` | `universe.ts` | 유니버스 메타 조회 (여러 곳에서 공용) |
+| `getMonthlyPriceHistory` | `opportunities.ts` | 오늘의 추천 (`api/daily-report`) |
+| `getScreenedStockPerformance` / `getExitSignals` / `getScreenerTrackRecord` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 성적표(`history`)·포지션(`positions`) 페이지 |
+| `fetchUsdKrwRate` / `fetchPriceRowsPaged` | `shared.ts` | 미장 원화 환산 · 가격 이력 페이지네이션 (여러 곳에서 공용) |
 
 ## frontend/app/ — 페이지별 역할
 
