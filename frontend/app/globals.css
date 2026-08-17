@@ -62,7 +62,7 @@
 
   /* 토스증권 팔레트. 무채색 기본 테마를 대체해, 강조가 필요할 때마다
      emerald/amber/blue를 즉석에서 꺼내 쓰지 않도록 한다. */
-  --background: #f2f4f6;
+  --background: #ffffff;
   --foreground: #191f28;
   --card: #ffffff;
   --card-foreground: #191f28;
