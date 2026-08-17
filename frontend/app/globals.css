@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* Pretendard(가변·동적 서브셋) self-host. @font-face 92개가 unicode-range로 쪼개져 있어
+   브라우저는 화면에 실제 쓰인 글자 구간만 내려받는다. 폰트 바이너리는 public/fonts/pretendard/. */
+@import "./pretendard.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,6 +26,9 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  /* 등락 색 (한국 증권 관례: 상승=빨강, 하락=파랑). text-up / text-down 으로 사용 */
+  --color-up: var(--up);
+  --color-down: var(--down);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -49,72 +55,92 @@
 }
 
 :root {
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* 한글이 시스템 폰트로 떨어지지 않게 Pretendard를 첫 순위로 둔다.
+     @theme inline의 --font-sans가 이 값을 참조하고, html에 font-sans가 걸려 있다. */
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+
+  /* 토스증권 팔레트. 무채색 기본 테마를 대체해, 강조가 필요할 때마다
+     emerald/amber/blue를 즉석에서 꺼내 쓰지 않도록 한다. */
+  --background: #f2f4f6;
+  --foreground: #191f28;
+  --card: #ffffff;
+  --card-foreground: #191f28;
+  --popover: #ffffff;
+  --popover-foreground: #191f28;
+  --primary: #3182f6;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f4f6;
+  --secondary-foreground: #333d4b;
+  --muted: #f2f4f6;
+  --muted-foreground: #8b95a1;
+  --accent: #e8f3ff;
+  --accent-foreground: #1b64da;
+  --destructive: #f04452;
+  --border: #e5e8eb;
+  --input: #e5e8eb;
+  --ring: #3182f6;
+
+  /* 등락 색: 한국 증권앱 관례대로 상승=빨강, 하락=파랑 */
+  --up: #f04452;
+  --down: #3182f6;
+
+  --chart-1: #3182f6;
+  --chart-2: #f04452;
+  --chart-3: #6b7684;
+  --chart-4: #b0b8c1;
+  --chart-5: #d1d6db;
+
+  /* 카드가 rounded-xl(= radius × 1.4)이므로 0.875rem이면 약 20px가 된다 */
+  --radius: 0.875rem;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #191f28;
+  --sidebar-primary: #3182f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8f3ff;
+  --sidebar-accent-foreground: #1b64da;
+  --sidebar-border: #e5e8eb;
+  --sidebar-ring: #3182f6;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #131417;
+  --foreground: #eceff3;
+  --card: #1c1d22;
+  --card-foreground: #eceff3;
+  --popover: #1c1d22;
+  --popover-foreground: #eceff3;
+  --primary: #4e93ff;
+  --primary-foreground: #0f1115;
+  --secondary: #23252b;
+  --secondary-foreground: #eceff3;
+  --muted: #23252b;
+  --muted-foreground: #a7aeb8;
+  --accent: #16243b;
+  --accent-foreground: #8fbdff;
+  --destructive: #ff5c6a;
+  --border: #2e3138;
+  --input: #3d424b;
+  --ring: #4e93ff;
+
+  --up: #ff5c6a;
+  --down: #4e93ff;
+
+  --chart-1: #4e93ff;
+  --chart-2: #ff5c6a;
+  --chart-3: #a7aeb8;
+  --chart-4: #5c636e;
+  --chart-5: #3d424b;
+
+  --sidebar: #1c1d22;
+  --sidebar-foreground: #eceff3;
+  --sidebar-primary: #4e93ff;
+  --sidebar-primary-foreground: #0f1115;
+  --sidebar-accent: #16243b;
+  --sidebar-accent-foreground: #8fbdff;
+  --sidebar-border: #2e3138;
+  --sidebar-ring: #4e93ff;
 }
 
 @layer base {
@@ -123,8 +149,15 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 한글은 자간을 살짝 좁혀야 정돈돼 보인다 (토스·카카오 계열 앱의 기본 감각) */
+    letter-spacing: -0.01em;
   }
   html {
     @apply font-sans;
+  }
+  /* 제목은 조금 더 조여서 덩어리로 읽히게 하고, 줄바꿈이 어색하지 않도록 balance */
+  h1, h2, h3 {
+    letter-spacing: -0.025em;
+    text-wrap: balance;
   }
 }

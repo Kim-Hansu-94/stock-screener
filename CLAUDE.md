@@ -109,6 +109,18 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 `WatchlistCard.tsx`(감시 카드) · `PerformanceTable.tsx`/`ExitSignalTable.tsx`/`TrackRecordCard.tsx`
 (성적표·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx`
 
+## 디자인 시스템 (토스증권 문법)
+
+- **색·폰트·라운드는 전부 `frontend/app/globals.css`의 토큰**에서 나온다. 카드마다 색을 직접
+  고르지 말고 토큰을 쓸 것 (`--primary` #3182F6, `--destructive` #F04452, `--background` #F2F4F6).
+- **등락 색은 한국 관례**: 상승=빨강 `--up`, 하락=파랑 `--down` (`text-up` / `text-down` 유틸리티).
+  서양식(상승=초록)으로 쓰지 말 것.
+- **본문 폰트는 Pretendard self-host**: `app/pretendard.css`(@font-face 92개, unicode-range 동적
+  서브셋) + `public/fonts/pretendard/`. 브라우저가 화면에 쓰인 글자 구간만 받아 페이지당 약 75KB.
+  `--font-sans`는 `:root`에 정의돼 있고 `@theme inline`이 그걸 참조한다 — **순서를 바꾸면 순환
+  참조로 폰트가 죽으니** `:root` 정의가 `@theme` 뒤에 오는 구조를 유지할 것.
+- `font-mono`(`--font-geist-mono`)는 자릿수를 맞춰야 하는 표에서만 쓴다.
+
 ## 작업 시 주의할 동기화 지점
 
 - **눌림목 추세 게이트**: `pipeline/src/screener.py`(long_term_up) ↔ `frontend/lib/risk.ts`(trendStatus) — 동일 로직이어야 손익비 표시가 스크리닝 결과와 안 어긋남

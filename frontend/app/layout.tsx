@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
 import { NavLinks } from "./NavLinks";
 import { ScrollButtons } from "@/components/ScrollButtons";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
+// 본문 폰트는 globals.css의 --font-sans(Pretendard self-host)가 담당한다.
+// Geist는 latin subset만 받아 한글이 시스템 폰트로 떨어졌고, --font-sans에
+// 연결돼 있지도 않아 실제로 적용되지 않던 상태였다.
+// 등락률·가격처럼 자릿수를 맞춰야 하는 표(PerformanceTable 등)에서 font-mono를 쓴다.
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
@@ -27,12 +26,12 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-gray-50">
-        <header className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur-sm">
+      <body className="min-h-full flex flex-col bg-background">
+        <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur-sm">
           <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
-            <span className="text-sm font-bold tracking-tight text-gray-900 break-keep">김한수의 보물지도</span>
+            <span className="text-sm font-bold tracking-tight text-foreground break-keep">김한수의 보물지도</span>
             <NavLinks />
           </nav>
         </header>
