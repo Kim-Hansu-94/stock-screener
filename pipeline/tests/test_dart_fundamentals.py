@@ -1,3 +1,4 @@
+import pipeline.src.dart_fundamentals as dart_fundamentals
 from pipeline.src.dart_fundamentals import _amount, _parse_year, _pick_account
 
 
@@ -80,3 +81,62 @@ def test_parse_year_tolerates_missing_operating_income():
     assert result["operating_income_latest"] is None
     assert result["revenue_latest"] == 1000.0
     assert result["net_income_latest"] == 150.0
+
+
+# ── extract()의 실패 사유 — 원인 진단용 ──────────────────────────────────
+# 예전에는 실패하면 그냥 None만 돌려줘서 "왜 실패했는지"를 로그로 알 수 없었다.
+# fundamentals.py가 이 사유를 모아 실행 로그에 찍으므로, 여기서는 각 실패 경로가
+# 맞는 사유 문자열을 내는지만 확인한다.
+
+
+def test_extract_reports_no_api_key(monkeypatch):
+    monkeypatch.delenv("DART_API_KEY", raising=False)
+    data, reason = dart_fundamentals.extract("005930", 2025)
+    assert data is None
+    assert reason == "no_api_key"
+
+
+def test_extract_reports_corp_code_not_found(monkeypatch):
+    monkeypatch.setenv("DART_API_KEY", "fake-key")
+    monkeypatch.setattr(dart_fundamentals, "_load_corp_codes", lambda _key: {})
+    data, reason = dart_fundamentals.extract("005930", 2025)
+    assert data is None
+    assert reason == "corp_code_not_found"
+
+
+def test_extract_reports_dart_status_when_api_says_no_data(monkeypatch):
+    monkeypatch.setenv("DART_API_KEY", "fake-key")
+    monkeypatch.setattr(dart_fundamentals, "_load_corp_codes", lambda _key: {"005930": "corp1"})
+    monkeypatch.setattr(dart_fundamentals, "_fetch_year", lambda *_a: (None, "dart_status_013"))
+    data, reason = dart_fundamentals.extract("005930", 2025)
+    assert data is None
+    assert reason == "dart_status_013"
+
+
+def test_extract_reports_ok_with_data(monkeypatch):
+    monkeypatch.setenv("DART_API_KEY", "fake-key")
+    monkeypatch.setattr(dart_fundamentals, "_load_corp_codes", lambda _key: {"005930": "corp1"})
+    monkeypatch.setattr(dart_fundamentals, "_fetch_year", lambda *_a: ({"revenue_latest": 1.0}, "ok"))
+    data, reason = dart_fundamentals.extract("005930", 2025)
+    assert data == {"revenue_latest": 1.0}
+    assert reason == "ok"
+
+
+def test_extract_retries_prior_year_before_giving_up(monkeypatch):
+    """latest_year 사업보고서가 아직 없으면 한 해 전으로 물러나 재시도한다."""
+    monkeypatch.setenv("DART_API_KEY", "fake-key")
+    monkeypatch.setattr(dart_fundamentals, "_load_corp_codes", lambda _key: {"005930": "corp1"})
+
+    calls = []
+
+    def fake_fetch(_corp, _key, year):
+        calls.append(year)
+        if year == 2025:
+            return None, "dart_status_013"
+        return {"revenue_latest": 1.0}, "ok"
+
+    monkeypatch.setattr(dart_fundamentals, "_fetch_year", fake_fetch)
+    data, reason = dart_fundamentals.extract("005930", 2025)
+    assert calls == [2025, 2024]
+    assert data == {"revenue_latest": 1.0}
+    assert reason == "ok"

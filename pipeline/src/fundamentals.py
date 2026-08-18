@@ -151,6 +151,10 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
     pending_rows: list[dict] = []
     saved = 0
     failed = 0
+    # 실패 사유별 개수. 예전에는 "실패 20개"라는 숫자만 남고 원인이 하나도 안
+    # 보였다 — 이유가 no_api_key인지 corp_code_not_found인지 dart_status_013인지에
+    # 따라 고칠 곳이 완전히 다르므로, 다음에 같은 일이 생기면 로그만으로 원인을 알게 한다.
+    failure_reasons: dict[str, int] = {}
 
     def flush() -> None:
         """모아둔 만큼 즉시 저장. 실행이 중간에 끊겨도 여기까지는 남는다."""
@@ -165,15 +169,18 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
         pending_rows = []
 
     for n, ticker in enumerate(batch, 1):
+        reason = "ok"
         try:
             if market == "KR":
-                data = dart_fundamentals.extract(ticker, today.year - 1)
+                data, reason = dart_fundamentals.extract(ticker, today.year - 1)
             else:
                 data = _extract(_yahoo_symbol(ticker, market))
-        except Exception:  # noqa: BLE001
-            data = None
+                reason = "ok" if data is not None else "yahoo_no_data"
+        except Exception as exc:  # noqa: BLE001
+            data, reason = None, f"exception_{type(exc).__name__}"
         if data is None:
             failed += 1
+            failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
         else:
             pending_rows.append(
                 {"ticker": ticker, "market": market, "updated_at": today.isoformat(), **data}
@@ -184,4 +191,8 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
             print(f"  진행 {n}/{len(batch)} (저장 {saved} · 실패 {failed})", flush=True)
 
     flush()
-    print(f"  → {saved}개 저장 (실패 {failed}개)", flush=True)
+    reason_summary = ", ".join(
+        f"{k}={v}" for k, v in sorted(failure_reasons.items(), key=lambda kv: -kv[1])
+    )
+    suffix = f": {reason_summary}" if reason_summary else ""
+    print(f"  → {saved}개 저장 (실패 {failed}개{suffix})", flush=True)
