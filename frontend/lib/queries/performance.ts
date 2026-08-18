@@ -332,12 +332,14 @@ export async function getScorecardTrades(market: Market, days = 180): Promise<Re
   cutoff.setDate(cutoff.getDate() - days)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  // passed=true만: 근접 후보는 추천이 아니므로 성적에 넣지 않는다.
+  // passed=true로 거르지 않는다. 전 조건 통과는 드물고(하락장인 날은 '시장 하락장'이
+  // 모든 종목에 붙어 그날 전체가 passed=false다) 화면에 실제로 뜨는 건 미달이 가장 적은
+  // 상위 후보들이다. 통과분만 집계하면 표본이 거의 없을뿐더러, 정작 매일 보고 있는
+  // 종목들의 성적은 알 수 없다. 대신 failed_criteria를 같이 받아 미달 개수별로 나눈다.
   const { data: recs, error } = await supabase
     .from('screened_stocks')
-    .select('date, ticker, name, sector, close')
+    .select('date, ticker, name, sector, close, failed_criteria')
     .eq('market', market)
-    .eq('passed', true)
     .lt('date', today)
     .gte('date', cutoffStr)
     .order('date', { ascending: false })
@@ -347,8 +349,9 @@ export async function getScorecardTrades(market: Market, days = 180): Promise<Re
 
   // 같은 종목이 눌림목 구간 내내 반복 추천되므로, 창 안의 첫 추천 하나만 트레이드로 센다.
   // (date 내림차순이라 마지막으로 덮이는 값이 가장 이른 날짜다.)
-  const firstByTicker = new Map<string, { date: string; ticker: string; name: string; sector: string; close: number }>()
-  for (const rec of recs as { date: string; ticker: string; name: string; sector: string; close: number }[]) {
+  type Rec = { date: string; ticker: string; name: string; sector: string; close: number; failed_criteria: string[] }
+  const firstByTicker = new Map<string, Rec>()
+  for (const rec of recs as Rec[]) {
     firstByTicker.set(rec.ticker, rec)
   }
   const picks = [...firstByTicker.values()]
@@ -394,6 +397,7 @@ export async function getScorecardTrades(market: Market, days = 180): Promise<Re
       target,
       futureBars: allBars.filter((b) => b.date > pick.date),
       regime: regimes[pick.date] === 'bull' ? 'bull' : regimes[pick.date] === 'bear' ? 'bear' : null,
+      failedCriteria: pick.failed_criteria ?? [],
     }))
   }
 

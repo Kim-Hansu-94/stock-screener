@@ -9,6 +9,7 @@ import type { RiskFrame, RiskReason } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
 import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
 import { translateSector } from '@/lib/sectorMap'
+import { MARKET_BEAR_CRITERION, STOCK_CRITERIA_COUNT } from '@/lib/screenerCriteria'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
@@ -39,10 +40,8 @@ const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
   no_upside: '박스 상단 도달',
 }
 
-// 종목 단위 눌림목 조건 개수 — pipeline/src/screener.py의 CRITERION_* 9개와 동기 유지.
+// 상수는 lib/screenerCriteria.ts 한 곳에서만 정의한다(성적 집계도 같은 값을 쓴다).
 // 하락장 날은 시장 단위 조건('시장 하락장')이 failed_criteria에 추가돼 분모가 1 늘어난다.
-const STOCK_CRITERIA_COUNT = 9
-const MARKET_BEAR_CRITERION = '시장 하락장'
 
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()

@@ -17,6 +17,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Segments({ trades }: { trades: ResolvedTrade[] }) {
+  // 가장 실용적인 질문: 전 조건 통과는 드무니, 미달 1~2개짜리 후보도 따라갈 만한가?
+  // (화면에 매일 뜨는 게 실제로는 이쪽이다.)
+  const byMiss = segmentBy(
+    trades,
+    (t) => String(Math.min(t.missCount, 3)),
+    (k) => (k === '0' ? '전 조건 통과' : k === '3' ? '3개 이상 미달' : `${k}개 미달`),
+  ).sort((a, b) => Number(a.key) - Number(b.key))
+
   const byRegime = segmentBy(
     trades,
     (t) => t.regime,
@@ -29,7 +37,9 @@ function Segments({ trades }: { trades: ResolvedTrade[] }) {
   )
   const bySector = segmentBy(trades, (t) => t.sector || null, translateSector)
 
-  if (byRegime.length === 0 && byMarket.length === 0 && bySector.length === 0) return null
+  if (byMiss.length === 0 && byRegime.length === 0 && byMarket.length === 0 && bySector.length === 0) {
+    return null
+  }
 
   return (
     <Section title="어떤 추천이 잘 맞았나">
@@ -38,6 +48,7 @@ function Segments({ trades }: { trades: ResolvedTrade[] }) {
         표본 {MIN_SEGMENT_SAMPLE}건 미만인 구간은 착시라 뺐습니다.
       </p>
       <div className="space-y-5">
+        <SegmentTable title="조건 충족도별" hint="화면에 뜨는 상위 후보 포함" segments={byMiss} />
         <SegmentTable title="장세별" segments={byRegime} />
         <SegmentTable title="시장별" segments={byMarket} />
         <SegmentTable title="섹터별" hint="상위·하위" segments={bySector.slice(0, 8)} />
@@ -98,8 +109,9 @@ export default function HistoryPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">스크리너 성적</h1>
         <p className="text-sm text-muted-foreground">
-          이 스크리너를 그대로 따라갔다면 돈을 벌었을지, 어떤 상황에서 잘 맞았는지를 봅니다.
-          추천일 종가에 사서 목표가에 팔거나 손절가에 걸리는 것으로 가정하고,
+          홈 화면에 뜬 종목을 그대로 샀다면 어땠을지를 봅니다. 9개 조건을 전부 채우는 날은
+          드물어서 상위 후보(미달 1~2개)까지 함께 집계하고, 조건 충족도별로 성적을 갈라
+          보여줍니다. 추천일 종가에 사서 목표가에 팔거나 손절가에 걸리는 것으로 가정하고,
           {MAX_HOLD_BARS}거래일 안에 둘 다 안 걸리면 그날 종가로 정리한 것으로 칩니다.
         </p>
       </div>

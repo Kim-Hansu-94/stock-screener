@@ -1,5 +1,6 @@
 import type { PriceBar } from './risk'
 import type { Market } from './types'
+import { stockMissCount } from './screenerCriteria'
 
 /**
  * 스크리너 성적 집계.
@@ -39,6 +40,13 @@ export interface TradeInput {
   /** 추천일 '이후' 봉만. 추천일 당일은 이미 진입가로 반영돼 있으므로 넣지 않는다. */
   futureBars: PriceBar[]
   regime: 'bull' | 'bear' | null
+  /**
+   * 그날 이 종목이 못 맞춘 조건 목록. 전 조건 통과(passed=true)는 사실상 드물어서
+   * — 하락장이면 '시장 하락장'이 모든 종목에 붙어 그날은 전부 passed=false다 —
+   * 통과분만 집계하면 표본이 거의 안 남는다. 화면에 실제로 뜨는 건 미달이 적은
+   * 상위 후보들이므로, 그것까지 포함해 '미달 개수별로' 성적을 갈라 본다.
+   */
+  failedCriteria: string[]
 }
 
 export interface ResolvedTrade extends Omit<TradeInput, 'futureBars'> {
@@ -50,13 +58,15 @@ export interface ResolvedTrade extends Omit<TradeInput, 'futureBars'> {
   holdingDays: number | null
   /** 진입 시점에 걸려 있던 목표 배수 = (목표-진입)/(진입-손절). 기준선 계산에 쓴다. */
   rewardR: number
+  /** 종목 자체가 못 맞춘 조건 수 ('시장 하락장'은 시장 단위라 제외). 0이면 전 조건 통과. */
+  missCount: number
 }
 
 export function resolveTrade(input: TradeInput): ResolvedTrade {
   const { entry, stop, target, futureBars, ...meta } = input
   const risk = entry - stop
   const rewardR = risk > 0 ? (target - entry) / risk : 0
-  const base = { ...meta, entry, stop, target, rewardR }
+  const base = { ...meta, entry, stop, target, rewardR, missCount: stockMissCount(input.failedCriteria) }
 
   const horizon = futureBars.slice(0, MAX_HOLD_BARS)
 

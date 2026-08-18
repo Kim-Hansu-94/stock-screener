@@ -22,6 +22,13 @@ function card(over: Partial<Scorecard>): Scorecard {
   }
 }
 
+const BY_MISS: Segment[] = [
+  { key: '0', label: '전 조건 통과', card: card({ expectancyR: 0.61, resolved: 11 }) },
+  { key: '1', label: '1개 미달', card: card({ expectancyR: 0.24, resolved: 38 }) },
+  { key: '2', label: '2개 미달', card: card({ expectancyR: -0.05, resolved: 52 }) },
+  { key: '3', label: '3개 이상 미달', card: card({ expectancyR: -0.31, resolved: 40 }) },
+]
+
 const SEGMENTS: Segment[] = [
   { key: 'bull', label: '상승장', card: card({ expectancyR: 0.52, resolved: 28 }) },
   { key: 'bear', label: '하락장', card: card({ expectancyR: -0.11, resolved: 19 }) },
@@ -59,6 +66,7 @@ export default function PreviewPage() {
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
         <h2 className="text-base font-semibold text-foreground">어떤 추천이 잘 맞았나</h2>
         <div className="space-y-5">
+          <SegmentTable title="조건 충족도별" hint="화면에 뜨는 상위 후보 포함" segments={BY_MISS} />
           <SegmentTable title="장세별" segments={SEGMENTS} />
           <SegmentTable title="섹터별" hint="상위·하위" segments={SECTORS} />
         </div>

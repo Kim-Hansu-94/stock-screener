@@ -18,7 +18,7 @@ function trade(futureBars: PriceBar[]): TradeInput {
   return {
     date: '2026-01-01', market: 'KR', ticker: '005930', name: 'Samsung',
     sector: 'Semiconductors', entry: 100, stop: 90, target: 120,
-    futureBars, regime: 'bull',
+    futureBars, regime: 'bull', failedCriteria: [],
   }
 }
 
@@ -95,6 +95,19 @@ describe('summarize', () => {
 
   it('표본이 없으면 0으로 채운 카드를 준다', () => {
     expect(summarize([]).resolved).toBe(0)
+  })
+})
+
+describe('미달 개수', () => {
+  it("'시장 하락장'은 시장 단위 조건이라 종목 미달 수에서 뺀다", () => {
+    // 하락장인 날은 이게 모든 종목에 붙는다. 빼지 않으면 그날 종목은 전부
+    // 실제보다 1개 더 부실해 보인다.
+    const t = resolveTrade({ ...trade(flat(3)), failedCriteria: ['시장 하락장', 'RSI 범위 밖'] })
+    expect(t.missCount).toBe(1)
+  })
+
+  it('전 조건 통과는 미달 0개다', () => {
+    expect(resolveTrade({ ...trade(flat(3)), failedCriteria: [] }).missCount).toBe(0)
   })
 })
 
