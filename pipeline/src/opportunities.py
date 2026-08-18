@@ -139,12 +139,9 @@ def refresh_opportunity_snapshot(
                 "as_of_date": bars[-1]["date"] if bars else None,
             })
 
-        if rows:
-            db.save_opportunity_snapshot(rows)
-        # 이번 계산에서 빠진 종목(밴드 이탈·하드 필터 탈락)은 화면에서도 사라져야 한다
-        db.client.table("opportunity_snapshot").delete().eq("market", market).lt(
-            "computed_at", today.isoformat()
-        ).execute()
+        # 이번 계산에서 빠진 종목(밴드 이탈·하드 필터 탈락·시총 하한 미달)은 화면에서도
+        # 사라져야 한다. 지우고 다시 넣어야 확실하다 — 자세한 이유는 db.py 주석 참고.
+        db.replace_opportunity_snapshot(market, rows)
         print(f"  → {len(rows)}개 저장", flush=True)
     except Exception as exc:  # noqa: BLE001
         # 테이블 미생성 등으로 실패해도 파이프라인 본체는 계속 진행한다.

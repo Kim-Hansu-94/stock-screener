@@ -97,9 +97,23 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "stock_long_monthly", rows)
 
-    def save_opportunity_snapshot(self, rows: list[dict]) -> None:
-        if rows:
-            _batch_upsert(self.client, "opportunity_snapshot", rows)
+    def replace_opportunity_snapshot(self, market: str, rows: list[dict]) -> None:
+        """그 시장의 스냅샷을 이번 계산 결과로 통째로 갈아끼운다.
+
+        PK가 (ticker, market)이라 날짜가 없다. upsert만 하면 이번에 빠진 종목의
+        지난 행이 영구히 남는다 — 시총 하한 같은 기준을 올렸을 때 기준 미달 종목이
+        화면에서 안 사라지는 이유가 이것이다.
+
+        예전에는 `computed_at < today`로 지웠는데, 같은 날 기준이 바뀌면(코드 배포 후
+        재실행) 옛 행도 computed_at이 오늘이라 그 비교에서 빠져나갔다.
+
+        rows가 비어 있으면 아무것도 하지 않는다. 호출부가 이미 데이터 이상일 때
+        빈 결과로 도달할 수 있어서, 여기서 지우면 일시적 문제가 탭을 통째로 비운다.
+        """
+        if not rows:
+            return
+        self.client.table("opportunity_snapshot").delete().eq("market", market).execute()
+        _batch_upsert(self.client, "opportunity_snapshot", rows)
 
     def save_fundamentals(self, rows: list[dict]) -> None:
         if rows:

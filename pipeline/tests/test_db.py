@@ -97,3 +97,32 @@ def test_empty_screening_result_still_clears_the_day():
     assert not tables["screened_stocks"].upsert.called
     assert tables["leading_sectors"].delete.called
     assert not tables["leading_sectors"].upsert.called
+
+
+def test_replace_opportunity_snapshot_clears_the_market_first():
+    """스냅샷은 그 시장 행을 지우고 다시 넣는다.
+
+    PK가 (ticker, market)이라 날짜가 없어서, 저장만 하면 이번에 빠진 종목의 지난 행이
+    영구히 남는다. 예전에는 `computed_at < today`로 지웠는데 같은 날 기준이 바뀌면
+    (코드 배포 후 재실행) 옛 행도 computed_at이 오늘이라 그 비교를 빠져나갔다.
+    """
+    client, tables = _client_with_per_table_mocks()
+    db = ScreenerDB(client)
+
+    db.replace_opportunity_snapshot("KR", [{"ticker": "005930", "market": "KR", "score": 0.8}])
+
+    assert tables["opportunity_snapshot"].delete.return_value.eq.call_args_list[0].args == (
+        "market", "KR",
+    )
+    assert tables["opportunity_snapshot"].upsert.called
+
+
+def test_replace_opportunity_snapshot_does_nothing_when_empty():
+    """빈 결과로는 지우지 않는다.
+
+    호출부가 데이터 이상(밴드 계산 실패 등)으로 빈 목록에 도달할 수 있어서,
+    여기서 지우면 일시적 문제가 종목발굴 탭을 통째로 비운다.
+    """
+    client, tables = _client_with_per_table_mocks()
+    ScreenerDB(client).replace_opportunity_snapshot("KR", [])
+    assert "opportunity_snapshot" not in tables
