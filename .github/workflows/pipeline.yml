@@ -97,6 +97,7 @@ jobs:
           path: |
             pipeline/.kis_price_cache.pkl
             pipeline/.kis_exch_cache.json
+            pipeline/.kis_short_history.json
           key: kis-cache-${{ steps.date.outputs.date }}
           restore-keys: |
             kis-cache-

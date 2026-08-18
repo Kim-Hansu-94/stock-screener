@@ -24,6 +24,24 @@ def _batch_upsert(client: Client, table: str, rows: list[dict]) -> None:
         client.table(table).upsert(rows[i : i + _UPSERT_CHUNK]).execute()
 
 
+def _replace_day(client: Client, table: str, market: str, dates: list[str], rows: list[dict]) -> None:
+    """그날 그 시장의 행을 통째로 갈아끼운다 (지우고 다시 넣기).
+
+    upsert만 하면 PK(date, market, ticker)가 겹치는 행만 덮이고, 이번 실행에서
+    빠진 종목의 지난 실행 행은 그대로 남는다. 하루에 두 번 이상 돌면(아침 전체 +
+    저녁 kr_only, 백업 schedule, 수동 재실행) 조건을 더 이상 만족하지 않는
+    종목이 유령처럼 화면에 계속 뜨는 이유가 이것이다.
+
+    rows가 비어 있어도 삭제는 수행한다 — 이 시점에 도달했다는 건 스크리닝이
+    정상 완료됐는데 통과 종목이 없었다는 뜻이므로(실패는 예외로 중단된다)
+    지난 실행 결과를 남겨두면 안 된다.
+    """
+    for day in dates:
+        client.table(table).delete().eq("market", market).eq("date", day).execute()
+    if rows:
+        _batch_upsert(client, table, rows)
+
+
 class ScreenerDB:
     def __init__(self, client: Client):
         self.client = client
@@ -41,21 +59,22 @@ class ScreenerDB:
             "regime": result.regime,
         }).execute()
 
-        if result.leading_sectors:
-            rows = [
-                {"date": result.date, "market": result.market, "sector": sector, "rank": rank + 1}
-                for rank, sector in enumerate(result.leading_sectors)
-            ]
-            self.client.table("leading_sectors").upsert(rows).execute()
+        sector_rows = [
+            {"date": result.date, "market": result.market, "sector": sector, "rank": rank + 1}
+            for rank, sector in enumerate(result.leading_sectors)
+        ]
+        _replace_day(self.client, "leading_sectors", result.market, [result.date], sector_rows)
 
-        if result.screened_stocks:
-            # 각 종목의 "date"는 stock dict 안에 이미 실제 마지막 봉의 날짜로 들어있음
-            # (pipeline.py의 as_of). result.date로 덮어쓰면 안 되므로 여기서 넣지 않는다.
-            rows = [
-                {"market": result.market, **stock}
-                for stock in result.screened_stocks
-            ]
-            self.client.table("screened_stocks").upsert(rows).execute()
+        # 각 종목의 "date"는 stock dict 안에 이미 실제 마지막 봉의 날짜로 들어있음
+        # (pipeline.py의 as_of). result.date로 덮어쓰면 안 되므로 여기서 넣지 않는다.
+        stock_rows = [
+            {"market": result.market, **stock}
+            for stock in result.screened_stocks
+        ]
+        # 삭제 대상 날짜는 result.date와 실제 행의 date를 합집합으로 잡는다. 보통
+        # 둘은 같지만, 다를 경우 한쪽만 지우면 유령 행이 남는다.
+        stock_dates = sorted({result.date} | {r["date"] for r in stock_rows if r.get("date")})
+        _replace_day(self.client, "screened_stocks", result.market, stock_dates, stock_rows)
 
         if result.price_history:
             _batch_upsert(self.client, "stock_price_history", result.price_history)

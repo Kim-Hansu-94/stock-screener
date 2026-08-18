@@ -9,6 +9,8 @@ import type { RiskFrame, RiskReason } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
 import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
 import { translateSector } from '@/lib/sectorMap'
+import { MARKET_BEAR_CRITERION, STOCK_CRITERIA_COUNT } from '@/lib/screenerCriteria'
+import { BuyButton } from '@/components/TradeButton'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
@@ -29,6 +31,8 @@ interface StockCardProps {
   riskFrame: RiskFrame | null
   /** 목표가까지 가는 길에 걸린 첫 저항 — 한 번 막힐 수 있는 지점 */
   wayResistance: number | null
+  /** 이미 가상 매수해 둔 종목인지 (매수 버튼 대신 '보유 중' 표시) */
+  owned?: boolean
 }
 
 // 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록
@@ -39,10 +43,8 @@ const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
   no_upside: '박스 상단 도달',
 }
 
-// 종목 단위 눌림목 조건 개수 — pipeline/src/screener.py의 CRITERION_* 9개와 동기 유지.
+// 상수는 lib/screenerCriteria.ts 한 곳에서만 정의한다(성적 집계도 같은 값을 쓴다).
 // 하락장 날은 시장 단위 조건('시장 하락장')이 failed_criteria에 추가돼 분모가 1 늘어난다.
-const STOCK_CRITERIA_COUNT = 9
-const MARKET_BEAR_CRITERION = '시장 하락장'
 
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -103,7 +105,7 @@ function RiskRewardBar({
   )
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, owned = false }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
@@ -198,6 +200,18 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
             {totalCriteria}개 조건 모두 충족
           </span>
         )}
+
+        {/* 카드 헤더 전체가 '펼치기' 클릭 영역이라, 버튼 클릭이 펼침으로 새지 않게 막는다. */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <BuyButton
+            market={market}
+            ticker={stock.ticker}
+            name={stock.name_kr || stock.name}
+            sector={stock.sector}
+            source="pullback"
+            owned={owned}
+          />
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">

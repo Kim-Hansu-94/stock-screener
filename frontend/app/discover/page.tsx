@@ -12,6 +12,7 @@ import { getUniverseMarketCaps } from '@/lib/queries/universe'
 import { buildLongTermContext } from '@/lib/longTermContext'
 import type { Market, OpportunitySnapshotRow, OpportunityStockRow } from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
+import { getOpenTickers } from '@/lib/queries/trades'
 
 // 조정폭 집계·일봉 수집·점수 계산은 파이프라인이 미리 끝내 opportunity_snapshot에
 // 넣어둔다(pipeline/src/opportunities.py). 여기서는 그 결과에 차트·실적·시총만
@@ -87,8 +88,9 @@ async function DiscoverContent() {
   await connection()
 
   // 환율과 기회 종목은 서로 무관하므로 함께 기다린다 (순차 대기 제거)
-  const [usdKrwRate, opportunityResult] = await Promise.all([
+  const [usdKrwRate, openTickers, opportunityResult] = await Promise.all([
     fetchUsdKrwRate(),
+    getOpenTickers(),
     loadOpportunities().then(
       (rows) => ({ rows, error: null as string | null }),
       (cause: unknown) => ({
@@ -103,6 +105,7 @@ async function DiscoverContent() {
       opportunities={opportunityResult.rows}
       opportunityError={opportunityResult.error}
       usdKrwRate={usdKrwRate}
+      ownedTickers={[...openTickers]}
     />
   )
 }

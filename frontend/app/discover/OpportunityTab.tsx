@@ -9,15 +9,19 @@ import { EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, assessEarnings } from '@
 import { changeTextClass } from '@/lib/marketColors'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
+import { BuyButton } from '@/components/TradeButton'
 
 export function OpportunityTab({
   opportunities,
   opportunityError,
   usdKrwRate,
+  ownedTickers,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
   usdKrwRate: number
+  /** 이미 가상 매수해 둔 종목 키('KR:005930') 집합 */
+  ownedTickers: string[]
 }) {
   const [sectorFilter, setSectorFilter] = useState<string | null>(null)
 
@@ -102,7 +106,12 @@ export function OpportunityTab({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {filteredOpportunities.map((stock) => (
-            <OpportunityCard key={`${stock.market}-${stock.ticker}`} stock={stock} usdKrwRate={usdKrwRate} />
+            <OpportunityCard
+              key={`${stock.market}-${stock.ticker}`}
+              stock={stock}
+              usdKrwRate={usdKrwRate}
+              owned={ownedTickers.includes(`${stock.market}:${stock.ticker}`)}
+            />
           ))}
         </div>
       )}
@@ -118,7 +127,11 @@ function formatRelativeTime(iso: string): string {
   return `${Math.floor(diffH / 24)}일 전`
 }
 
-function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; usdKrwRate: number }) {
+function OpportunityCard({ stock, usdKrwRate, owned }: {
+  stock: OpportunityStockRow
+  usdKrwRate: number
+  owned: boolean
+}) {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const [chartReady, setChartReady] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
@@ -187,9 +200,19 @@ function OpportunityCard({ stock, usdKrwRate }: { stock: OpportunityStockRow; us
             고점 대비 −{drawdownStr}%
           </span>
         </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          기준일: {stock.asOfDate ? new Date(stock.asOfDate).toLocaleDateString('ko-KR') : '알 수 없음'}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            기준일: {stock.asOfDate ? new Date(stock.asOfDate).toLocaleDateString('ko-KR') : '알 수 없음'}
+          </p>
+          <BuyButton
+            market={stock.market}
+            ticker={stock.ticker}
+            name={stock.name_kr || stock.name}
+            sector={stock.sector ?? ''}
+            source="opportunity"
+            owned={owned}
+          />
+        </div>
       </CardHeader>
       <CardContent>
         <dl className="grid grid-cols-2 gap-2 text-sm text-secondary-foreground">

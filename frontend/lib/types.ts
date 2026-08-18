@@ -231,36 +231,5 @@ export interface ScreenedStockPerf {
   riskReward: number | null
 }
 
-export type ExitStatus = 'open' | 'stopped_out' | 'target_hit'
 
-export interface ExitCheckResult {
-  date: string
-  market: Market
-  ticker: string
-  name: string
-  name_kr?: string
-  sector: string
-  entryPrice: number
-  currentPrice: number
-  currentReturnPct: number
-  stop: number | null
-  target: number | null
-  riskReward: number | null
-  status: ExitStatus
-  exitDate: string | null
-  exitReasons: string[]
-  recommendation: 'sell' | 'hold'
-}
 
-// Aggregate 90-day track record for the pullback screener: each recommendation walked
-// forward to its stop/target resolution, deduped to the first day per ticker, then summarized.
-export interface TrackRecord {
-  market: Market
-  totalTrades: number
-  targetHitRate: number // 0~1, over all trades
-  stoppedOutRate: number
-  openRate: number
-  avgReturnPct: number // closed trades only
-  avgHoldingDays: number // closed trades only
-  avgR: number // closed trades only
-}

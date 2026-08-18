@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 const LINKS = [
   { href: '/', label: '눌림목 종목' },
   { href: '/discover', label: '종목 발굴' },
-  { href: '/history', label: '추천 이력' },
+  { href: '/history', label: '스크리너 성적' },
   { href: '/positions', label: '보유 종목 점검' },
 ]
 

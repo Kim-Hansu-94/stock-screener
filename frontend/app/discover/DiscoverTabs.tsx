@@ -18,10 +18,12 @@ export function DiscoverTabs({
   opportunities,
   opportunityError,
   usdKrwRate,
+  ownedTickers,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
   usdKrwRate: number
+  ownedTickers: string[]
 }) {
   const [tab, setTab] = useState<Tab>('report')
 
@@ -81,6 +83,7 @@ export function DiscoverTabs({
           opportunities={opportunities}
           opportunityError={opportunityError}
           usdKrwRate={usdKrwRate}
+          ownedTickers={ownedTickers}
         />
       )}
     </div>
