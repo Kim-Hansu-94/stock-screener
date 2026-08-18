@@ -39,8 +39,11 @@ class _DB:
     def __init__(self):
         self.client = _Client()
         self.saved: list[dict] = []
+        self.replaced: list[str] = []
 
-    def save_opportunity_snapshot(self, rows):
+    def replace_opportunity_snapshot(self, market, rows):
+        # 실제 구현은 그 시장 행을 지우고 다시 넣는다. 테스트는 '무엇을 저장했는가'만 본다.
+        self.replaced.append(market)
         self.saved.extend(rows)
 
 
@@ -107,6 +110,13 @@ def test_carries_scores_names_and_as_of_date(monkeypatch):
 
 
 def test_clears_stale_rows_so_dropouts_disappear(monkeypatch):
+    """기준이 바뀌어 이번에 빠진 종목은 화면에서도 사라져야 한다.
+
+    opportunity_snapshot의 PK는 (ticker, market)이라 날짜가 없다. 그냥 저장만 하면
+    지난 실행 행이 영구히 남는다 — 시총 하한을 올렸는데 미달 종목이 계속 뜨던 원인.
+    실제 삭제는 db.replace_opportunity_snapshot이 하므로(test_db.py에서 검증),
+    여기서는 그 경로로 위임했는지만 본다.
+    """
     db = _DB()
     _patch(
         monkeypatch,
@@ -117,7 +127,8 @@ def test_clears_stale_rows_so_dropouts_disappear(monkeypatch):
 
     refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
 
-    assert "delete" in db.client.log
+    assert db.replaced == ["KR"]
+    assert [r["ticker"] for r in db.saved] == ["AAA"]
 
 
 def test_survives_a_failure_without_raising(monkeypatch):
