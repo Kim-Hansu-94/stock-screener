@@ -49,6 +49,7 @@ function pos(id: string, over: Partial<PaperPosition>): PaperPosition {
     exit_date: null, exit_price: null,
     currentPrice: 77000, currentDate: '2026-08-18', returnPct: 10,
     peakDrawdownPct: -3.2, holdingDays: 54, isOpen: true,
+    exitSignal: null, signalReturnPct: null,
     ...over,
   }
 }
@@ -56,16 +57,24 @@ function pos(id: string, over: Partial<PaperPosition>): PaperPosition {
 const OPEN_POSITIONS: PaperPosition[] = [
   pos('open-1', {}),
   pos('open-2', { ticker: 'MU', market: 'US', name: '마이크론', source: 'opportunity',
-    entry_price: 120, currentPrice: 104.4, returnPct: -13, peakDrawdownPct: -18.7, holdingDays: 12 }),
+    entry_price: 120, currentPrice: 104.4, returnPct: -13, peakDrawdownPct: -18.7, holdingDays: 12,
+    exitSignal: { date: '2026-08-04', price: 111.6, reasons: ['bear', 'trend'] },
+    signalReturnPct: -7 }),
+  pos('open-3', { ticker: '035720', name: '카카오', entry_price: 50000, currentPrice: 46000,
+    returnPct: -8, peakDrawdownPct: -12.1, holdingDays: 30,
+    exitSignal: { date: '2026-07-21', price: 45000, reasons: ['stop'] },
+    signalReturnPct: -10 }),
 ]
 
 const CLOSED_POSITIONS: PaperPosition[] = [
   pos('closed-1', { ticker: '000660', name: 'SK하이닉스', entry_price: 180000, currentPrice: 214200,
     returnPct: 19, exit_date: '2026-08-10', exit_price: 214200,
-    peakDrawdownPct: null, isOpen: false, holdingDays: 41 }),
+    peakDrawdownPct: null, isOpen: false, holdingDays: 41,
+    exitSignal: { date: '2026-07-15', price: 196200, reasons: ['sector'] }, signalReturnPct: 9 }),
   pos('closed-2', { ticker: 'DLTR', market: 'US', name: '달러트리', source: 'opportunity',
     entry_price: 95, currentPrice: 88.35, returnPct: -7, exit_date: '2026-07-28', exit_price: 88.35,
-    peakDrawdownPct: null, isOpen: false, holdingDays: 22 }),
+    peakDrawdownPct: null, isOpen: false, holdingDays: 22,
+    exitSignal: { date: '2026-07-02', price: 91.2, reasons: ['trend'] }, signalReturnPct: -4 }),
 ]
 
 export default function PreviewPage() {

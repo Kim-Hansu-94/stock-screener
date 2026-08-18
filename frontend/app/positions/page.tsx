@@ -1,8 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getExitSignals } from '@/lib/queries/performance'
 import { getPaperTrades } from '@/lib/queries/trades'
-import { ExitSignalTable } from '@/components/ExitSignalTable'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -17,11 +15,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 async function PositionsContent() {
   await connection()
 
-  const [trades, krSignals, usSignals] = await Promise.all([
-    getPaperTrades(),
-    getExitSignals('KR', 30),
-    getExitSignals('US', 30),
-  ])
+  const trades = await getPaperTrades()
 
   const open = trades.filter((t) => t.isOpen)
   const closed = trades.filter((t) => !t.isOpen)
@@ -52,25 +46,6 @@ async function PositionsContent() {
         </Section>
       )}
 
-      {(krSignals.length > 0 || usSignals.length > 0) && (
-        <Section title="스크리너 이탈 신호">
-          <p className="text-xs text-muted-foreground">
-            최근 30일 추천 종목 중 매수 근거가 깨진 종목입니다. 실제 매수 여부와 무관하게 표시됩니다.
-          </p>
-          {krSignals.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">한국 시장</p>
-              <ExitSignalTable items={krSignals} market="KR" />
-            </div>
-          )}
-          {usSignals.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">미국 시장</p>
-              <ExitSignalTable items={usSignals} market="US" />
-            </div>
-          )}
-        </Section>
-      )}
     </>
   )
 }

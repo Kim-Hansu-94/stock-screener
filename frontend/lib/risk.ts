@@ -24,10 +24,10 @@ export function computeATR(bars: PriceBar[], period = 14): number {
 // Matches pipeline/src/screener.py's long_term_up gate exactly (LONG_TERM_WINDOW=60,
 // SHORT_TERM_WINDOW=5) so a stock's risk display never claims "uptrend" under a looser
 // or stricter test than the one that actually admitted it into the screener.
-const TREND_SMA_PERIOD = 60
+export const TREND_SMA_PERIOD = 60
 const TREND_LOOKBACK = 5
 
-function computeSMA(bars: PriceBar[], period: number): number | null {
+export function computeSMA(bars: PriceBar[], period: number): number | null {
   if (bars.length < period) return null
   const slice = bars.slice(-period)
   return slice.reduce((sum, b) => sum + b.close, 0) / period
@@ -76,15 +76,6 @@ export function isUptrend(bars: PriceBar[]): boolean {
   return trendStatus(bars) === 'uptrend'
 }
 
-// Plain "still above its 60-day average" check, for re-evaluating a position already
-// taken — deliberately looser than isUptrend's rising-SMA entry gate, since a held
-// position should only be flagged once the trend it was bought on actually breaks,
-// not merely because the SMA stopped climbing.
-export function isBelowTrend(bars: PriceBar[]): boolean {
-  const sma = computeSMA(bars, TREND_SMA_PERIOD)
-  if (sma === null) return false
-  return bars.at(-1)!.close < sma
-}
 
 // Resistance search window: wide enough to catch prior swing highs that a 30-bar
 // window would miss, so the target isn't silently replaced by the arbitrary 2R fallback.

@@ -68,11 +68,12 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/universe.ts` | 종목 유니버스(이름·섹터·시총) 메타 조회 — 여러 화면 공용 |
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
-| `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션, 열린 티커 집합 |
+| `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션(매도 신호 포함), 열린 티커 집합 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
 | `opportunityScore.ts` | 횡보·조정 매력도 점수 **참조 구현** — 실제 채점은 `pipeline/src/watchlist.py`가 포팅해서 수행. 상수 바꿀 때 항상 같이 수정 |
+| `exitSignal.ts` | "이제 팔 때" 판정 — 진입일부터 하루씩 걸어 손절/목표 터치·하락장 전환·주도섹터 이탈·60일선 하회 중 처음 걸린 날을 찾는다. **신호 시점 가격을 저장하지 않고 매번 재현한다**(사이트에 안 들어온 날의 신호를 놓치지 않고, 기존 보유분에도 소급 적용) |
 | `buySignal.ts` | 매력도 점수 → 매수 등급(적극검토/매수검토/관망) 변환 |
 | `longTermContext.ts` | 3년 월봉 + 10년 월봉 병합, 장기 고점/하락 판정 |
 | `fundamentals.ts` | 실적 데이터 → 가치함정/밸류에이션조정 판정 |
@@ -101,7 +102,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `page.tsx` | 홈 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 |
 | `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
-| `positions/` | 내 매매장(가상 매수·매도 기록 + 매일 수익률) + 스크리너 이탈 신호 |
+| `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 |

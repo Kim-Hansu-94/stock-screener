@@ -1,12 +1,11 @@
 // 성적표(app/history)·포지션(app/positions) 페이지 — 과거 추천의 결과 추적용 쿼리.
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
-import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from '../risk'
+import { computeStopTarget, filterBarsAsOf, type PriceBar } from '../risk'
 import { fetchPriceRowsPaged, SCREENER_CACHE_TAG } from './shared'
 import { resolveTrade, type ResolvedTrade } from '../scorecard'
-import { getLatestRegime, getLeadingSectors } from './screener'
 import { getUniverseNameMap } from './universe'
-import type { DayReturn, ExitCheckResult, ExitStatus, Market, PriceHistoryRow, ScreenedStockPerf, ScreenedStockWithRisk } from '../types'
+import type { DayReturn, Market, PriceHistoryRow, ScreenedStockPerf, ScreenedStockWithRisk } from '../types'
 
 export async function getRegimesInRange(
   market: Market,
@@ -114,122 +113,6 @@ export async function getScreenedStockPerformance(
   )
 }
 
-// Re-evaluates past recommendations that may still be held: walks forward through ALL
-// bars since entry (not a fixed day1-3 window) to find the first stop/target breach, then
-// checks CURRENT regime/leading-sector/trend state (not the state at entry time) so a
-// still-open position gets flagged the moment the setup it was bought on breaks down.
-export async function getExitSignals(market: Market, days = 30): Promise<ExitCheckResult[]> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-
-  const supabase = createServerSupabaseClient()
-  const today = new Date().toISOString().slice(0, 10)
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - days)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-
-  // passed=true만: 근접 후보(참고용)는 보유 종목 점검 대상이 아니다
-  const { data: recs, error: recsError } = await supabase
-    .from('screened_stocks')
-    .select('date, market, ticker, name, sector, close')
-    .eq('market', market)
-    .eq('passed', true)
-    .lt('date', today)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: false })
-
-  if (recsError) throw new Error(recsError.message)
-  if (!recs?.length) return []
-
-  const tickers = [...new Set(recs.map((r: { ticker: string }) => r.ticker))]
-  const oldestDate = (recs as { date: string }[]).at(-1)!.date
-  const nameKrMap = await getUniverseNameMap(market, tickers)
-
-  const prePeriodDate = new Date(oldestDate)
-  prePeriodDate.setDate(prePeriodDate.getDate() - 150)
-  const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
-
-  const priceData = await fetchPriceRowsPaged<PriceBar & { ticker: string }>(
-    market,
-    tickers,
-    'ticker, date, high, low, close',
-    prePeriodStr,
-  )
-
-  const priceMap: Record<string, PriceBar[]> = {}
-  for (const row of priceData) {
-    priceMap[row.ticker] ??= []
-    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
-  }
-
-  const latestRegime = await getLatestRegime(market)
-  const leadingSectors = latestRegime ? await getLeadingSectors(market, latestRegime.date) : []
-  const leadingSectorSet = new Set(leadingSectors.map((s) => s.sector))
-
-  return (recs as { date: string; market: string; ticker: string; name: string; sector: string; close: number }[]).map(
-    (rec) => {
-      const allBars = priceMap[rec.ticker] ?? []
-      const preBars = allBars.filter((p) => p.date <= rec.date)
-      const future = allBars.filter((p) => p.date > rec.date)
-
-      const { stop, target, riskReward } = computeStopTarget(preBars, rec.close)
-
-      let status: ExitStatus = 'open'
-      let exitDate: string | null = null
-      for (const bar of future) {
-        if (stop !== null && bar.low <= stop) {
-          status = 'stopped_out'
-          exitDate = bar.date
-          break
-        }
-        if (target !== null && bar.high >= target) {
-          status = 'target_hit'
-          exitDate = bar.date
-          break
-        }
-      }
-
-      const latestBar = allBars.at(-1) ?? null
-      const currentPrice = latestBar?.close ?? rec.close
-      const currentReturnPct = ((currentPrice - rec.close) / rec.close) * 100
-
-      const exitReasons: string[] = []
-      if (status === 'open') {
-        if (latestRegime?.regime === 'bear') exitReasons.push('시장이 하락장으로 전환되었습니다')
-        if (leadingSectorSet.size > 0 && !leadingSectorSet.has(rec.sector)) {
-          exitReasons.push('주도 섹터에서 이탈했습니다')
-        }
-        if (isBelowTrend(allBars)) exitReasons.push('60일 이동평균선을 하회합니다')
-      }
-
-      const recommendation: 'sell' | 'hold' = status !== 'open' || exitReasons.length > 0 ? 'sell' : 'hold'
-
-      return {
-        date: rec.date,
-        market: rec.market as Market,
-        ticker: rec.ticker,
-        name: rec.name,
-        name_kr: nameKrMap[rec.ticker],
-        sector: rec.sector,
-        entryPrice: rec.close,
-        currentPrice,
-        currentReturnPct,
-        stop,
-        target,
-        riskReward,
-        status,
-        exitDate,
-        exitReasons,
-        recommendation,
-      }
-    },
-  )
-}
-
-// Aggregate 90-day track record: walk each past pullback recommendation forward to its
-// stop/target resolution (same logic as getExitSignals), dedupe to the first day each ticker
-// was recommended within the window, then summarize hit/stop/open rates and P&L stats.
 export async function getPullbackScreenerWithRisk(
   market: Market,
 ): Promise<ScreenedStockWithRisk[]> {
