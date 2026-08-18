@@ -26,6 +26,11 @@ create table if not exists screened_stocks (
   -- 이력/성적표 집계는 passed=true만 사용 (screened_stocks_ranking.sql 참고).
   passed boolean not null default true,
   failed_criteria text[] not null default '{}',
+  -- 이 행을 쓴 파이프라인 실행 시각. 하루에 여러 번 도는 구조라(아침 전체 06:30 KST +
+  -- 저녁 KR 전용 16:30 KST + 수동 재실행) "이 행이 어느 실행에서 나왔는지"를 구분할
+  -- 수단이 없으면 사고 시 사후 추적이 불가능하다. db.py가 그날 행을 지우고 다시
+  -- 넣으므로(_replace_day) 항상 마지막 실행 시각이 들어간다.
+  created_at timestamptz not null default now(),
   primary key (date, market, ticker)
 );
 
