@@ -55,15 +55,31 @@ export function ScorecardVerdict({ card, title }: { card: Scorecard; title: stri
 
       <div>
         <p className="text-xs text-muted-foreground">추천 1건당 평균 손익</p>
-        <p className={`text-4xl font-bold tracking-tight ${changeTextClass(card.expectancyR)}`}>
+        {/* 표본이 부족하면 숫자를 무채색으로 낮춘다. 등락 색을 입히면 아직 못 믿을
+            값인데도 '확실히 벌었다'로 읽혀 배지(아직 판단 못 함)와 화면이 엇갈린다. */}
+        <p
+          className={`text-4xl font-bold tracking-tight ${
+            verdict === 'insufficient' ? 'text-muted-foreground' : changeTextClass(card.expectancyR)
+          }`}
+        >
           {signedR(card.expectancyR)}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          손절 폭을 1칸이라 할 때, 추천 한 건마다 평균{' '}
-          <span className={changeTextClass(card.expectancyR)}>
-            {Math.abs(card.expectancyR).toFixed(2)}칸을 {card.expectancyR >= 0 ? '벌었습니다' : '잃었습니다'}
-          </span>
-          .
+          {verdict === 'insufficient' ? (
+            <>
+              지금까지는 그랬지만 {card.resolved}건뿐이라 운으로 뒤집히는 범위입니다. 20건은
+              넘어야 방향을 말할 수 있습니다.
+            </>
+          ) : (
+            <>
+              손절 폭을 1칸이라 할 때, 추천 한 건마다 평균{' '}
+              <span className={changeTextClass(card.expectancyR)}>
+                {Math.abs(card.expectancyR).toFixed(2)}칸을{' '}
+                {card.expectancyR >= 0 ? '벌었습니다' : '잃었습니다'}
+              </span>
+              .
+            </>
+          )}
         </p>
       </div>
 
