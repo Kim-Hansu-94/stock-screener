@@ -1,8 +1,50 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
-import { getScreenedStockPerformance, getRegimesInRange, getScreenerTrackRecord } from '@/lib/queries/performance'
+import { getScorecardTrades, getScreenedStockPerformance, getRegimesInRange } from '@/lib/queries/performance'
+import { segmentBy, summarize, MIN_SEGMENT_SAMPLE, MAX_HOLD_BARS } from '@/lib/scorecard'
+import { translateSector } from '@/lib/sectorMap'
 import { PerformanceTable } from '@/components/PerformanceTable'
-import { TrackRecordCard } from '@/components/TrackRecordCard'
+import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
+import type { ResolvedTrade } from '@/lib/scorecard'
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+      <h2 className="text-base font-semibold text-foreground">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function Segments({ trades }: { trades: ResolvedTrade[] }) {
+  const byRegime = segmentBy(
+    trades,
+    (t) => t.regime,
+    (k) => (k === 'bull' ? '상승장' : '하락장'),
+  )
+  const byMarket = segmentBy(
+    trades,
+    (t) => t.market,
+    (k) => (k === 'KR' ? '한국' : '미국'),
+  )
+  const bySector = segmentBy(trades, (t) => t.sector || null, translateSector)
+
+  if (byRegime.length === 0 && byMarket.length === 0 && bySector.length === 0) return null
+
+  return (
+    <Section title="어떤 추천이 잘 맞았나">
+      <p className="text-xs text-muted-foreground">
+        구간마다 추천 1건당 평균 손익입니다. 오른쪽(빨강)으로 뻗을수록 그 구간에서 잘 통했다는 뜻입니다.
+        표본 {MIN_SEGMENT_SAMPLE}건 미만인 구간은 착시라 뺐습니다.
+      </p>
+      <div className="space-y-5">
+        <SegmentTable title="장세별" segments={byRegime} />
+        <SegmentTable title="시장별" segments={byMarket} />
+        <SegmentTable title="섹터별" hint="상위·하위" segments={bySector.slice(0, 8)} />
+      </div>
+    </Section>
+  )
+}
 
 async function HistoryContent() {
   await connection()
@@ -11,49 +53,40 @@ async function HistoryContent() {
   cutoff.setDate(cutoff.getDate() - 30)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  const [krPerf, usPerf, krRegimes, usRegimes, krTrack, usTrack] = await Promise.all([
+  const [krTrades, usTrades, krPerf, usPerf, krRegimes, usRegimes] = await Promise.all([
+    getScorecardTrades('KR'),
+    getScorecardTrades('US'),
     getScreenedStockPerformance('KR', 30),
     getScreenedStockPerformance('US', 30),
     getRegimesInRange('KR', cutoffStr),
     getRegimesInRange('US', cutoffStr),
-    getScreenerTrackRecord('KR', 90),
-    getScreenerTrackRecord('US', 90),
   ])
 
-  const hasData = krPerf.length > 0 || usPerf.length > 0
+  const allTrades = [...krTrades, ...usTrades]
 
   return (
     <>
-      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-        <h2 className="text-base font-semibold text-foreground">90일 종합 성적표</h2>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">한국 시장</p>
-            <TrackRecordCard record={krTrack} />
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-muted-foreground">미국 시장</p>
-            <TrackRecordCard record={usTrack} />
-          </div>
-        </div>
-      </section>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ScorecardVerdict card={summarize(krTrades)} title="한국 시장" />
+        <ScorecardVerdict card={summarize(usTrades)} title="미국 시장" />
+      </div>
 
-      {!hasData && (
-        <p className="text-sm text-muted-foreground">최근 30일 내 추천 이력이 없습니다.</p>
-      )}
+      <Segments trades={allTrades} />
 
       {krPerf.length > 0 && (
-        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-          <h2 className="text-base font-semibold text-foreground">한국 시장</h2>
+        <Section title="한국 — 최근 30일 추천 목록">
           <PerformanceTable items={krPerf} market="KR" regimes={krRegimes} />
-        </section>
+        </Section>
       )}
 
       {usPerf.length > 0 && (
-        <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-          <h2 className="text-base font-semibold text-foreground">미국 시장</h2>
+        <Section title="미국 — 최근 30일 추천 목록">
           <PerformanceTable items={usPerf} market="US" regimes={usRegimes} />
-        </section>
+        </Section>
+      )}
+
+      {allTrades.length === 0 && krPerf.length === 0 && usPerf.length === 0 && (
+        <p className="text-sm text-muted-foreground">아직 추천 이력이 없습니다.</p>
       )}
     </>
   )
@@ -63,9 +96,11 @@ export default function HistoryPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-5 px-4 py-8">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">추천 이력 수익률</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">스크리너 성적</h1>
         <p className="text-sm text-muted-foreground">
-          눌림목 스크리너 추천 종목을 매수했다면 +1일 · +2일 · +3일 수익률이 얼마였는지 보여줍니다.
+          이 스크리너를 그대로 따라갔다면 돈을 벌었을지, 어떤 상황에서 잘 맞았는지를 봅니다.
+          추천일 종가에 사서 목표가에 팔거나 손절가에 걸리는 것으로 가정하고,
+          {MAX_HOLD_BARS}거래일 안에 둘 다 안 걸리면 그날 종가로 정리한 것으로 칩니다.
         </p>
       </div>
 

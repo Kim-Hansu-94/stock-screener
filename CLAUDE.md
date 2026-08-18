@@ -66,9 +66,10 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/screener.ts` | 홈 화면(`app/page.tsx`) 쿼리 — 눌림목 스크리너 + 감시 카드 |
 | `queries/universe.ts` | 종목 유니버스(이름·섹터·시총) 메타 조회 — 여러 화면 공용 |
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
-| `queries/performance.ts` | 성적표(`history`)·포지션(`positions`) 페이지 쿼리 |
+| `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
+| `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
 | `opportunityScore.ts` | 횡보·조정 매력도 점수 **참조 구현** — 실제 채점은 `pipeline/src/watchlist.py`가 포팅해서 수행. 상수 바꿀 때 항상 같이 수정 |
 | `buySignal.ts` | 매력도 점수 → 매수 등급(적극검토/매수검토/관망) 변환 |
 | `longTermContext.ts` | 3년 월봉 + 10년 월봉 병합, 장기 고점/하락 판정 |
@@ -88,7 +89,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `getOpportunitySnapshot` / `getLongMonthlyHistory` / `getFundamentals` | `opportunities.ts` | 종목발굴 → 횡보·조정 (`app/discover/page.tsx`) |
 | `getUniverseStocks` / `getUniverseNameMap` / `getUniverseMarketCaps` | `universe.ts` | 유니버스 메타 조회 (여러 곳에서 공용) |
 | `getMonthlyPriceHistory` | `opportunities.ts` | 오늘의 추천 (`api/daily-report`) |
-| `getScreenedStockPerformance` / `getExitSignals` / `getScreenerTrackRecord` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 성적표(`history`)·포지션(`positions`) 페이지 |
+| `getScorecardTrades` / `getScreenedStockPerformance` / `getExitSignals` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 |
 | `fetchUsdKrwRate` / `fetchPriceRowsPaged` | `shared.ts` | 미장 원화 환산 · 가격 이력 페이지네이션 (여러 곳에서 공용) |
 
 ## frontend/app/ — 페이지별 역할
@@ -97,7 +98,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 |---|---|
 | `page.tsx` | 홈 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 |
 | `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
-| `history/` | 스크리닝 성적표 (과거 추천의 결과) |
+| `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `positions/` | 보유 포지션 청산 신호 |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
@@ -107,8 +108,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 ## frontend/components/
 
 `StockCard.tsx`(홈 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
-`WatchlistCard.tsx`(감시 카드) · `PerformanceTable.tsx`/`ExitSignalTable.tsx`/`TrackRecordCard.tsx`
-(성적표·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx`
+`WatchlistCard.tsx`(감시 카드) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
+(스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx`
 
 ## 디자인 시스템 (토스증권 문법)
 
@@ -133,6 +134,11 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   그래서 날짜 단위로 쌓이는 테이블에 쓸 때는 upsert만 하면 안 되고, 그날 행을 지우고
   다시 넣어야 한다(`db.py`의 `_replace_day`) — 안 그러면 이번 실행에서 빠진 종목의
   지난 행이 유령처럼 남는다
+- **성적 집계의 판정 기간**: `scorecard.ts`의 `MAX_HOLD_BARS`(60거래일)를 지나면 강제 청산으로
+  결론을 낸다. 이 값을 줄이면 아직 살아 있는 트레이드를 죽은 걸로 세고, 늘리면 판정 대기(pending)만
+  쌓여 표본이 안 모인다. 손절은 1R로 가깝고 목표는 보통 2R 이상이라 손절이 훨씬 빨리 걸리므로,
+  **"청산된 것만" 평균 내면 기댓값이 구조적으로 음수 쪽으로 치우친다** — pending을 집계에서 빼는
+  이유가 이것이니 분모를 바꿀 때 주의
 - **시총 하한**: `pipeline.py`의 `KR_MIN_MARKET_CAP`(3,000억) / `US_MIN_MARKET_CAP`($20억)을
   눌림목 스크리너(`pipeline.py`)와 종목발굴 유니버스(`main.py`의 `kr_opp_mask`/`opp_mask`)가
   **같이** 쓴다 — 한쪽만 바꾸면 두 화면 기준이 갈라짐. 종목발굴은 일봉 수집 범위와

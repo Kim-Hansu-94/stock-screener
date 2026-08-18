@@ -3,9 +3,10 @@ import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { computeStopTarget, filterBarsAsOf, isBelowTrend, type PriceBar } from '../risk'
 import { fetchPriceRowsPaged, SCREENER_CACHE_TAG } from './shared'
+import { resolveTrade, type ResolvedTrade } from '../scorecard'
 import { getLatestRegime, getLeadingSectors } from './screener'
 import { getUniverseNameMap } from './universe'
-import type { DayReturn, ExitCheckResult, ExitStatus, Market, PriceHistoryRow, ScreenedStockPerf, ScreenedStockWithRisk, TrackRecord } from '../types'
+import type { DayReturn, ExitCheckResult, ExitStatus, Market, PriceHistoryRow, ScreenedStockPerf, ScreenedStockWithRisk } from '../types'
 
 export async function getRegimesInRange(
   market: Market,
@@ -229,136 +230,6 @@ export async function getExitSignals(market: Market, days = 30): Promise<ExitChe
 // Aggregate 90-day track record: walk each past pullback recommendation forward to its
 // stop/target resolution (same logic as getExitSignals), dedupe to the first day each ticker
 // was recommended within the window, then summarize hit/stop/open rates and P&L stats.
-export async function getScreenerTrackRecord(market: Market, days = 90): Promise<TrackRecord> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-
-  const supabase = createServerSupabaseClient()
-  const today = new Date().toISOString().slice(0, 10)
-  const cutoff = new Date()
-  cutoff.setDate(cutoff.getDate() - days)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
-
-  // passed=true만: 성적표는 실제 추천(전 조건 통과)의 기록이어야 한다
-  const { data: recs, error: recsError } = await supabase
-    .from('screened_stocks')
-    .select('date, ticker, close')
-    .eq('market', market)
-    .eq('passed', true)
-    .lt('date', today)
-    .gte('date', cutoffStr)
-    .order('date', { ascending: false })
-
-  if (recsError) throw new Error(recsError.message)
-
-  const empty: TrackRecord = {
-    market,
-    totalTrades: 0,
-    targetHitRate: 0,
-    stoppedOutRate: 0,
-    openRate: 0,
-    avgReturnPct: 0,
-    avgHoldingDays: 0,
-    avgR: 0,
-  }
-  if (!recs?.length) return empty
-
-  // Dedupe to the first (earliest) recommendation per ticker within the window. recs come
-  // in date-descending order, so the last match for each ticker is its earliest date.
-  const firstByTicker = new Map<string, { date: string; ticker: string; close: number }>()
-  for (const rec of recs as { date: string; ticker: string; close: number }[]) {
-    firstByTicker.set(rec.ticker, rec)
-  }
-  const trades = [...firstByTicker.values()]
-
-  const tickers = [...firstByTicker.keys()]
-  const oldestDate = trades.reduce((min, t) => (t.date < min ? t.date : min), trades[0].date)
-
-  const prePeriodDate = new Date(oldestDate)
-  prePeriodDate.setDate(prePeriodDate.getDate() - 150)
-  const prePeriodStr = prePeriodDate.toISOString().slice(0, 10)
-
-  const priceData = await fetchPriceRowsPaged<PriceBar & { ticker: string }>(
-    market,
-    tickers,
-    'ticker, date, high, low, close',
-    prePeriodStr,
-  )
-
-  const priceMap: Record<string, PriceBar[]> = {}
-  for (const row of priceData) {
-    priceMap[row.ticker] ??= []
-    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
-  }
-
-  let targetHits = 0
-  let stoppedOut = 0
-  let open = 0
-  const closedReturns: number[] = []
-  const closedHoldingDays: number[] = []
-  const closedR: number[] = []
-
-  for (const trade of trades) {
-    const allBars = priceMap[trade.ticker] ?? []
-    const preBars = allBars.filter((p) => p.date <= trade.date)
-    const future = allBars.filter((p) => p.date > trade.date)
-
-    const { stop, target } = computeStopTarget(preBars, trade.close)
-    // Skip recommendations whose stop/target can't be computed: an unresolvable trade
-    // would distort the rates and R stats.
-    if (stop === null || target === null) continue
-
-    let status: ExitStatus = 'open'
-    let holdingDays = 0
-    for (let i = 0; i < future.length; i++) {
-      const bar = future[i]
-      // Same-bar tie: stop takes priority (conservative).
-      if (bar.low <= stop) {
-        status = 'stopped_out'
-        holdingDays = i + 1
-        break
-      }
-      if (bar.high >= target) {
-        status = 'target_hit'
-        holdingDays = i + 1
-        break
-      }
-    }
-
-    if (status === 'open') {
-      open++
-      continue
-    }
-
-    const exitPrice = status === 'target_hit' ? target : stop
-    const returnPct = ((exitPrice - trade.close) / trade.close) * 100
-    const risk = trade.close - stop
-    closedReturns.push(returnPct)
-    closedHoldingDays.push(holdingDays)
-    if (risk > 0) closedR.push((exitPrice - trade.close) / risk)
-
-    if (status === 'target_hit') targetHits++
-    else stoppedOut++
-  }
-
-  const total = targetHits + stoppedOut + open
-  if (total === 0) return empty
-
-  const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length)
-
-  return {
-    market,
-    totalTrades: total,
-    targetHitRate: targetHits / total,
-    stoppedOutRate: stoppedOut / total,
-    openRate: open / total,
-    avgReturnPct: mean(closedReturns),
-    avgHoldingDays: mean(closedHoldingDays),
-    avgR: mean(closedR),
-  }
-}
-
 export async function getPullbackScreenerWithRisk(
   market: Market,
 ): Promise<ScreenedStockWithRisk[]> {
@@ -440,4 +311,91 @@ export async function getPullbackScreenerWithRisk(
       }
     },
   )
+}
+
+
+/**
+ * 스크리너 성적 집계용 트레이드 목록.
+ *
+ * 조회 창이 긴 이유: 판정에 최대 MAX_HOLD_BARS(60거래일 ≈ 3개월)가 걸리므로,
+ * 90일 창으로는 판정이 끝난 표본이 거의 안 남는다. 기본 180일이면 앞쪽 90일치가
+ * 판정 완료로 쌓이고 뒤쪽은 pending으로 분리된다.
+ */
+export async function getScorecardTrades(market: Market, days = 180): Promise<ResolvedTrade[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+
+  const supabase = createServerSupabaseClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  // passed=true만: 근접 후보는 추천이 아니므로 성적에 넣지 않는다.
+  const { data: recs, error } = await supabase
+    .from('screened_stocks')
+    .select('date, ticker, name, sector, close')
+    .eq('market', market)
+    .eq('passed', true)
+    .lt('date', today)
+    .gte('date', cutoffStr)
+    .order('date', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  if (!recs?.length) return []
+
+  // 같은 종목이 눌림목 구간 내내 반복 추천되므로, 창 안의 첫 추천 하나만 트레이드로 센다.
+  // (date 내림차순이라 마지막으로 덮이는 값이 가장 이른 날짜다.)
+  const firstByTicker = new Map<string, { date: string; ticker: string; name: string; sector: string; close: number }>()
+  for (const rec of recs as { date: string; ticker: string; name: string; sector: string; close: number }[]) {
+    firstByTicker.set(rec.ticker, rec)
+  }
+  const picks = [...firstByTicker.values()]
+  const tickers = [...firstByTicker.keys()]
+
+  const oldestDate = picks.reduce((min, t) => (t.date < min ? t.date : min), picks[0].date)
+  // 손절/목표 계산에 쓰는 피벗 탐색(약 90거래일)을 덮도록 앞쪽으로 150일 더 확보한다.
+  const prePeriod = new Date(oldestDate)
+  prePeriod.setDate(prePeriod.getDate() - 150)
+
+  const [priceData, regimes, nameKrMap] = await Promise.all([
+    fetchPriceRowsPaged<PriceBar & { ticker: string }>(
+      market, tickers, 'ticker, date, high, low, close', prePeriod.toISOString().slice(0, 10),
+    ),
+    getRegimesInRange(market, cutoffStr),
+    getUniverseNameMap(market, tickers),
+  ])
+
+  const priceMap: Record<string, PriceBar[]> = {}
+  for (const row of priceData) {
+    priceMap[row.ticker] ??= []
+    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
+  }
+
+  const trades: ResolvedTrade[] = []
+  for (const pick of picks) {
+    const allBars = priceMap[pick.ticker] ?? []
+    const preBars = allBars.filter((b) => b.date <= pick.date)
+    const { stop, target } = computeStopTarget(preBars, pick.close)
+    // 손절/목표를 못 잡는 추천은 애초에 트레이드가 성립하지 않으므로 표본에서 뺀다.
+    // 0으로 세면 기댓값이 실제보다 좋아 보인다.
+    if (stop === null || target === null) continue
+
+    trades.push(resolveTrade({
+      date: pick.date,
+      market,
+      ticker: pick.ticker,
+      name: pick.name,
+      nameKr: nameKrMap[pick.ticker],
+      sector: pick.sector,
+      entry: pick.close,
+      stop,
+      target,
+      futureBars: allBars.filter((b) => b.date > pick.date),
+      regime: regimes[pick.date] === 'bull' ? 'bull' : regimes[pick.date] === 'bear' ? 'bear' : null,
+    }))
+  }
+
+  return trades
 }
