@@ -85,7 +85,8 @@ def test_kr_uses_dart_not_yahoo(monkeypatch):
         AssertionError("KR 경로는 yfinance _extract를 호출하면 안 된다")
     ))
     monkeypatch.setattr(
-        fundamentals.dart_fundamentals, "extract", lambda ticker, year: {"ticker_seen": ticker, "per": None}
+        fundamentals.dart_fundamentals, "extract",
+        lambda ticker, year: ({"ticker_seen": ticker, "per": None}, "ok"),
     )
 
     refresh_fundamentals(db, "KR", ["005930"], TODAY)

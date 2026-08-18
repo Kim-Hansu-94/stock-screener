@@ -106,7 +106,11 @@ def _parse_year(rows: list[dict], bsns_year: int) -> dict | None:
     }
 
 
-def _fetch_year(corp_code: str, api_key: str, bsns_year: int) -> dict | None:
+def _fetch_year(corp_code: str, api_key: str, bsns_year: int) -> tuple[dict | None, str]:
+    """반환은 (데이터, 실패 사유) 쌍. 사유는 다음 실행에서 왜 안 채워졌는지 로그로
+    바로 알아보기 위한 것 — 예전에는 여기서 예외가 나면 fundamentals.py의 범용
+    except가 그냥 삼켜서 "실패 20개"라는 숫자만 남고 원인이 하나도 안 보였다.
+    """
     resp = requests.get(
         f"{_BASE}/fnlttSinglAcnt.json",
         params={
@@ -119,28 +123,45 @@ def _fetch_year(corp_code: str, api_key: str, bsns_year: int) -> dict | None:
     )
     resp.raise_for_status()
     body = resp.json()
-    if body.get("status") != "000":
-        return None
-    return _parse_year(body.get("list") or [], bsns_year)
+    status = body.get("status")
+    if status != "000":
+        # DART 상태 코드: 013=조회된 데이터 없음, 020=일일 요청 한도 초과,
+        # 800=시스템 점검, 900=정의되지 않은 오류. 코드를 그대로 남겨야 원인을 안다.
+        return None, f"dart_status_{status}"
+    parsed = _parse_year(body.get("list") or [], bsns_year)
+    if parsed is None:
+        return None, "no_key_accounts"  # 매출액·당기순이익 계정 둘 다 못 찾음
+    return parsed, "ok"
 
 
-def extract(ticker: str, latest_year: int) -> dict | None:
+def extract(ticker: str, latest_year: int) -> tuple[dict | None, str]:
     """fundamentals.py의 _extract()와 같은 모양의 dict를 반환해 저장 로직을 그대로 쓴다.
+
+    반환은 (데이터, 실패 사유) 쌍. 데이터가 있으면 사유는 "ok".
 
     latest_year 사업보고서가 아직 제출 전이면(연초~3월, 제출기한은 회계연도
     종료 후 3개월) 한 해 앞으로 물러나 재시도한다.
     """
     api_key = _api_key()
     if not api_key:
-        return None
+        return None, "no_api_key"
 
-    corp_codes = _load_corp_codes(api_key)
+    try:
+        corp_codes = _load_corp_codes(api_key)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"corp_code_load_error_{type(exc).__name__}"
+
     corp_code = corp_codes.get(ticker)
     if not corp_code:
-        return None
+        return None, "corp_code_not_found"
 
+    last_reason = "no_data"
     for year in (latest_year, latest_year - 1):
-        result = _fetch_year(corp_code, api_key, year)
+        try:
+            result, reason = _fetch_year(corp_code, api_key, year)
+        except Exception as exc:  # noqa: BLE001
+            result, reason = None, f"http_error_{type(exc).__name__}"
         if result is not None:
-            return result
-    return None
+            return result, "ok"
+        last_reason = reason
+    return None, last_reason
