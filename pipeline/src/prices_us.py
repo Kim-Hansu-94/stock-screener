@@ -26,9 +26,20 @@ _VOL_KEYS   = ["tvol", "acml_vol", "vol"]
 
 _EXCH_CACHE_FILE  = pathlib.Path(__file__).parent.parent / ".kis_exch_cache.json"
 _PRICE_CACHE_FILE = pathlib.Path(__file__).parent.parent / ".kis_price_cache.pkl"
+# 상장이 짧아 lookback을 못 채우는 게 확정된 종목. 이게 없으면 그런 종목을 매 실행
+# 전체 재수집하게 되어 API 호출이 낭비된다.
+_SHORT_CACHE_FILE = pathlib.Path(__file__).parent.parent / ".kis_short_history.json"
 _MAX_CACHE_DAYS   = 420  # 캐시 최대 보존 일수 (lookback_days + 여유)
+# 캐시가 이 날수 이상 짧으면 "덜 받아진 것"으로 보고 전체 재수집한다. 주말·휴장으로
+# 며칠 어긋나는 것까지 재수집하면 낭비라 여유를 둔다.
+_DEPTH_TOLERANCE_DAYS = 14
+# screener.py의 SMA200_WINDOW와 같아야 한다 — 진단 로그가 "스크리너가 200일선을
+# 계산할 수 있는가"를 그대로 반영하도록.
+_SMA200_BARS = 200
 
 _exch_cache: dict[str, str] = {}
+# 값은 그 종목에서 KIS가 준 가장 오래된 날짜(ISO). 재수집해도 이보다 과거는 없다.
+_short_history: dict[str, str] = {}
 
 
 def _load_exch_cache() -> None:
@@ -37,6 +48,21 @@ def _load_exch_cache() -> None:
             _exch_cache.update(json.loads(_EXCH_CACHE_FILE.read_text(encoding="utf-8")))
         except Exception:
             pass
+
+
+def _load_short_history() -> None:
+    if _SHORT_CACHE_FILE.exists():
+        try:
+            _short_history.update(json.loads(_SHORT_CACHE_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+
+
+def _save_short_history() -> None:
+    try:
+        _SHORT_CACHE_FILE.write_text(json.dumps(_short_history), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _save_exch_cache() -> None:
@@ -71,6 +97,7 @@ def _last_us_trading_day(ref: date) -> date:
 
 
 _load_exch_cache()
+_load_short_history()
 
 
 _OHLCV = ["Open", "High", "Low", "Close", "Volume"]
@@ -280,8 +307,22 @@ def get_us_stock_histories(tickers: list[str], end: date, lookback_days: int) ->
 
         cached = cache.get(ticker)
 
-        # ── 캐시 최신 → 즉시 반환 ──────────────────────────────────
+        # 캐시가 과거로 충분히 뻗어 있는지. 증분 경로는 최근 봉만 덧붙이므로 한 번 짧게
+        # 캐시된 종목은 스스로 길어지지 못한다 — 그 상태로 두면 200일선이 영영 NaN이 되어
+        # 스크리너가 "200일선 아래"로 잘못 떨어뜨린다. 그래서 깊이가 모자라면 전체를 다시 받는다.
+        # 상장이 짧아 원래 그만큼밖에 없는 종목은 _short_history에 기록해 재수집을 반복하지 않는다.
+        deep_enough = True
         if cached is not None and not cached.empty:
+            known_oldest = _short_history.get(ticker)
+            if known_oldest is not None:
+                deep_enough = cached.index.min() <= pd.Timestamp(known_oldest)
+            else:
+                deep_enough = cached.index.min() <= cutoff_ts + pd.Timedelta(
+                    days=_DEPTH_TOLERANCE_DAYS
+                )
+
+        # ── 캐시 최신 + 깊이 충분 → 즉시 반환 ──────────────────────
+        if cached is not None and not cached.empty and deep_enough:
             if cached.index.max() >= latest_expected_ts:
                 df_out = cached[cached.index >= cutoff_ts]
                 if not df_out.empty:
@@ -289,7 +330,7 @@ def get_us_stock_histories(tickers: list[str], end: date, lookback_days: int) ->
                 continue
 
         # ── 캐시 오래됨 + 거래소 알고 있음 → 증분 1회 ──────────────
-        if cached is not None and not cached.empty and ticker in _exch_cache:
+        if cached is not None and not cached.empty and deep_enough and ticker in _exch_cache:
             try:
                 df_new = _fetch_incremental(ticker, end, session)
                 api_calls += 1
@@ -311,16 +352,47 @@ def get_us_stock_histories(tickers: list[str], end: date, lookback_days: int) ->
                     results[ticker] = df_out
             continue
 
-        # ── 캐시 없음 또는 거래소 미확인 → 전체 다운로드 ──────────
+        # ── 캐시 없음 · 거래소 미확인 · 깊이 부족 → 전체 다운로드 ──
+        df = pd.DataFrame()
         try:
             df = _fetch_single(ticker, end, lookback_days, session)
             api_calls += 2  # 교환소 탐색 + 데이터 2페이지 평균
-            if not df.empty:
-                cache[ticker] = df
-                results[ticker] = df
         except Exception:
             pass
 
+        if not df.empty:
+            cache[ticker] = df
+            results[ticker] = df
+            # 전체를 받고도 lookback을 못 채웠다면 상장 자체가 짧은 것이다.
+            # 기록해 두지 않으면 다음 실행에서 깊이 부족으로 보고 또 전체를 받는다.
+            if df.index.min() > cutoff_ts + pd.Timedelta(days=_DEPTH_TOLERANCE_DAYS):
+                _short_history[ticker] = df.index.min().date().isoformat()
+            else:
+                _short_history.pop(ticker, None)
+        elif cached is not None and not cached.empty:
+            # 깊이를 채우러 왔다가 API가 실패한 경우. 얕더라도 있던 캐시는 그대로 쓴다 —
+            # 여기서 버리면 어제까지 잘 나오던 종목이 일시적 API 장애로 화면에서 사라진다.
+            df_out = cached[cached.index >= cutoff_ts]
+            if not df_out.empty:
+                results[ticker] = df_out
+
     _save_price_cache(cache)
     _save_exch_cache()
+    _save_short_history()
+
+    # 진단: 200일선(SMA200) 계산에 필요한 봉이 모자란 종목이 몇 개인지. 이 값이 크면
+    # 스크리너가 그 종목들을 "200일선 아래"로 잘못 떨어뜨리고 있다는 뜻이다.
+    thin = sorted(
+        ((t, len(df)) for t, df in results.items() if len(df) < _SMA200_BARS),
+        key=lambda x: x[1],
+    )
+    if thin:
+        sample = ", ".join(f"{t}({n}봉)" for t, n in thin[:5])
+        print(
+            f"  ⚠ 200봉 미만 {len(thin)}/{len(results)}개 (최소 {thin[0][1]}봉) — 예: {sample}",
+            flush=True,
+        )
+    else:
+        print(f"  200봉 이상 확보: {len(results)}/{len(results)}개", flush=True)
+
     return results

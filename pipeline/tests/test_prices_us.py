@@ -80,3 +80,114 @@ def test_get_us_market_caps_handles_partial_failure(mock_ticker_cls):
     mock_ticker_cls.side_effect = side_effect_fn
     result = get_us_market_caps(["AAPL", "BROKEN", "MSFT"])
     assert result == {"AAPL": 1000.0, "BROKEN": 0.0, "MSFT": 2000.0}
+
+
+# ── 캐시 깊이(과거로 얼마나 뻗어 있는지) 관련 ────────────────────────────
+# 증분 경로는 최근 봉만 덧붙이므로, 한 번 짧게 캐시된 종목은 스스로 길어지지 못한다.
+# 그 상태로 두면 200일선이 영영 NaN이 되어 스크리너가 "200일선 아래"로 잘못 떨어뜨린다.
+
+def _frame(start: str, periods: int) -> pd.DataFrame:
+    idx = pd.bdate_range(start=start, periods=periods)
+    return pd.DataFrame(
+        {"Open": 1.0, "High": 1.0, "Low": 1.0, "Close": 1.0, "Volume": 100},
+        index=idx,
+    )
+
+
+def _patch_io(monkeypatch, cache, *, full_fetch):
+    monkeypatch.setattr(prices_us, "_load_price_cache", lambda: cache)
+    monkeypatch.setattr(prices_us, "_save_price_cache", lambda c: None)
+    monkeypatch.setattr(prices_us, "_save_exch_cache", lambda: None)
+    monkeypatch.setattr(prices_us, "_save_short_history", lambda: None)
+    monkeypatch.setattr(prices_us, "_fetch_single", full_fetch)
+    monkeypatch.setattr(prices_us, "_last_us_trading_day", lambda end: end)
+
+
+def test_shallow_cache_triggers_a_full_refetch(monkeypatch):
+    """캐시가 최신이어도 과거로 얕으면 전체를 다시 받아야 한다."""
+    end = date(2026, 8, 18)
+    # 최신 봉은 있지만 120봉뿐 — 200일선을 못 만든다
+    cache = {"MU": _frame("2026-03-02", 120)}
+    cache["MU"] = cache["MU"].set_index(
+        pd.bdate_range(end=pd.Timestamp(end), periods=120)
+    )
+    calls = []
+
+    def full_fetch(ticker, end_, lookback_days, session):
+        calls.append(ticker)
+        return _frame("2025-08-18", 260).set_index(
+            pd.bdate_range(end=pd.Timestamp(end_), periods=260)
+        )
+
+    monkeypatch.setattr(prices_us, "_short_history", {})
+    _patch_io(monkeypatch, cache, full_fetch=full_fetch)
+
+    result = get_us_stock_histories(["MU"], end=end, lookback_days=380)
+
+    assert calls == ["MU"], "얕은 캐시인데 전체 재수집이 일어나지 않았다"
+    assert len(result["MU"]) >= 200
+
+
+def test_deep_and_fresh_cache_is_reused_without_refetch(monkeypatch):
+    """깊이가 충분하고 최신이면 API를 다시 부르지 않는다(기존 최적화 유지)."""
+    end = date(2026, 8, 18)
+    cache = {"AAPL": _frame("2025-01-01", 300).set_index(
+        pd.bdate_range(end=pd.Timestamp(end), periods=300)
+    )}
+    calls = []
+
+    def full_fetch(ticker, end_, lookback_days, session):
+        calls.append(ticker)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(prices_us, "_short_history", {})
+    _patch_io(monkeypatch, cache, full_fetch=full_fetch)
+
+    result = get_us_stock_histories(["AAPL"], end=end, lookback_days=380)
+
+    assert calls == [], "깊고 최신인 캐시인데 불필요하게 재수집했다"
+    assert len(result["AAPL"]) > 0
+
+
+def test_genuinely_short_listing_is_not_refetched_every_run(monkeypatch):
+    """상장이 짧아 원래 그만큼뿐인 종목은 기록해 두고 재수집을 반복하지 않는다."""
+    end = date(2026, 8, 18)
+    cache = {"NEWCO": _frame("2026-05-01", 80).set_index(
+        pd.bdate_range(end=pd.Timestamp(end), periods=80)
+    )}
+    calls = []
+
+    def full_fetch(ticker, end_, lookback_days, session):
+        calls.append(ticker)
+        return pd.DataFrame()
+
+    # 이전 실행에서 "이 종목은 이 날짜가 최초"라고 확정해 둔 상태
+    oldest = cache["NEWCO"].index.min().date().isoformat()
+    monkeypatch.setattr(prices_us, "_short_history", {"NEWCO": oldest})
+    _patch_io(monkeypatch, cache, full_fetch=full_fetch)
+
+    get_us_stock_histories(["NEWCO"], end=end, lookback_days=380)
+
+    assert calls == [], "상장이 짧은 게 확정된 종목을 또 전체 수집했다"
+
+
+def test_failed_refetch_falls_back_to_the_shallow_cache(monkeypatch):
+    """깊이를 채우러 갔다가 API가 실패하면 얕은 캐시라도 그대로 내준다.
+
+    여기서 버리면 어제까지 나오던 종목이 일시적 장애로 화면에서 통째로 사라진다.
+    """
+    end = date(2026, 8, 18)
+    cache = {"MU": _frame("2026-03-02", 120).set_index(
+        pd.bdate_range(end=pd.Timestamp(end), periods=120)
+    )}
+
+    def full_fetch(ticker, end_, lookback_days, session):
+        raise RuntimeError("KIS 일시 장애")
+
+    monkeypatch.setattr(prices_us, "_short_history", {})
+    _patch_io(monkeypatch, cache, full_fetch=full_fetch)
+
+    result = get_us_stock_histories(["MU"], end=end, lookback_days=380)
+
+    assert "MU" in result, "재수집 실패로 기존 캐시까지 잃었다"
+    assert len(result["MU"]) == 120
