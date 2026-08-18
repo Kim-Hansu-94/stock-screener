@@ -42,3 +42,11 @@ create unique index if not exists idx_paper_trades_open_unique
 
 create index if not exists idx_paper_trades_open
   on paper_trades (exit_date, market);
+
+-- RLS를 켜되 정책은 만들지 않는다 = anon/authenticated 키로는 이 테이블에 접근 불가.
+-- 프론트와 API는 service key(service_role)로 붙는데 그건 RLS를 우회하므로 그대로 동작한다.
+--
+-- 이게 필요한 이유: 다른 테이블은 읽기 전용 시세라 새도 피해가 적지만, 여기는 매매 기록을
+-- 쓰는 곳이다. Supabase anon 키는 원래 공개를 전제로 만든 값이라 어디선가 노출되면
+-- RLS가 없는 테이블은 REST API로 바로 조작된다 — API의 PIN 검사를 통째로 우회한다.
+alter table paper_trades enable row level security;
