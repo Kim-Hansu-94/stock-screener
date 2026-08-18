@@ -35,9 +35,11 @@ export function OpportunityTab({
       <div className="mb-4">
         <h2 className="text-base font-bold">미래먹거리 횡보·조정 종목</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          코스피 및 NASDAQ 100 · S&amp;P 500 종목 중 3년 고점 대비 20–60% 조정받은 종목입니다.
+          코스피(시총 3,000억원 이상) 및 NASDAQ 100 · S&amp;P 500(시총 20억달러 이상) 종목 중
+          3년 고점 대비 20–60% 조정받은 종목입니다.
           최근 20일 내 52주 신저가를 갱신 중이거나 최근 60일 박스폭이 30%를 넘는(횡보가 아닌) 종목은 제외하고,
           매도 소진 · 변동성 수축(VCP) · 저점 높이기 · 거래량 소진을 합산한 매수 매력도 순으로 정렬합니다.
+          시총 하한은 장기 보유를 전제로 한 기준이라, 그 아래 소형주는 변동성·유동성 위험이 커서 제외합니다.
         </p>
         <p className="mt-2 text-xs text-accent-foreground">
           <span className="font-medium">매수 등급 기준:</span> {BUY_GRADE_CRITERIA}
