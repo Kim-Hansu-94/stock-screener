@@ -21,3 +21,17 @@ SUPABASE_URL="https://dummy.supabase.co" SUPABASE_SERVICE_KEY="dummy" npx next d
 `/dev/preview`는 production에서 notFound()로 막혀 있다. 새 컴포넌트를 만들면 여기에 케이스를
 추가할 것 — **특히 "표본/값이 없을 때"와 "부호가 반대일 때"**. 이 둘은 실제 데이터로는 좀처럼
 안 나와서 테스트·타입체크를 다 통과한 채로 배포되기 쉽다(실제로 그런 적 있음).
+
+## 모바일 폭도 같이 볼 것
+
+표를 만들면 폰에서 페이지 전체가 가로로 밀려 네비게이션까지 깨진다. `overflow-x-auto`만
+걸면 부족하다 — 부모에 `min-w-0`이 없으면 컨테이너가 내용에 끌려 늘어난다. 열이 많은 표는
+폰에서 카드로 갈아끼우는 게 답이다(`md:hidden` / `hidden md:block`).
+
+스크린샷 스크립트는 폭을 인자로 받고, **가로 넘침 px을 같이 출력한다**. 0이 아니면 잘린 것이다.
+
+```bash
+node shot.mjs http://localhost:3111/dev/preview out.png 390   # 폰
+node shot.mjs http://localhost:3111/dev/preview out.png 320   # 좁은 폰
+node shot.mjs http://localhost:3111/dev/preview out.png 1000  # 데스크톱
+```

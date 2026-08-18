@@ -151,8 +151,13 @@ export function SegmentTable({ title, hint, segments }: { title: string; hint?: 
         {segments.map((seg) => {
           const r = seg.card.expectancyR
           return (
-            <div key={seg.key} className="flex items-center gap-3">
-              <span className="w-24 shrink-0 truncate text-sm text-foreground" title={seg.label}>
+            // 폰에서는 고정폭 3개(라벨·값·건수)가 자리를 다 먹어 막대가 남지 않는다.
+            // 좁은 화면에서만 폭을 줄여 막대가 읽을 만한 길이를 갖게 한다.
+            <div key={seg.key} className="flex items-center gap-2 sm:gap-3">
+              <span
+                className="w-16 shrink-0 truncate text-xs text-foreground sm:w-24 sm:text-sm"
+                title={seg.label}
+              >
                 {seg.label}
               </span>
               {/* 0을 가운데 두고 좌우로 뻗는 막대 — 부호를 길이가 아니라 방향으로 읽게 한다 */}
@@ -166,10 +171,12 @@ export function SegmentTable({ title, hint, segments }: { title: string; hint?: 
                   }}
                 />
               </div>
-              <span className={`w-16 shrink-0 text-right font-mono text-sm ${changeTextClass(r)}`}>
+              <span
+                className={`w-14 shrink-0 text-right font-mono text-xs sm:w-16 sm:text-sm ${changeTextClass(r)}`}
+              >
                 {signedR(r)}
               </span>
-              <span className="w-12 shrink-0 text-right text-xs text-muted-foreground">
+              <span className="w-9 shrink-0 text-right text-xs text-muted-foreground sm:w-12">
                 {seg.card.resolved}건
               </span>
             </div>
