@@ -54,6 +54,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
+| `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 
 **용량 관리**: `stock_price_history` 인덱스 부풀림 방지용 주간 자동 리인덱스 +
 3년 초과분 자동 삭제가 `pg_cron`에 걸려 있음 (Supabase SQL Editor에서 `select * from cron.job`으로 확인).
@@ -67,6 +68,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/universe.ts` | 종목 유니버스(이름·섹터·시총) 메타 조회 — 여러 화면 공용 |
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
+| `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션, 열린 티커 집합 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -99,11 +101,12 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `page.tsx` | 홈 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 |
 | `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
-| `positions/` | 보유 포지션 청산 신호 |
+| `positions/` | 내 매매장(가상 매수·매도 기록 + 매일 수익률) + 스크리너 이탈 신호 |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 |
 | `api/revalidate` | 파이프라인이 갱신 후 캐시 무효화 호출 |
+| `api/trades` | 가상 매수(POST)·매도(PATCH). **가격은 클라이언트에서 받지 않고 서버가 최신 종가를 직접 읽는다** — 브라우저 값을 믿으면 수익률 조작 가능. PIN(`TRADE_PIN`) 검증 |
 
 ## frontend/components/
 

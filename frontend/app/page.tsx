@@ -14,6 +14,7 @@ import {
 import { getUniverseNameMap } from '@/lib/queries/universe'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 import { computeStopTarget, filterBarsAsOf, type RiskResult } from '@/lib/risk'
+import { getOpenTickers } from '@/lib/queries/trades'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
   { market: 'KR', label: '한국', universe: '코스피 · 코스닥' },
@@ -117,10 +118,11 @@ function RegimeCriteria({ regime }: { regime: Regime | null }) {
 
 async function HomeContent() {
   await connection()
-  const [sections, usdKrwRate, watchlist] = await Promise.all([
+  const [sections, usdKrwRate, watchlist, openTickers] = await Promise.all([
     Promise.all(MARKETS.map(({ market, label, universe }) => loadMarketSection(market, label, universe))),
     fetchUsdKrwRate(),
     getWatchlistStatus(),
+    getOpenTickers(),
   ])
 
   return (
@@ -172,6 +174,7 @@ async function HomeContent() {
                         riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
                         riskFrame={section.riskMap[stock.ticker]?.frame ?? null}
                         wayResistance={section.riskMap[stock.ticker]?.wayResistance ?? null}
+                        owned={openTickers.has(`${section.market}:${stock.ticker}`)}
                       />
                     ))}
                   </div>

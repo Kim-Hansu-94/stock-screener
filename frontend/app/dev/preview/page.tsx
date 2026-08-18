@@ -1,5 +1,7 @@
 import { notFound } from 'next/navigation'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
+import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
+import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 
 /**
@@ -40,6 +42,32 @@ const SECTORS: Segment[] = [
   { key: 'bio', label: '제약·바이오', card: card({ expectancyR: -0.43, resolved: 7 }) },
 ]
 
+function pos(id: string, over: Partial<PaperPosition>): PaperPosition {
+  return {
+    id, market: 'KR', ticker: '005930', name: '삼성전자', sector: 'Semiconductors',
+    source: 'pullback', entry_date: '2026-06-02', entry_price: 70000,
+    exit_date: null, exit_price: null,
+    currentPrice: 77000, currentDate: '2026-08-18', returnPct: 10,
+    peakDrawdownPct: -3.2, holdingDays: 54, isOpen: true,
+    ...over,
+  }
+}
+
+const OPEN_POSITIONS: PaperPosition[] = [
+  pos('open-1', {}),
+  pos('open-2', { ticker: 'MU', market: 'US', name: '마이크론', source: 'opportunity',
+    entry_price: 120, currentPrice: 104.4, returnPct: -13, peakDrawdownPct: -18.7, holdingDays: 12 }),
+]
+
+const CLOSED_POSITIONS: PaperPosition[] = [
+  pos('closed-1', { ticker: '000660', name: 'SK하이닉스', entry_price: 180000, currentPrice: 214200,
+    returnPct: 19, exit_date: '2026-08-10', exit_price: 214200,
+    peakDrawdownPct: null, isOpen: false, holdingDays: 41 }),
+  pos('closed-2', { ticker: 'DLTR', market: 'US', name: '달러트리', source: 'opportunity',
+    entry_price: 95, currentPrice: 88.35, returnPct: -7, exit_date: '2026-07-28', exit_price: 88.35,
+    peakDrawdownPct: null, isOpen: false, holdingDays: 22 }),
+]
+
 export default function PreviewPage() {
   if (process.env.NODE_ENV === 'production') notFound()
 
@@ -61,6 +89,17 @@ export default function PreviewPage() {
           />
           <ScorecardVerdict card={card({ resolved: 0, pending: 5 })} title="판정 완료 0건" />
         </div>
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">내 매매장 — 보유 중</h2>
+        <PaperTradeTable items={OPEN_POSITIONS} showSell />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">내 매매장 — 청산 완료</h2>
+        <PaperTradeSummary closed={CLOSED_POSITIONS} />
+        <PaperTradeTable items={CLOSED_POSITIONS} showSell={false} />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
