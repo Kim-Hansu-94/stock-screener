@@ -12,7 +12,7 @@ from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
-from .opportunities import refresh_opportunity_snapshot
+from .opportunities import in_band_tickers, refresh_opportunity_snapshot
 from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
 from .split_guard import detect_adjusted, report
 from .watchlist import run_watchlist
@@ -258,8 +258,11 @@ def main() -> None:
 
     # 장기(10년) 월봉 — 미시드 종목만 1회 수집하므로 정상 운영 중엔 비용이 거의 없다
     seed_long_monthly(db, "KR", kr_opp_tickers, today)
-    # 실적 요약 — 30일 지난 종목만, 1회 실행당 상한을 두고 나눠 채운다
-    refresh_fundamentals(db, "KR", kr_opp_tickers, today)
+
+    # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
+    # 코스피 전체(942개 안팎)가 아니라 밴드 안 종목으로만 대상을 좁힌다.
+    kr_in_band = list(in_band_tickers(db, "KR", kr_opp_tickers, today))
+    refresh_fundamentals(db, "KR", kr_in_band, today)
 
     # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장
     kr_universe_rows = [r for r in _to_db_result(kr_result, today).universe_metadata
@@ -334,7 +337,10 @@ def main() -> None:
                         if r.get("index_membership") in US_OPP_INDEXES]
     refresh_opportunity_snapshot(db, "US", us_universe_rows, today)
 
-    refresh_fundamentals(db, "US", opp_tickers, today)
+    # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
+    # 기회 종목 유니버스 전체가 아니라 밴드 안 종목으로만 대상을 좁힌다.
+    us_in_band = list(in_band_tickers(db, "US", opp_tickers, today))
+    refresh_fundamentals(db, "US", us_in_band, today)
 
     # Russell 3000 히스토리를 yfinance 배치로 수집해 패턴 매칭 커버리지 확장.
     # KIS API(순차)는 스크리너 대상(S&P1500+NASDAQ100)만 받으므로 나머지는 여기서 별도 처리.

@@ -51,7 +51,7 @@ UNIVERSE = [
 
 
 def _patch(monkeypatch, *, in_band, bars, evaluate):
-    monkeypatch.setattr(opportunities, "_in_band_tickers", lambda *_a: in_band)
+    monkeypatch.setattr(opportunities, "in_band_tickers", lambda *_a: in_band)
     monkeypatch.setattr(opportunities, "_fetch_bars_bulk", lambda *_a: bars)
     monkeypatch.setattr(opportunities, "evaluate_watch", evaluate)
 
@@ -126,7 +126,7 @@ def test_survives_a_failure_without_raising(monkeypatch):
     def _boom(*_a):
         raise RuntimeError("table missing")
 
-    monkeypatch.setattr(opportunities, "_in_band_tickers", _boom)
+    monkeypatch.setattr(opportunities, "in_band_tickers", _boom)
 
     refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)  # 예외가 새어나오면 실패
 

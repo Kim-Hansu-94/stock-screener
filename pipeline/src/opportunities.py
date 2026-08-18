@@ -26,8 +26,13 @@ BARS_DAYS = 500
 _DRAWDOWN_LOOKBACK_DAYS = 3 * 365
 
 
-def _in_band_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date) -> dict[str, dict]:
-    """조정폭 20~60% 구간 종목과 그 3년 고점·현재가를 돌려준다."""
+def in_band_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date) -> dict[str, dict]:
+    """조정폭 20~60% 구간 종목과 그 3년 고점·현재가를 돌려준다.
+
+    fundamentals.py가 실적 수집 대상을 "화면에 뜰 가능성이 있는 종목"으로 좁히는 데도
+    이 함수를 재사용한다 — 유니버스 전체(코스피 942개 등)를 다 받으면 실제로 카드에
+    뜨는 건 그 중 일부(조정폭 밴드 안)뿐이라 나머지는 낭비다.
+    """
     cutoff = (today - timedelta(days=_DRAWDOWN_LOOKBACK_DAYS)).isoformat()
     result: dict[str, dict] = {}
     for i in range(0, len(tickers), DRAWDOWN_BATCH):
@@ -97,7 +102,7 @@ def refresh_opportunity_snapshot(
 
     try:
         print(f"{market} 횡보·조정 후보 계산 중 ({len(tickers)}종목)...", flush=True)
-        in_band = _in_band_tickers(db, market, tickers, today)
+        in_band = in_band_tickers(db, market, tickers, today)
         if not in_band:
             print("  밴드 통과 종목 없음", flush=True)
             return

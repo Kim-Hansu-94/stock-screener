@@ -6,10 +6,18 @@
 
 국내 종목은 dart_fundamentals.py(DART 전자공시)로 수집한다 — Yahoo가 국내
 소형주 손익계산서를 잘 못 가지고 있어 계속 "데이터 없음"으로 남는 문제가 있었다.
-미국 종목은 그대로 yfinance를 쓴다. yfinance는 종목당 요청이 필요해 전 종목을
-매일 받을 수 없다. 실적은 분기에 한 번 바뀌므로, 30일이 지난 종목만 대상으로
-하고 1회 실행당 상한을 둬서 여러 실행에 걸쳐 채운다(첫 주에 전체가 채워지고
-이후엔 갱신분만 남는다).
+미국 종목은 그대로 yfinance를 쓴다.
+
+호출부(main.py)가 유니버스 전체가 아니라 조정폭 20~60% 밴드 안 종목만 넘긴다 —
+stock_fundamentals는 오직 그 밴드 후보 카드(OpportunityTab)에서만 읽히므로, 밴드
+밖 종목의 실적을 받아봐야 화면 어디에도 안 쓰인다. 그래도 밴드는 하루 단위로
+꽤 안정적으로 유지되는 반면 그 안에서 하드필터(신저가·박스폭)를 통과해 실제
+카드로 뜨는지는 매일 뒤집힐 수 있어, "오늘 뜬 카드"가 아니라 "밴드 전체"를
+대상으로 미리 채워둔다 — 그래야 하드필터를 새로 통과한 날 바로 실적이 보인다.
+
+yfinance는 종목당 요청이 필요해 전 종목을 매일 받을 수 없다. 실적은 분기에
+한 번 바뀌므로, 30일이 지난 종목만 대상으로 하고 1회 실행당 상한을 둬서
+여러 실행에 걸쳐 채운다(첫 주에 전체가 채워지고 이후엔 갱신분만 남는다).
 """
 
 from __future__ import annotations
@@ -24,8 +32,7 @@ from . import dart_fundamentals
 from .db import ScreenerDB
 
 # 1회 실행당 조회 상한. 종목당 2~3초(재무제표 + info 각 1요청)라 전 종목을 한 번에
-# 받으면 실행이 1시간 가까이 길어지고 Yahoo 레이트 리밋에 걸린다. 아래 우선순위로
-# 후보 풀이 앞에 오므로, 이 상한이면 화면에 뜨는 종목은 1회 실행으로 모두 채워진다.
+# 받으면 실행이 1시간 가까이 길어지고 Yahoo 레이트 리밋에 걸린다.
 # 실패한 종목은 stale로 남아 다음 실행에서 자동 재시도된다.
 MAX_PER_RUN = 400
 # 중간 저장 단위. 전부 받은 뒤 한 번에 저장하면 실행이 중단될 때 그때까지의 수집분이
@@ -33,11 +40,6 @@ MAX_PER_RUN = 400
 SAVE_CHUNK = 50
 # 실적은 분기 단위로 바뀌므로 이 기간이 지난 종목만 다시 받는다.
 MAX_AGE_DAYS = 30
-# 우선순위 판정용 — frontend/app/discover/page.tsx의 조정폭 밴드와 동일해야 한다.
-MIN_DRAWDOWN = 20.0
-MAX_DRAWDOWN = 60.0
-# get_opp_drawdowns RPC 배치 크기 (frontend queries.ts의 OPP_DRAWDOWN_BATCH와 동일)
-OPP_DRAWDOWN_BATCH = 250
 
 _REVENUE_KEYS = ["Total Revenue", "TotalRevenue", "Operating Revenue"]
 _OPERATING_KEYS = ["Operating Income", "OperatingIncome", "Total Operating Income As Reported"]
@@ -125,42 +127,8 @@ def _stale_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date)
     return [t for t in tickers if t not in fresh]
 
 
-def _candidates_first(db: ScreenerDB, market: str, pending: list[str], today: date) -> list[str]:
-    """조정폭 20~60% 구간(= 횡보·조정 탭 후보 풀)을 앞으로 당긴다.
-
-    기준은 frontend/app/discover/page.tsx의 MIN/MAX_DRAWDOWN과 같아야 한다.
-    조회에 실패하면 원래 순서를 그대로 쓴다 — 우선순위는 최적화일 뿐이고,
-    실패했다고 실적 수집 자체를 멈출 이유는 없다.
-    """
-    # date(year-3, ...)은 윤년 2/29에 ValueError가 나므로 일수로 뺀다. 우선순위
-    # 판정용이라 프론트(setFullYear(-3))와 며칠 어긋나는 것은 문제되지 않는다.
-    cutoff = (today - timedelta(days=3 * 365)).isoformat()
-    in_band: set[str] = set()
-    try:
-        for i in range(0, len(pending), OPP_DRAWDOWN_BATCH):
-            batch = pending[i : i + OPP_DRAWDOWN_BATCH]
-            result = db.client.rpc(
-                "get_opp_drawdowns",
-                {"p_market": market, "p_tickers": batch, "p_cutoff": cutoff},
-            ).execute()
-            for row in result.data or []:
-                high3y = float(row.get("high3y") or 0)
-                if high3y <= 0:
-                    continue
-                drawdown = (high3y - float(row["current_close"])) / high3y * 100
-                if MIN_DRAWDOWN <= drawdown <= MAX_DRAWDOWN:
-                    in_band.add(row["ticker"])
-    except Exception as exc:  # noqa: BLE001
-        print(f"  후보 우선순위 계산 실패 (원래 순서 유지): {exc}", flush=True)
-        return pending
-
-    if not in_band:
-        return pending
-    print(f"  후보 풀 {len(in_band)}개 우선", flush=True)
-    return [t for t in pending if t in in_band] + [t for t in pending if t not in in_band]
-
-
 def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today: date) -> None:
+    """tickers는 유니버스 전체가 아니라 호출부가 이미 조정폭 밴드로 좁힌 목록이어야 한다."""
     if not tickers:
         return
     if market == "KR" and not os.environ.get("DART_API_KEY"):
@@ -176,10 +144,6 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
         return
     if not pending:
         return
-
-    # 화면에 실제로 뜨는 종목부터 채운다. 유니버스 순서대로 받으면 아무도 보지 않는
-    # 종목의 실적을 먼저 가져오게 되어, 정작 카드에 뜨는 후보는 며칠간 빈칸이 된다.
-    pending = _candidates_first(db, market, pending, today)
 
     batch = pending[:MAX_PER_RUN]
     print(f"{market} 실적 수집 ({len(batch)}/{len(pending)}개 대상)...", flush=True)
