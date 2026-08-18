@@ -37,8 +37,6 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `long_history.py` | 10년 월봉 수집 → `stock_long_monthly`. 과거 확정 구간이라 미시드 종목만 1회 |
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
 | `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (오늘의 추천 탭) |
-| `backfill_kr_opportunities.py` | KR 기회 종목 3년치 최초 백필용 스크립트 (1회성) |
-| `sp500_monitor.py` | S&P500 적립 탭용 — **현재 `sp500_daily` 테이블 미생성 상태로 매 실행 조용히 실패 중** |
 | `db.py` | Supabase 클라이언트 래퍼 (`ScreenerDB`), 모든 `save_*`/`upsert` 메서드 |
 
 ## supabase/schema.sql — 테이블별 용도
@@ -55,6 +53,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
+| `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
 **용량 관리**: `stock_price_history` 인덱스 부풀림 방지용 주간 자동 리인덱스 +
 3년 초과분 자동 삭제가 `pg_cron`에 걸려 있음 (Supabase SQL Editor에서 `select * from cron.job`으로 확인).
@@ -150,7 +149,6 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 ## 알려진 이슈
 
-- `sp500_daily` 테이블 미생성 — S&P500 적립 탭 관련 파이프라인 단계가 매 실행 조용히 스킵됨
 - `DART_API_KEY` 시크릿 미등록 — 등록 전까지 국내 종목 실적 수집이 매 실행 조용히 스킵됨
   (`dart_fundamentals.py`). GitHub 저장소 Settings → Secrets and variables → Actions에서
   등록하면 다음 실행부터 바로 채워짐
