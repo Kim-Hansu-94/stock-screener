@@ -30,9 +30,9 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `indicators.py` | SMA·RSI·거래량비율 등 순수 계산 함수 |
 | `sectors.py` | 주도 섹터 판정 |
 | `market_regime.py` | 상승장/하락장 판정 |
-| `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록) |
+| `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록). `in_band_tickers()`(조정폭 20~60% 판정)는 `fundamentals.py`도 대상 종목을 좁히는 데 재사용 |
 | `watchlist.py` | 감시 종목(보유 종목) 평가 → `watchlist_status`. **채점 로직은 `frontend/lib/opportunityScore.ts`의 포팅본 — 상수 바꿀 때 반드시 같이 수정** |
-| `fundamentals.py` | 실적(매출·이익) 수집 → `stock_fundamentals`. 종목당 API 호출이라 30일 주기 + 실행당 상한. KR은 `dart_fundamentals.py`, US는 yfinance로 분기 |
+| `fundamentals.py` | 실적(매출·이익) 수집 → `stock_fundamentals`. `main.py`가 유니버스 전체가 아니라 `in_band_tickers()`로 좁힌 조정폭 밴드 종목만 넘김(밴드 밖은 화면에 안 뜨므로). 30일 주기 + 실행당 상한. KR은 `dart_fundamentals.py`, US는 yfinance로 분기 |
 | `dart_fundamentals.py` | DART(전자공시) Open API로 국내 종목 실적 수집. `DART_API_KEY` 시크릿 필요 — 미설정이면 KR 실적 수집을 통째로 건너뜀(로그만 남기고 계속 진행) |
 | `long_history.py` | 10년 월봉 수집 → `stock_long_monthly`. 과거 확정 구간이라 미시드 종목만 1회 |
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
@@ -126,7 +126,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 - **눌림목 추세 게이트**: `pipeline/src/screener.py`(long_term_up) ↔ `frontend/lib/risk.ts`(trendStatus) — 동일 로직이어야 손익비 표시가 스크리닝 결과와 안 어긋남
 - **횡보·조정 채점**: `frontend/lib/opportunityScore.ts`(참조) ↔ `pipeline/src/watchlist.py` · `pipeline/src/opportunities.py`(실제 실행) — 상수 하나도 따로 안 놀아야 함
-- **조정폭 밴드**: `MIN_DRAWDOWN`/`MAX_DRAWDOWN` 원본은 `watchlist.py`. `opportunities.py`는 여기서 import해서 쓰지만, `fundamentals.py`(`_candidates_first`)는 **독립적으로 재정의**돼 있어 둘이 어긋날 수 있음 — 바꿀 땐 두 곳 다 확인
+- **조정폭 밴드**: `MIN_DRAWDOWN`/`MAX_DRAWDOWN` 원본은 `watchlist.py`, 밴드 판정 함수(`in_band_tickers`)는 `opportunities.py`. `fundamentals.py`는 이 함수를 `main.py`를 통해 그대로 재사용하므로(독립 재정의 없음) 어긋날 일은 없음
 
 ## 알려진 이슈
 
