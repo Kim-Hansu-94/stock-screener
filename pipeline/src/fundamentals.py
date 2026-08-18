@@ -151,10 +151,14 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
     pending_rows: list[dict] = []
     saved = 0
     failed = 0
-    # 실패 사유별 개수. 예전에는 "실패 20개"라는 숫자만 남고 원인이 하나도 안
-    # 보였다 — 이유가 no_api_key인지 corp_code_not_found인지 dart_status_013인지에
-    # 따라 고칠 곳이 완전히 다르므로, 다음에 같은 일이 생기면 로그만으로 원인을 알게 한다.
+    # 실패 사유별 개수 + 사유별 종목 예시. 예전에는 "실패 20개"라는 숫자만 남고
+    # 원인이 하나도 안 보였다 — 이유가 no_api_key인지 corp_code_not_found인지
+    # dart_status_013인지에 따라 고칠 곳이 완전히 다르므로, 다음에 같은 일이 생기면
+    # 로그만으로 원인을 알게 한다. 예시 종목까지 남겨야 "그 티커가 왜 그런지"를
+    # 바로 찾아볼 수 있다 — 개수만으로는 예를 들어 corp_code_not_found가 우선주
+    # 때문인지 다른 이유인지 구분이 안 된다.
     failure_reasons: dict[str, int] = {}
+    failure_examples: dict[str, list[str]] = {}
 
     def flush() -> None:
         """모아둔 만큼 즉시 저장. 실행이 중간에 끊겨도 여기까지는 남는다."""
@@ -181,6 +185,9 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
         if data is None:
             failed += 1
             failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+            examples = failure_examples.setdefault(reason, [])
+            if len(examples) < 8:
+                examples.append(ticker)
         else:
             pending_rows.append(
                 {"ticker": ticker, "market": market, "updated_at": today.isoformat(), **data}
@@ -196,3 +203,5 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
     )
     suffix = f": {reason_summary}" if reason_summary else ""
     print(f"  → {saved}개 저장 (실패 {failed}개{suffix})", flush=True)
+    for reason, tickers_seen in sorted(failure_examples.items(), key=lambda kv: -len(kv[1])):
+        print(f"    {reason} 예: {', '.join(tickers_seen)}", flush=True)

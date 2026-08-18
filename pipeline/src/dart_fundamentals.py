@@ -28,6 +28,11 @@ _REPORT_CODE = "11011"  # 사업보고서(연간)
 _REVENUE_ACCOUNT = "매출액"
 _OPERATING_INCOME_ACCOUNT = "영업이익"
 _NET_INCOME_ACCOUNT = "당기순이익"
+# 금융지주·은행·증권 등은 주요계정에 "매출액" 대신 "영업수익"으로 잡힌다(DART의
+# 잘 알려진 관행 — 일반 기업의 손익계산서 구조를 그대로 강제하지 않기 때문).
+# 우선순위대로 시도: 못 찾으면 다음 이름으로. 실제 실행에서 no_key_accounts로
+# 떨어진 종목이 몇 개나 이 대체명으로 채워지는지는 다음 로그에서 확인한다.
+_REVENUE_ACCOUNT_FALLBACKS = ("영업수익",)
 
 # 프로세스 내 1회만 로드 — 상장사 고유번호 매핑은 종목당 API가 아니라 통짜
 # ZIP 1개(전체 등록법인 약 10만 건)라, 매 실행마다 새로 받아도 수 초 이내라
@@ -81,8 +86,20 @@ def _pick_account(rows: list[dict], account_name: str) -> dict | None:
     return cfs or matches[0]
 
 
+def _pick_account_with_fallbacks(rows: list[dict], account_name: str, fallbacks: tuple[str, ...]) -> dict | None:
+    """대표 계정명이 없으면 동의어로 재시도한다."""
+    picked = _pick_account(rows, account_name)
+    if picked is not None:
+        return picked
+    for alt in fallbacks:
+        picked = _pick_account(rows, alt)
+        if picked is not None:
+            return picked
+    return None
+
+
 def _parse_year(rows: list[dict], bsns_year: int) -> dict | None:
-    revenue_row = _pick_account(rows, _REVENUE_ACCOUNT)
+    revenue_row = _pick_account_with_fallbacks(rows, _REVENUE_ACCOUNT, _REVENUE_ACCOUNT_FALLBACKS)
     operating_row = _pick_account(rows, _OPERATING_INCOME_ACCOUNT)
     profit_row = _pick_account(rows, _NET_INCOME_ACCOUNT)
     if revenue_row is None and profit_row is None:

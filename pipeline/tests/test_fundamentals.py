@@ -112,3 +112,27 @@ def test_a_save_failure_does_not_abort_the_remaining_chunks(monkeypatch):
 
     # 첫 청크 저장이 실패해도 두 번째 청크는 정상 저장된다
     assert len(db.saves[-1]) == 3
+
+
+def test_kr_failure_log_includes_ticker_examples_per_reason(monkeypatch, capsys):
+    """실패 사유별 개수만으로는 corp_code_not_found가 우선주 때문인지 다른
+    이유인지 구분이 안 된다. 사유별로 실제 티커를 몇 개 찍어야 다음 실행에서
+    바로 원인을 좁힐 수 있다.
+    """
+    db = _CountingDB()
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    _patch(monkeypatch, db, stale=["A", "B", "C"], extract=lambda _s: None)
+
+    reasons = {"A": "corp_code_not_found", "B": "corp_code_not_found", "C": "no_key_accounts"}
+    monkeypatch.setattr(
+        fundamentals.dart_fundamentals, "extract",
+        lambda ticker, year: (None, reasons[ticker]),
+    )
+
+    refresh_fundamentals(db, "KR", ["A", "B", "C"], TODAY)
+
+    out = capsys.readouterr().out
+    assert "corp_code_not_found=2" in out
+    assert "no_key_accounts=1" in out
+    assert "corp_code_not_found 예: A, B" in out
+    assert "no_key_accounts 예: C" in out
