@@ -13,7 +13,14 @@ from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
 from .opportunities import in_band_tickers, refresh_opportunity_snapshot
-from .pipeline import US_SCREENER_INDEXES, MarketPipelineResult, run_kr_pipeline, run_us_pipeline
+from .pipeline import (
+    KR_MIN_MARKET_CAP,
+    US_MIN_MARKET_CAP,
+    US_SCREENER_INDEXES,
+    MarketPipelineResult,
+    run_kr_pipeline,
+    run_us_pipeline,
+)
 from .split_guard import detect_adjusted, report
 from .watchlist import run_watchlist
 
@@ -211,7 +218,12 @@ def main() -> None:
     # KOSPI 기회 종목 히스토리 (미래먹거리 횡보·조정 스크리너용)
     # .kr_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단 — US 패턴과 동일
     print("KR 기회 종목 히스토리 수집 중...", flush=True)
-    kr_opp_mask = kr_result.universe_df["index_membership"] == "KOSPI"
+    # 종목발굴 탭은 장기 보유를 전제로 하므로 눌림목과 같은 시총 하한(3,000억)을 건다.
+    # 시총이 그 아래인 종목은 변동성·유동성이 커서 이 탭의 목적에 맞지 않는다.
+    # 시총 미확인(NaN)도 비교가 False라 자연히 빠진다 — 모르는 종목을 넣는 것보다 안전하다.
+    kr_opp_mask = (kr_result.universe_df["index_membership"] == "KOSPI") & (
+        kr_result.universe_df["market_cap"] >= KR_MIN_MARKET_CAP
+    )
     kr_opp_tickers = kr_result.universe_df.loc[kr_opp_mask, "ticker"].tolist()
 
     if _KR_SEED_FILE.exists():
@@ -264,9 +276,11 @@ def main() -> None:
     kr_in_band = list(in_band_tickers(db, "KR", kr_opp_tickers, today))
     refresh_fundamentals(db, "KR", kr_in_band, today)
 
-    # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장
+    # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장.
+    # 위 kr_opp_tickers와 같은 집합을 써서 "일봉은 받았는데 스냅샷엔 없는" 어긋남을 막는다.
+    kr_opp_ticker_set = set(kr_opp_tickers)
     kr_universe_rows = [r for r in _to_db_result(kr_result, today).universe_metadata
-                        if r.get("index_membership") == "KOSPI"]
+                        if r["ticker"] in kr_opp_ticker_set]
     refresh_opportunity_snapshot(db, "KR", kr_universe_rows, today)
 
     # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
@@ -286,7 +300,11 @@ def main() -> None:
     # S&P500 + NASDAQ100 종목 히스토리 (기회 종목 스크리너용)
     # .yfinance_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단
     print("기회 종목 히스토리 수집 중...", flush=True)
-    opp_mask = us_result.universe_df["index_membership"].isin(["NASDAQ100", "S&P500"])
+    # KR과 같은 취지의 시총 하한($20억). NASDAQ100·S&P500은 대부분 이미 넘지만,
+    # 기준을 명시해 두 시장의 종목발굴 규칙을 일치시킨다.
+    opp_mask = us_result.universe_df["index_membership"].isin(list(US_OPP_INDEXES)) & (
+        us_result.universe_df["market_cap"] >= US_MIN_MARKET_CAP
+    )
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
 
     if _SEED_FILE.exists():
@@ -333,8 +351,10 @@ def main() -> None:
 
     seed_long_monthly(db, "US", opp_tickers, today)
 
+    # 위 opp_tickers와 같은 집합을 써서 일봉 수집 범위와 스냅샷 범위를 일치시킨다.
+    us_opp_ticker_set = set(opp_tickers)
     us_universe_rows = [r for r in _to_db_result(us_result, today).universe_metadata
-                        if r.get("index_membership") in US_OPP_INDEXES]
+                        if r["ticker"] in us_opp_ticker_set]
     refresh_opportunity_snapshot(db, "US", us_universe_rows, today)
 
     # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
