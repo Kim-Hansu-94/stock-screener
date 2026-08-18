@@ -203,6 +203,26 @@ create table if not exists watchlist_status (
   primary key (ticker, market)
 );
 
+-- 오늘의 추천(Gold Standard 패턴 매칭) 기록. pattern_match_results가 "지금 화면에
+-- 띄울 목록"(매 실행 전체 삭제 후 재작성)인 반면, 이쪽은 "그날 무엇을 추천했는지"를
+-- 날짜별로 쌓아 둔다 — 나중에 패턴 추천의 성적을 내려면 진입 시점 기록이 필요하다.
+--
+-- 주의: 이 테이블은 예전에 Supabase에서 직접 만들어져 schema.sql에 정의만 빠져 있었다.
+-- 아래 정의는 pipeline/src/db.py의 save_recommendation_history가 쓰는 컬럼에 맞춘 것이고,
+-- `if not exists`라 이미 있는 테이블은 건드리지 않는다(실제 컬럼이 다르면 실제 쪽이 유지됨).
+--
+-- 현재 읽는 화면은 없다. 파이프라인이 쓰기만 하고 쌓아 두는 상태이며, 하루 몇 행이라
+-- 용량 부담은 없다. 성적 집계를 붙일 때 이 기록을 쓰면 된다.
+create table if not exists recommendation_history (
+  recommended_date  date not null,
+  ticker            text not null,
+  name              text not null,
+  sector            text,
+  entry_price       numeric,
+  rank              int not null,
+  primary key (recommended_date, ticker)
+);
+
 -- 월봉 OHLCV 집계 (Supabase max_rows=1000 우회용 RPC)
 create or replace function get_monthly_ohlcv(
   p_market  text,

@@ -53,6 +53,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
+| `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
 **용량 관리**: `stock_price_history` 인덱스 부풀림 방지용 주간 자동 리인덱스 +
 3년 초과분 자동 삭제가 `pg_cron`에 걸려 있음 (Supabase SQL Editor에서 `select * from cron.job`으로 확인).
