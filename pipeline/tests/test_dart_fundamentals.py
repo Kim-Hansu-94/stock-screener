@@ -140,3 +140,28 @@ def test_extract_retries_prior_year_before_giving_up(monkeypatch):
     assert calls == [2025, 2024]
     assert data == {"revenue_latest": 1.0}
     assert reason == "ok"
+
+
+# ── 금융지주·은행 대체 계정명 ────────────────────────────────────────────
+# DART 주요계정 API는 일반 기업 손익계산서 구조를 강제하지 않는다. 금융지주·
+# 은행·증권 등은 "매출액" 대신 "영업수익"으로 잡히는 게 잘 알려진 관행이라,
+# 그 이름으로도 못 찾으면 폴백으로 한 번 더 찾는다.
+
+def test_parse_year_falls_back_to_operating_revenue_for_financial_companies():
+    rows = [
+        _row("영업수익", "CFS", "1,000", "800"),  # 매출액 대신
+        _row("당기순이익", "CFS", "150", "100"),
+    ]
+    result = _parse_year(rows, 2025)
+    assert result["revenue_latest"] == 1000.0
+    assert result["revenue_prior"] == 800.0
+
+
+def test_parse_year_prefers_revenue_over_the_fallback_when_both_exist():
+    rows = [
+        _row("매출액", "CFS", "1,000", "800"),
+        _row("영업수익", "CFS", "9,999", "9,999"),  # 있어도 매출액이 우선
+        _row("당기순이익", "CFS", "150", "100"),
+    ]
+    result = _parse_year(rows, 2025)
+    assert result["revenue_latest"] == 1000.0
