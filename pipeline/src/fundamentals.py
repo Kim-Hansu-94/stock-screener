@@ -232,7 +232,13 @@ def refresh_fundamentals(
     "우"/"N우B" 접미사를 떼어 보통주를 찾아야 한다 — main.py가 유니버스 전체
     (밴드로 좁히기 전)에서 만든 매핑을 넘긴다. US 경로는 쓰지 않는다.
     """
+    # 아래 조기 return들은 예전에 아무 로그도 안 남겼다. 그래서 미장 실적 진단을
+    # 넣고 실행했는데 "US 실적 수집" 줄 자체가 안 보여, 코드를 다시 읽고서야
+    # pending이 비어 조용히 빠져나간 걸 알았다(2026-08-19). 건너뛴 것도 결과이므로
+    # 이유를 남긴다 — 안 그러면 "진단이 안 도는 것"과 "실패가 0인 것"이 로그에서
+    # 똑같아 보인다.
     if not tickers:
+        print(f"{market} 실적 수집 생략: 대상 종목 없음(조정폭 밴드가 비었음)", flush=True)
         return
     if market == "KR" and not os.environ.get("DART_API_KEY"):
         # 키 미등록 상태로 400종목을 개별 시도해 전부 실패로 남기는 대신,
@@ -246,6 +252,11 @@ def refresh_fundamentals(
         print(f"{market} 실적 대상 조회 실패: {exc}", flush=True)
         return
     if not pending:
+        print(
+            f"{market} 실적 수집 생략: 대상 {len(tickers)}개가 모두 최근 "
+            f"{MAX_AGE_DAYS}일 내 갱신됨",
+            flush=True,
+        )
         return
 
     batch = pending[:MAX_PER_RUN]
