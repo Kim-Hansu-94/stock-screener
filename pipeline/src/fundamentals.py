@@ -104,15 +104,22 @@ def _pick_prior_column(columns, latest_col):
     return None if oldest == latest_col else oldest
 
 
-def _extract(symbol: str) -> dict | None:
-    """연간 손익계산서에서 최신/2년 전 실적과 밸류에이션 지표를 뽑는다."""
+def _extract(symbol: str) -> tuple[dict | None, str]:
+    """연간 손익계산서에서 최신/2년 전 실적과 밸류에이션 지표를 뽑는다.
+
+    반환은 dart_fundamentals.extract와 같은 (데이터, 사유) 쌍. 예전에는 실패를
+    전부 None으로 뭉개서 호출부가 yahoo_no_data 한 덩어리로만 셌다 — 야후가
+    응답을 안 준 건지, 행 이름이 바뀐 건지 구분할 수 없어 "미장이 멀쩡한가"를
+    로그로 판단할 방법이 없었다. 국장에서 겪은 것과 같은 문제라 같은 방식으로
+    푼다.
+    """
     ticker = yf.Ticker(symbol)
     try:
         inc = ticker.income_stmt
-    except Exception:  # noqa: BLE001
-        return None
+    except Exception as exc:  # noqa: BLE001
+        return None, f"income_stmt_error_{type(exc).__name__}"
     if inc is None or inc.empty or len(inc.columns) == 0:
-        return None
+        return None, "no_income_statement"
 
     # 컬럼은 최신 회계연도부터 정렬돼 있다. 국장(DART)과 같은 2년 간격을 고른다 —
     # 자세한 이유는 _PRIOR_YEAR_GAP 주석 참고.
@@ -130,7 +137,7 @@ def _extract(symbol: str) -> dict | None:
     except Exception:  # noqa: BLE001
         pass
 
-    return {
+    result = {
         "fiscal_year_latest": int(pd.Timestamp(latest_col).year),
         "fiscal_year_prior": int(pd.Timestamp(prior_col).year) if prior_col is not None else None,
         "revenue_latest": at(_REVENUE_KEYS, latest_col),
@@ -144,6 +151,22 @@ def _extract(symbol: str) -> dict | None:
         "per": float(per) if isinstance(per, (int, float)) else None,
         "pbr": float(pbr) if isinstance(pbr, (int, float)) else None,
     }
+
+    # 국장(dart_fundamentals._parse_year)과 같은 최소 조건 — 매출·순이익 중 하나는
+    # 있어야 실적 판정이 된다. 예전에는 이 검사가 미장에만 없어서, 손익계산서는
+    # 받았는데 _REVENUE_KEYS/_NET_INCOME_KEYS 중 어느 행 이름도 안 맞는 경우
+    # 값이 전부 null인 행을 "성공"으로 저장했다. 화면에는 '데이터 없음'으로만
+    # 뜨는데 로그의 "N개 저장"은 늘어나, 실제 커버리지가 부풀려 보였다.
+    #
+    # yfinance는 야후 응답을 스크레이핑하는 비공식 경로라 행 이름이 예고 없이
+    # 바뀔 수 있다. 그래서 실패 시 실제 행 이름을 사유에 실어 보낸다 — 국장에서
+    # 계정명을 이렇게 찍어 3라운드 만에 "당기순이익(손실)"을 찾아냈던 것과 같다.
+    if result["revenue_latest"] is None and result["net_income_latest"] is None:
+        seen = sorted(str(i) for i in inc.index)[:6]
+        sample = ",".join(seen)
+        return None, f"no_key_rows:{sample}" if sample else "no_key_rows"
+
+    return result, "ok"
 
 
 def _stale_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date) -> list[str]:
@@ -237,8 +260,7 @@ def refresh_fundamentals(
                     name_to_ticker=name_to_ticker,
                 )
             else:
-                data = _extract(_yahoo_symbol(ticker, market))
-                reason = "ok" if data is not None else "yahoo_no_data"
+                data, reason = _extract(_yahoo_symbol(ticker, market))
         except Exception as exc:  # noqa: BLE001
             data, reason = None, f"exception_{type(exc).__name__}"
         if data is None:

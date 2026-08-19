@@ -32,7 +32,7 @@ def _patch(monkeypatch, db, *, stale, extract, chunk=None, cap=None):
 def test_saves_incrementally_so_an_interrupted_run_keeps_progress(monkeypatch):
     db = _CountingDB()
     tickers = [f"T{i:03d}" for i in range(10)]
-    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: {"per": 1.0}, chunk=4)
+    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: ({"per": 1.0}, "ok"), chunk=4)
 
     refresh_fundamentals(db, "US", tickers, TODAY)
 
@@ -48,7 +48,7 @@ def test_failed_tickers_are_not_saved_so_they_retry_next_run(monkeypatch):
         monkeypatch,
         db,
         stale=tickers,
-        extract=lambda symbol: None if symbol == "BAD" else {"per": 1.0},
+        extract=lambda symbol: (None, "no_income_statement") if symbol == "BAD" else ({"per": 1.0}, "ok"),
         chunk=50,
     )
 
@@ -61,7 +61,7 @@ def test_failed_tickers_are_not_saved_so_they_retry_next_run(monkeypatch):
 def test_respects_the_per_run_cap(monkeypatch):
     db = _CountingDB()
     tickers = [f"T{i:03d}" for i in range(20)]
-    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: {"per": 1.0}, chunk=50, cap=5)
+    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: ({"per": 1.0}, "ok"), chunk=50, cap=5)
 
     refresh_fundamentals(db, "US", tickers, TODAY)
 
@@ -71,7 +71,7 @@ def test_respects_the_per_run_cap(monkeypatch):
 def test_kr_skips_entirely_when_dart_api_key_is_unset(monkeypatch):
     monkeypatch.delenv("DART_API_KEY", raising=False)
     db = _CountingDB()
-    _patch(monkeypatch, db, stale=["005930"], extract=lambda _s: {"per": 1.0})
+    _patch(monkeypatch, db, stale=["005930"], extract=lambda _s: ({"per": 1.0}, "ok"))
 
     refresh_fundamentals(db, "KR", ["005930"], TODAY)
 
@@ -108,7 +108,7 @@ def test_a_save_failure_does_not_abort_the_remaining_chunks(monkeypatch):
 
     db = _FlakyDB()
     tickers = [f"T{i:03d}" for i in range(6)]
-    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: {"per": 1.0}, chunk=3)
+    _patch(monkeypatch, db, stale=tickers, extract=lambda _s: ({"per": 1.0}, "ok"), chunk=3)
 
     refresh_fundamentals(db, "US", tickers, TODAY)
 
@@ -268,3 +268,79 @@ def test_prior_column_handles_non_contiguous_fiscal_years():
     inc = _income_stmt([2025, 2023, 2020])
     prior = fundamentals._pick_prior_column(inc.columns, inc.columns[0])
     assert pd.Timestamp(prior).year == 2023
+
+
+# ── 미장 실패 사유 진단 ──────────────────────────────────────────────────
+# 예전에는 미장 실패가 전부 yahoo_no_data 한 덩어리였다. 야후가 응답을 안 준
+# 건지, 행 이름이 바뀐 건지 구분할 수 없어 "미장이 멀쩡한가"를 로그로 판단할
+# 방법이 없었다. 국장에서 계정명을 찍어 원인을 찾아낸 것과 같은 방식으로 푼다.
+
+class _FakeYfTicker:
+    def __init__(self, inc, info=None):
+        self._inc = inc
+        self.info = info or {}
+
+    @property
+    def income_stmt(self):
+        if isinstance(self._inc, Exception):
+            raise self._inc
+        return self._inc
+
+
+def _patch_yf(monkeypatch, inc, info=None):
+    monkeypatch.setattr(fundamentals.yf, "Ticker", lambda _s: _FakeYfTicker(inc, info))
+
+
+def _stmt(rows: dict[str, list[float]], years: list[int]) -> pd.DataFrame:
+    return pd.DataFrame(
+        list(rows.values()),
+        index=list(rows.keys()),
+        columns=[pd.Timestamp(f"{y}-12-31") for y in years],
+    )
+
+
+def test_extract_reports_ok_with_usable_data(monkeypatch):
+    _patch_yf(monkeypatch, _stmt({"Total Revenue": [300.0, 200.0, 100.0]}, [2025, 2024, 2023]))
+    data, reason = fundamentals._extract("AAPL")
+    assert reason == "ok"
+    assert data["revenue_latest"] == 300.0
+    assert data["revenue_prior"] == 100.0  # 2년 전(2023)
+
+
+def test_extract_reports_no_income_statement_when_empty(monkeypatch):
+    _patch_yf(monkeypatch, pd.DataFrame())
+    data, reason = fundamentals._extract("AAPL")
+    assert data is None
+    assert reason == "no_income_statement"
+
+
+def test_extract_reports_the_exception_type_when_yahoo_throws(monkeypatch):
+    _patch_yf(monkeypatch, RuntimeError("rate limited"))
+    data, reason = fundamentals._extract("AAPL")
+    assert data is None
+    assert reason == "income_stmt_error_RuntimeError"
+
+
+def test_extract_reports_actual_row_names_when_no_key_rows_match(monkeypatch):
+    """야후가 행 이름을 바꾸면 값이 전부 null인 행을 '성공'으로 저장하던 문제.
+
+    이제 실패로 잡고, 실제 행 이름을 사유에 실어 보내 다음 폴백 후보를 알려준다.
+    """
+    _patch_yf(monkeypatch, _stmt(
+        {"Totally New Revenue Label": [300.0, 200.0, 100.0], "Gross Profit": [9.0, 8.0, 7.0]},
+        [2025, 2024, 2023],
+    ))
+    data, reason = fundamentals._extract("AAPL")
+    assert data is None
+    assert reason.startswith("no_key_rows:")
+    assert "Totally New Revenue Label" in reason
+    assert "Gross Profit" in reason
+
+
+def test_extract_succeeds_on_net_income_alone(monkeypatch):
+    """매출 행이 없어도 순이익만 있으면 판정이 되므로 성공이다(국장과 같은 최소 조건)."""
+    _patch_yf(monkeypatch, _stmt({"Net Income": [50.0, 40.0, 30.0]}, [2025, 2024, 2023]))
+    data, reason = fundamentals._extract("AAPL")
+    assert reason == "ok"
+    assert data["net_income_latest"] == 50.0
+    assert data["revenue_latest"] is None
