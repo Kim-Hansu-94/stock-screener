@@ -321,20 +321,51 @@ def test_extract_reports_the_exception_type_when_yahoo_throws(monkeypatch):
     assert reason == "income_stmt_error_RuntimeError"
 
 
-def test_extract_reports_actual_row_names_when_no_key_rows_match(monkeypatch):
-    """야후가 행 이름을 바꾸면 값이 전부 null인 행을 '성공'으로 저장하던 문제.
-
-    이제 실패로 잡고, 실제 행 이름을 사유에 실어 보내 다음 폴백 후보를 알려준다.
-    """
+def test_extract_reports_missing_with_actual_row_names_on_schema_change(monkeypatch):
+    """행 이름이 아예 없으면 스키마 변경 — 실제 이름을 실어 보내 폴백 후보를 알려준다."""
     _patch_yf(monkeypatch, _stmt(
         {"Totally New Revenue Label": [300.0, 200.0, 100.0], "Gross Profit": [9.0, 8.0, 7.0]},
         [2025, 2024, 2023],
     ))
     data, reason = fundamentals._extract("AAPL")
     assert data is None
-    assert reason.startswith("no_key_rows:")
+    assert "rev=missing" in reason
+    assert "ni=missing" in reason
     assert "Totally New Revenue Label" in reason
     assert "Gross Profit" in reason
+
+
+def test_extract_reports_null_without_row_names_when_the_row_exists_but_is_empty(monkeypatch):
+    """행은 있는데 값이 NaN이면 야후 쪽 데이터 공백 — 고칠 수단이 없다.
+
+    이 경우 행 이름을 나열해봐야 아무 정보가 없고 로그만 길어져 진짜 신호를 가린다.
+    (2026-08-19 실행의 RMD 건이 이 둘 중 어느 쪽인지 구분이 안 됐던 게 계기다.)
+    """
+    inc = _stmt(
+        {"Total Revenue": [float("nan")] * 3, "Net Income": [float("nan")] * 3},
+        [2025, 2024, 2023],
+    )
+    _patch_yf(monkeypatch, inc)
+    data, reason = fundamentals._extract("RMD")
+    assert data is None
+    assert "rev=null" in reason
+    assert "ni=null" in reason
+    assert "rows=" not in reason  # 행 이름은 안 붙는다
+
+
+def test_extract_distinguishes_a_mixed_case(monkeypatch):
+    """매출 행은 있는데 비었고, 순이익 행은 이름 자체가 없는 경우도 갈라 보여준다."""
+    inc = _stmt(
+        {"Total Revenue": [float("nan")] * 3, "Some Other Row": [1.0, 2.0, 3.0]},
+        [2025, 2024, 2023],
+    )
+    _patch_yf(monkeypatch, inc)
+    data, reason = fundamentals._extract("XYZ")
+    assert data is None
+    assert "rev=null" in reason
+    assert "ni=missing" in reason
+    # 한쪽만 missing이면 스키마 변경으로 단정할 수 없어 행 이름은 안 붙인다
+    assert "rows=" not in reason
 
 
 def test_extract_succeeds_on_net_income_alone(monkeypatch):
