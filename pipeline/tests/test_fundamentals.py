@@ -86,7 +86,7 @@ def test_kr_uses_dart_not_yahoo(monkeypatch):
     ))
     monkeypatch.setattr(
         fundamentals.dart_fundamentals, "extract",
-        lambda ticker, year: ({"ticker_seen": ticker, "per": None}, "ok"),
+        lambda ticker, year, **kw: ({"ticker_seen": ticker, "per": None}, "ok"),
     )
 
     refresh_fundamentals(db, "KR", ["005930"], TODAY)
@@ -126,7 +126,7 @@ def test_kr_failure_log_includes_ticker_examples_per_reason(monkeypatch, capsys)
     reasons = {"A": "corp_code_not_found", "B": "corp_code_not_found", "C": "no_key_accounts"}
     monkeypatch.setattr(
         fundamentals.dart_fundamentals, "extract",
-        lambda ticker, year: (None, reasons[ticker]),
+        lambda ticker, year, **kw: (None, reasons[ticker]),
     )
 
     refresh_fundamentals(db, "KR", ["A", "B", "C"], TODAY)
@@ -149,7 +149,7 @@ def test_corp_code_not_found_is_cached_so_it_is_not_retried_every_run(monkeypatc
     _patch(monkeypatch, db, stale=["005935"], extract=lambda _s: None)
     monkeypatch.setattr(
         fundamentals.dart_fundamentals, "extract",
-        lambda ticker, year: (None, "corp_code_not_found"),
+        lambda ticker, year, **kw: (None, "corp_code_not_found"),
     )
 
     refresh_fundamentals(db, "KR", ["005935"], TODAY)
@@ -171,10 +171,58 @@ def test_no_key_accounts_is_not_cached_since_it_might_resolve_later(monkeypatch)
     _patch(monkeypatch, db, stale=["005940"], extract=lambda _s: None)
     monkeypatch.setattr(
         fundamentals.dart_fundamentals, "extract",
-        lambda ticker, year: (None, "no_key_accounts"),
+        lambda ticker, year, **kw: (None, "no_key_accounts"),
     )
 
     refresh_fundamentals(db, "KR", ["005940"], TODAY)
 
     saved = [r for chunk in db.saves for r in chunk]
     assert saved == []
+
+
+def test_reason_detail_is_bucketed_separately_from_the_count_key(monkeypatch, capsys):
+    """no_key_accounts:영업수익 같은 상세 사유는 개수 집계에서 콜론 앞부분으로만
+    묶여야 한다 — 안 그러면 티커마다 계정명이 달라 집계가 잘게 쪼개진다.
+    상세는 예시 문자열에만 남는다.
+    """
+    db = _CountingDB()
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    _patch(monkeypatch, db, stale=["A", "B"], extract=lambda _s: None)
+
+    reasons = {"A": "no_key_accounts:이자수익", "B": "no_key_accounts:보험료수익"}
+    monkeypatch.setattr(
+        fundamentals.dart_fundamentals, "extract",
+        lambda ticker, year, **kw: (None, reasons[ticker]),
+    )
+
+    refresh_fundamentals(db, "KR", ["A", "B"], TODAY)
+
+    out = capsys.readouterr().out
+    assert "no_key_accounts=2" in out  # 상세가 달라도 개수는 하나로 묶임
+    assert "A[이자수익]" in out
+    assert "B[보험료수익]" in out
+
+
+def test_kr_extract_receives_name_maps_for_preferred_stock_fallback(monkeypatch):
+    """main.py가 넘긴 이름 매핑이 그대로 dart_fundamentals.extract까지 전달돼야
+    우선주 폴백이 동작한다.
+    """
+    db = _CountingDB()
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    _patch(monkeypatch, db, stale=["005385"], extract=lambda _s: None)
+
+    seen_kwargs = {}
+
+    def fake_extract(ticker, year, **kwargs):
+        seen_kwargs.update(kwargs)
+        return {"revenue_latest": 1.0}, "ok_via_common_stock"
+
+    monkeypatch.setattr(fundamentals.dart_fundamentals, "extract", fake_extract)
+
+    refresh_fundamentals(
+        db, "KR", ["005385"], TODAY,
+        ticker_to_name={"005385": "현대차우"},
+        name_to_ticker={"현대차": "005380"},
+    )
+
+    assert seen_kwargs == {"name": "현대차우", "name_to_ticker": {"현대차": "005380"}}

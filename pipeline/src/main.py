@@ -274,7 +274,18 @@ def main() -> None:
     # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
     # 코스피 전체(942개 안팎)가 아니라 밴드 안 종목으로만 대상을 좁힌다.
     kr_in_band = list(in_band_tickers(db, "KR", kr_opp_tickers, today))
-    refresh_fundamentals(db, "KR", kr_in_band, today)
+    # 우선주 폴백용 이름 매핑은 밴드가 아니라 전체 유니버스에서 만든다 — 우선주의
+    # 보통주가 밴드 밖(조정폭 20~60%를 안 벗어난) 종목일 수도 있어서다. 조회
+    # 대상 자체는 여전히 밴드 안으로 좁혀져 있으니(kr_in_band), 이 매핑을 넓게
+    # 잡는다고 실적 수집량이 늘지는 않는다.
+    kr_ticker_to_name = dict(zip(
+        kr_result.universe_df["ticker"], kr_result.universe_df["name"], strict=False,
+    ))
+    kr_name_to_ticker = {name: ticker for ticker, name in kr_ticker_to_name.items() if name}
+    refresh_fundamentals(
+        db, "KR", kr_in_band, today,
+        ticker_to_name=kr_ticker_to_name, name_to_ticker=kr_name_to_ticker,
+    )
 
     # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장.
     # 위 kr_opp_tickers와 같은 집합을 써서 "일봉은 받았는데 스냅샷엔 없는" 어긋남을 막는다.

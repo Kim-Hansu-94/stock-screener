@@ -143,8 +143,22 @@ def _stale_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date)
     return [t for t in tickers if t not in fresh]
 
 
-def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today: date) -> None:
-    """tickers는 유니버스 전체가 아니라 호출부가 이미 조정폭 밴드로 좁힌 목록이어야 한다."""
+def refresh_fundamentals(
+    db: ScreenerDB,
+    market: str,
+    tickers: list[str],
+    today: date,
+    *,
+    ticker_to_name: dict[str, str] | None = None,
+    name_to_ticker: dict[str, str] | None = None,
+) -> None:
+    """tickers는 유니버스 전체가 아니라 호출부가 이미 조정폭 밴드로 좁힌 목록이어야 한다.
+
+    ticker_to_name/name_to_ticker: KR 우선주 폴백용(dart_fundamentals.extract에
+    그대로 전달). 우선주는 DART corpCode.xml에 자기 종목코드가 없어 이름에서
+    "우"/"N우B" 접미사를 떼어 보통주를 찾아야 한다 — main.py가 유니버스 전체
+    (밴드로 좁히기 전)에서 만든 매핑을 넘긴다. US 경로는 쓰지 않는다.
+    """
     if not tickers:
         return
     if market == "KR" and not os.environ.get("DART_API_KEY"):
@@ -192,7 +206,11 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
         reason = "ok"
         try:
             if market == "KR":
-                data, reason = dart_fundamentals.extract(ticker, today.year - 1)
+                data, reason = dart_fundamentals.extract(
+                    ticker, today.year - 1,
+                    name=(ticker_to_name or {}).get(ticker),
+                    name_to_ticker=name_to_ticker,
+                )
             else:
                 data = _extract(_yahoo_symbol(ticker, market))
                 reason = "ok" if data is not None else "yahoo_no_data"
@@ -200,11 +218,12 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
             data, reason = None, f"exception_{type(exc).__name__}"
         if data is None:
             failed += 1
-            failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
-            examples = failure_examples.setdefault(reason, [])
+            bucket, _, detail = reason.partition(":")
+            failure_reasons[bucket] = failure_reasons.get(bucket, 0) + 1
+            examples = failure_examples.setdefault(bucket, [])
             if len(examples) < 8:
-                examples.append(ticker)
-            if reason == "corp_code_not_found":
+                examples.append(f"{ticker}[{detail}]" if detail else ticker)
+            if bucket == "corp_code_not_found":
                 # 다시 물어도 같은 답이 나오는 확정적 실패라, 빈 행이라도 저장해
                 # 다음 30일간 재시도 대상에서 뺀다. 실제 실적 화면 표시는 null
                 # 행이든 아예 없는 행이든 assessEarnings 결과가 'unknown'으로
