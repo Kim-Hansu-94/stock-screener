@@ -41,6 +41,22 @@ SAVE_CHUNK = 50
 # 실적은 분기 단위로 바뀌므로 이 기간이 지난 종목만 다시 받는다.
 MAX_AGE_DAYS = 30
 
+# _stale_tickers는 "그동안 저장된 적이 있는가"로 재시도 여부를 정한다. 그런데
+# corp_code_not_found(DART corpCode.xml에 그 티커의 법인코드 자체가 없음 — 우선주
+# 등 DART가 별도로 등록하지 않는 종목)는 저장할 데이터가 없어 계속 못 저장되고,
+# 그래서 매 실행 다시 시도된다. 실제로 20개 중 12개가 이 사유로 매번 재시도되고
+# 있었다(2026-08-19 실행 로그). DART의 corpCode.xml 자체가 "이 티커는 없다"고
+# 답한 확정적 사실이라 재시도해도 결과가 달라지지 않는다 — prices_us.py가 짧은
+# 상장 종목을 _short_history로 기억해 두는 것과 같은 이유로, 여기도 빈 행을 남겨
+# "이번 달엔 시도했다"로 표시해 둔다.
+_NULL_FUNDAMENTALS = {
+    "fiscal_year_latest": None, "fiscal_year_prior": None,
+    "revenue_latest": None, "revenue_prior": None,
+    "operating_income_latest": None, "operating_income_prior": None,
+    "net_income_latest": None, "net_income_prior": None,
+    "eps_latest": None, "eps_prior": None, "per": None, "pbr": None,
+}
+
 _REVENUE_KEYS = ["Total Revenue", "TotalRevenue", "Operating Revenue"]
 _OPERATING_KEYS = ["Operating Income", "OperatingIncome", "Total Operating Income As Reported"]
 _NET_INCOME_KEYS = ["Net Income", "NetIncome", "Net Income Common Stockholders"]
@@ -188,6 +204,15 @@ def refresh_fundamentals(db: ScreenerDB, market: str, tickers: list[str], today:
             examples = failure_examples.setdefault(reason, [])
             if len(examples) < 8:
                 examples.append(ticker)
+            if reason == "corp_code_not_found":
+                # 다시 물어도 같은 답이 나오는 확정적 실패라, 빈 행이라도 저장해
+                # 다음 30일간 재시도 대상에서 뺀다. 실제 실적 화면 표시는 null
+                # 행이든 아예 없는 행이든 assessEarnings 결과가 'unknown'으로
+                # 동일해 사용자에게 보이는 것은 달라지지 않는다.
+                pending_rows.append(
+                    {"ticker": ticker, "market": market, "updated_at": today.isoformat(),
+                     **_NULL_FUNDAMENTALS}
+                )
         else:
             pending_rows.append(
                 {"ticker": ticker, "market": market, "updated_at": today.isoformat(), **data}
