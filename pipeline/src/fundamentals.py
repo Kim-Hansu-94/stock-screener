@@ -57,6 +57,16 @@ _NULL_FUNDAMENTALS = {
     "eps_latest": None, "eps_prior": None, "per": None, "pbr": None,
 }
 
+# 최신 회계연도와 몇 년 전을 비교할지. 국장(dart_fundamentals._parse_year)이 당기 vs
+# 전전기, 즉 2년 간격으로 고정돼 있어 미장도 같은 간격을 쓴다.
+#
+# 예전에는 미장만 "가능한 한 긴 구간"(income_stmt의 가장 오래된 열, 보통 3~4년)을
+# 썼다. 그런데 판정 임계값(frontend/lib/fundamentals.ts의 REVENUE_DROP 20% /
+# PROFIT_DROP 30%)은 구간 길이를 보지 않고 두 시장에 똑같이 적용된다. 그래서 같은
+# "실적 악화" 배지가 시장마다 다른 뜻이었다 — 2년간 -20%는 연 -10.6%인데 4년간
+# -20%는 연 -5.4%라, 미국 종목이 2배 관대한 기준으로 판정됐다.
+_PRIOR_YEAR_GAP = 2
+
 _REVENUE_KEYS = ["Total Revenue", "TotalRevenue", "Operating Revenue"]
 _OPERATING_KEYS = ["Operating Income", "OperatingIncome", "Total Operating Income As Reported"]
 _NET_INCOME_KEYS = ["Net Income", "NetIncome", "Net Income Common Stockholders"]
@@ -77,8 +87,25 @@ def _pick(df: pd.DataFrame, keys: list[str], col) -> float | None:
     return None
 
 
+def _pick_prior_column(columns, latest_col):
+    """국장과 같은 2년 전 열을 고른다. 없으면 있는 것 중 가장 먼 열로 대신한다.
+
+    yfinance income_stmt는 보통 4개 회계연도를 주므로 2년 전 열이 거의 항상 있다.
+    상장이 짧아 없을 때는 비교를 통째로 포기하기보다 가장 먼 열을 쓰고, 실제 연도를
+    fiscal_year_prior에 그대로 남긴다(화면이 연도를 함께 보여주므로 구간이 다르면
+    사용자가 알 수 있다).
+    """
+    latest_year = pd.Timestamp(latest_col).year
+    target_year = latest_year - _PRIOR_YEAR_GAP
+    for col in columns:
+        if pd.Timestamp(col).year == target_year:
+            return col
+    oldest = columns[-1]
+    return None if oldest == latest_col else oldest
+
+
 def _extract(symbol: str) -> dict | None:
-    """연간 손익계산서에서 최신/직전(3년 전) 실적과 밸류에이션 지표를 뽑는다."""
+    """연간 손익계산서에서 최신/2년 전 실적과 밸류에이션 지표를 뽑는다."""
     ticker = yf.Ticker(symbol)
     try:
         inc = ticker.income_stmt
@@ -87,12 +114,10 @@ def _extract(symbol: str) -> dict | None:
     if inc is None or inc.empty or len(inc.columns) == 0:
         return None
 
-    # 컬럼은 최신 회계연도부터 정렬돼 있다. 가장 오래된 열을 "직전"으로 삼아
-    # 가능한 한 긴 구간(보통 3~4년)의 변화를 본다.
+    # 컬럼은 최신 회계연도부터 정렬돼 있다. 국장(DART)과 같은 2년 간격을 고른다 —
+    # 자세한 이유는 _PRIOR_YEAR_GAP 주석 참고.
     latest_col = inc.columns[0]
-    prior_col = inc.columns[-1]
-    if latest_col == prior_col:
-        prior_col = None
+    prior_col = _pick_prior_column(inc.columns, latest_col)
 
     def at(keys: list[str], col) -> float | None:
         return _pick(inc, keys, col) if col is not None else None

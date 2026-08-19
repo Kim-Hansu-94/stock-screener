@@ -1,5 +1,7 @@
 from datetime import date
 
+import pandas as pd
+
 import pipeline.src.fundamentals as fundamentals
 from pipeline.src.fundamentals import refresh_fundamentals
 
@@ -226,3 +228,43 @@ def test_kr_extract_receives_name_maps_for_preferred_stock_fallback(monkeypatch)
     )
 
     assert seen_kwargs == {"name": "현대차우", "name_to_ticker": {"현대차": "005380"}}
+
+
+# ── 미장 비교 구간 — 국장(2년)과 맞추기 ────────────────────────────────
+# 판정 임계값(REVENUE_DROP 20% / PROFIT_DROP 30%)은 구간 길이를 보지 않고 두 시장에
+# 똑같이 적용된다. 미장만 3~4년 구간을 쓰면 같은 배지가 시장마다 다른 뜻이 된다 —
+# 2년간 -20%는 연 -10.6%인데 4년간 -20%는 연 -5.4%라 미국이 2배 관대해진다.
+
+def _income_stmt(years: list[int]) -> pd.DataFrame:
+    """yfinance income_stmt 모양 — 열이 회계연도 Timestamp, 최신이 먼저."""
+    cols = [pd.Timestamp(f"{y}-12-31") for y in years]
+    return pd.DataFrame(
+        [[float(y) for y in years]],  # 값은 연도로 둬서 어느 열이 뽑혔는지 바로 보이게
+        index=["Total Revenue"],
+        columns=cols,
+    )
+
+
+def test_prior_column_is_exactly_two_years_back_when_available():
+    inc = _income_stmt([2025, 2024, 2023, 2022])
+    prior = fundamentals._pick_prior_column(inc.columns, inc.columns[0])
+    assert pd.Timestamp(prior).year == 2023  # 가장 오래된 2022가 아니라 2년 전
+
+
+def test_prior_column_falls_back_to_oldest_when_two_years_back_is_missing():
+    # 상장이 짧아 2년 전 열이 없으면 비교를 포기하지 않고 가장 먼 열을 쓴다
+    inc = _income_stmt([2025, 2024])
+    prior = fundamentals._pick_prior_column(inc.columns, inc.columns[0])
+    assert pd.Timestamp(prior).year == 2024
+
+
+def test_prior_column_is_none_when_only_one_year_exists():
+    inc = _income_stmt([2025])
+    assert fundamentals._pick_prior_column(inc.columns, inc.columns[0]) is None
+
+
+def test_prior_column_handles_non_contiguous_fiscal_years():
+    # 결측 연도가 있어도 정확히 2년 전이 있으면 그걸 고른다
+    inc = _income_stmt([2025, 2023, 2020])
+    prior = fundamentals._pick_prior_column(inc.columns, inc.columns[0])
+    assert pd.Timestamp(prior).year == 2023
