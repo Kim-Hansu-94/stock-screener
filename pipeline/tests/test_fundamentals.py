@@ -375,3 +375,29 @@ def test_extract_succeeds_on_net_income_alone(monkeypatch):
     assert reason == "ok"
     assert data["net_income_latest"] == 50.0
     assert data["revenue_latest"] is None
+
+
+# ── 건너뛴 이유도 로그에 남긴다 ─────────────────────────────────────────
+# 조기 return이 조용히 빠져나가면 "진단이 안 도는 것"과 "실패가 0인 것"이
+# 로그에서 똑같아 보인다. 실제로 미장 진단을 넣고 실행했는데 "US 실적 수집"
+# 줄 자체가 없어 코드를 다시 읽고서야 원인을 알았다(2026-08-19).
+
+def test_logs_why_it_skipped_when_every_ticker_is_fresh(monkeypatch, capsys):
+    db = _CountingDB()
+    _patch(monkeypatch, db, stale=[], extract=lambda _s: ({"per": 1.0}, "ok"))
+
+    refresh_fundamentals(db, "US", ["AAPL", "MSFT"], TODAY)
+
+    out = capsys.readouterr().out
+    assert "US 실적 수집 생략" in out
+    assert "2개가 모두 최근" in out
+    assert db.saves == []
+
+
+def test_logs_why_it_skipped_when_there_are_no_target_tickers(monkeypatch, capsys):
+    db = _CountingDB()
+    refresh_fundamentals(db, "US", [], TODAY)
+
+    out = capsys.readouterr().out
+    assert "US 실적 수집 생략" in out
+    assert "대상 종목 없음" in out
