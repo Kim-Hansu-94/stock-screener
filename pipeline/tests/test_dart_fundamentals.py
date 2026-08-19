@@ -254,3 +254,29 @@ def test_fetch_year_includes_actual_account_names_when_parse_fails(monkeypatch):
     monkeypatch.setattr(dart_fundamentals.requests, "get", lambda *a, **k: _Resp())
     _, reason = dart_fundamentals._fetch_year("corp1", "key", 2025)
     assert reason == "no_key_accounts:이자수익"
+
+
+def test_parse_year_falls_back_to_net_income_loss_label_for_financial_companies():
+    """증권·보험·금융지주는 "당기순이익" 대신 "당기순이익(손실)"로 잡힌다 — 실제
+    실행에서 no_key_accounts로 떨어진 5개(NH투자증권·삼성증권·BNK금융지주·
+    롯데손보·제주은행) 전부 이 표기였다. 매출액 계열 계정이 아예 없어도
+    순이익만 잡히면 통과해야 한다(이 업종은 매출 항목이 원래 없는 경우가 흔함).
+    """
+    rows = [
+        _row("당기순이익(손실)", "CFS", "150", "100"),
+        _row("부채총계", "CFS", "9,999", "9,999"),  # 순이익·매출과 무관한 계정
+    ]
+    result = _parse_year(rows, 2025)
+    assert result is not None
+    assert result["net_income_latest"] == 150.0
+    assert result["net_income_prior"] == 100.0
+    assert result["revenue_latest"] is None  # 매출 계열 계정 자체가 없어도 통과
+
+
+def test_parse_year_prefers_net_income_over_the_loss_label_fallback():
+    rows = [
+        _row("당기순이익", "CFS", "150", "100"),
+        _row("당기순이익(손실)", "CFS", "9,999", "9,999"),  # 있어도 정식 계정명이 우선
+    ]
+    result = _parse_year(rows, 2025)
+    assert result["net_income_latest"] == 150.0
