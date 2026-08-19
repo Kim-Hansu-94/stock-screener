@@ -34,6 +34,12 @@ _NET_INCOME_ACCOUNT = "당기순이익"
 # 우선순위대로 시도: 못 찾으면 다음 이름으로. 실제 실행에서 no_key_accounts로
 # 떨어진 종목이 몇 개나 이 대체명으로 채워지는지는 다음 로그에서 확인한다.
 _REVENUE_ACCOUNT_FALLBACKS = ("영업수익",)
+# 증권·보험·금융지주는 "당기순이익" 대신 "당기순이익(손실)"로 잡힌다 — 실제
+# no_key_accounts 실패 5건(NH투자증권·삼성증권·BNK금융지주·롯데손보·제주은행,
+# 2026-08-19 실행 로그)이 예외 없이 이 표기를 썼다. 매출액 계열 계정은 이
+# 업종의 주요계정 응답 자체에 없는 경우가 흔해(대차대조표성 항목 위주) 매출은
+# null로 남는 게 정상이고, 순이익만 잡혀도 _parse_year는 통과한다.
+_NET_INCOME_ACCOUNT_FALLBACKS = ("당기순이익(손실)",)
 
 # 우선주 종목명 접미사. KRX는 우선주 표시명을 "회사명" + (숫자)? + "우" + "B"?로
 # 일관되게 붙인다 — 예: 현대차우, 두산2우B, 삼성전기우. corp_code_not_found로
@@ -123,7 +129,7 @@ def _pick_account_with_fallbacks(rows: list[dict], account_name: str, fallbacks:
 def _parse_year(rows: list[dict], bsns_year: int) -> dict | None:
     revenue_row = _pick_account_with_fallbacks(rows, _REVENUE_ACCOUNT, _REVENUE_ACCOUNT_FALLBACKS)
     operating_row = _pick_account(rows, _OPERATING_INCOME_ACCOUNT)
-    profit_row = _pick_account(rows, _NET_INCOME_ACCOUNT)
+    profit_row = _pick_account_with_fallbacks(rows, _NET_INCOME_ACCOUNT, _NET_INCOME_ACCOUNT_FALLBACKS)
     if revenue_row is None and profit_row is None:
         return None
 
