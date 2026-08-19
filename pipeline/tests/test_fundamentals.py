@@ -136,3 +136,45 @@ def test_kr_failure_log_includes_ticker_examples_per_reason(monkeypatch, capsys)
     assert "no_key_accounts=1" in out
     assert "corp_code_not_found 예: A, B" in out
     assert "no_key_accounts 예: C" in out
+
+
+def test_corp_code_not_found_is_cached_so_it_is_not_retried_every_run(monkeypatch):
+    """DART의 corpCode.xml 자체가 '이 티커는 없다'고 답한 확정적 실패다. 재시도해도
+    결과가 달라지지 않으므로, 빈 행이라도 저장해 다음 30일간 _stale_tickers의
+    재시도 대상에서 빠지게 한다. 안 그러면 우선주 같은 종목이 매 실행 헛되이
+    재시도된다(실제로 20개 중 12개가 이 사유였다).
+    """
+    db = _CountingDB()
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    _patch(monkeypatch, db, stale=["005935"], extract=lambda _s: None)
+    monkeypatch.setattr(
+        fundamentals.dart_fundamentals, "extract",
+        lambda ticker, year: (None, "corp_code_not_found"),
+    )
+
+    refresh_fundamentals(db, "KR", ["005935"], TODAY)
+
+    saved = [r for chunk in db.saves for r in chunk]
+    assert len(saved) == 1
+    assert saved[0]["ticker"] == "005935"
+    assert saved[0]["revenue_latest"] is None  # 데이터는 비어 있지만 저장은 됨
+
+
+def test_no_key_accounts_is_not_cached_since_it_might_resolve_later(monkeypatch):
+    """no_key_accounts(계정명 폴백 개선 등으로 나아질 수 있음)와 dart_status_013
+    (다음 회계연도엔 보고서가 올라올 수 있음)은 corp_code_not_found와 달리
+    확정적 실패가 아니므로 그냥 두면 30일 뒤 자연히 재시도된다 — 여기서 캐싱하면
+    안 된다.
+    """
+    db = _CountingDB()
+    monkeypatch.setenv("DART_API_KEY", "dummy-key")
+    _patch(monkeypatch, db, stale=["005940"], extract=lambda _s: None)
+    monkeypatch.setattr(
+        fundamentals.dart_fundamentals, "extract",
+        lambda ticker, year: (None, "no_key_accounts"),
+    )
+
+    refresh_fundamentals(db, "KR", ["005940"], TODAY)
+
+    saved = [r for chunk in db.saves for r in chunk]
+    assert saved == []
