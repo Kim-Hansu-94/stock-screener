@@ -87,6 +87,24 @@ def _pick(df: pd.DataFrame, keys: list[str], col) -> float | None:
     return None
 
 
+def _why_missing(df: pd.DataFrame, keys: list[str], col) -> str:
+    """값을 못 뽑은 이유를 두 갈래로 가른다 — 고칠 방법이 완전히 다르기 때문이다.
+
+    missing: 우리가 아는 행 이름(_REVENUE_KEYS 등)이 인덱스에 하나도 없다.
+             야후가 스키마를 바꾼 것이므로 실제 행 이름을 보고 폴백에 추가하면 된다.
+    null:    행은 있는데 그 회계연도 값이 비어 있다(NaN). 행 이름을 아무리 봐도
+             소용없고, 야후 쪽 데이터 공백이라 고칠 수단이 없다.
+
+    예전에는 둘 다 "no_key_rows"로 뭉쳐서 로그에 행 이름만 6개 찍혔는데, 그게
+    알파벳순이라 정작 궁금한 Total Revenue가 목록에 안 들어와 원인 판별이 안 됐다
+    (2026-08-19 실행의 RMD 건).
+    """
+    present = [k for k in keys if k in df.index]
+    if not present:
+        return "missing"
+    return "null"
+
+
 def _pick_prior_column(columns, latest_col):
     """국장과 같은 2년 전 열을 고른다. 없으면 있는 것 중 가장 먼 열로 대신한다.
 
@@ -162,9 +180,16 @@ def _extract(symbol: str) -> tuple[dict | None, str]:
     # 바뀔 수 있다. 그래서 실패 시 실제 행 이름을 사유에 실어 보낸다 — 국장에서
     # 계정명을 이렇게 찍어 3라운드 만에 "당기순이익(손실)"을 찾아냈던 것과 같다.
     if result["revenue_latest"] is None and result["net_income_latest"] is None:
-        seen = sorted(str(i) for i in inc.index)[:6]
-        sample = ",".join(seen)
-        return None, f"no_key_rows:{sample}" if sample else "no_key_rows"
+        rev_why = _why_missing(inc, _REVENUE_KEYS, latest_col)
+        ni_why = _why_missing(inc, _NET_INCOME_KEYS, latest_col)
+        detail = f"rev={rev_why},ni={ni_why}"
+        # 실제 행 이름은 스키마 변경이 의심될 때만 붙인다. 값이 NaN인 경우(null)는
+        # 행 이름을 봐야 아무 정보가 없고, 로그만 길어져 진짜 신호를 가린다.
+        if rev_why == "missing" and ni_why == "missing":
+            seen = sorted(str(i) for i in inc.index)[:6]
+            if seen:
+                detail += ";rows=" + ",".join(seen)
+        return None, f"no_key_rows:{detail}"
 
     return result, "ok"
 
