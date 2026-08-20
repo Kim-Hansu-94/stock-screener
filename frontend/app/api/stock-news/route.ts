@@ -1,5 +1,8 @@
 import { NextRequest } from 'next/server'
 
+// 카드에 한 번에 보여줄 기사 수. 감시 종목 카드는 이 개수를 그대로 노출한다.
+const NEWS_LIMIT = 5
+
 interface ParsedNewsItem {
   title: string
   url: string
@@ -63,7 +66,7 @@ export async function GET(req: NextRequest) {
     if (!resp.ok) throw new Error(`Google News RSS ${resp.status}`)
 
     const xml = await resp.text()
-    const news = parseRssItems(xml).slice(0, 3)
+    const news = parseRssItems(xml).slice(0, NEWS_LIMIT)
 
     return Response.json(
       { ticker, news },

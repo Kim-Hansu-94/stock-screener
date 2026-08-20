@@ -1,5 +1,6 @@
 import type { WatchlistStatusRow } from '@/lib/types'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
+import { StockNewsFeed } from '@/components/StockNewsFeed'
 
 function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
   return (
@@ -97,6 +98,11 @@ export function WatchlistCard({ rows }: { rows: WatchlistStatusRow[] }) {
             <p className="mt-2 text-xs text-muted-foreground">미달: {row.reason}</p>
           )}
           <p className="mt-1 text-xs text-muted-foreground/70">평가일: {row.date}</p>
+          {/* 실제로 들고 있는 종목이라 뉴스는 펼치지 않아도 항상 보이게 둔다. */}
+          <StockNewsFeed
+            query={row.market === 'KR' ? row.name || row.ticker : row.ticker}
+            className="mt-3 border-t border-border pt-3"
+          />
         </div>
       ))}
     </section>
