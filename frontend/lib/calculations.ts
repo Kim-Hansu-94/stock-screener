@@ -75,3 +75,13 @@ export function formatKrwAmount(krw: number): string {
   }
   return `${Math.round(krw).toLocaleString('ko-KR')}원`
 }
+
+/** 뉴스 발행 시각 → "3시간 전" 같은 상대 표기. 목록에서 신선도만 가늠하면 되므로 분 단위는 생략한다. */
+export function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const diffH = Math.floor(diffMs / 3_600_000)
+  if (diffH < 1) return '방금 전'
+  if (diffH < 24) return `${diffH}시간 전`
+  const diffD = Math.floor(diffH / 24)
+  return `${diffD}일 전`
+}

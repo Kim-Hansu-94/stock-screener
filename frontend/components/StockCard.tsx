@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { calculateChangePercent, formatKrwAmount } from '@/lib/calculations'
+import { calculateChangePercent, formatKrwAmount, formatRelativeTime } from '@/lib/calculations'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
 import type { RiskFrame, RiskReason } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
@@ -45,15 +45,6 @@ const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
 
 // 상수는 lib/screenerCriteria.ts 한 곳에서만 정의한다(성적 집계도 같은 값을 쓴다).
 // 하락장 날은 시장 단위 조건('시장 하락장')이 failed_criteria에 추가돼 분모가 1 늘어난다.
-
-function formatRelativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const diffH = Math.floor(diffMs / 3_600_000)
-  if (diffH < 1) return '방금 전'
-  if (diffH < 24) return `${diffH}시간 전`
-  const diffD = Math.floor(diffH / 24)
-  return `${diffD}일 전`
-}
 
 /** 손절 ← 현재가 → 목표를 막대 하나로. 빨간 구간이 위험, 파란 구간이 기대. */
 function RiskRewardBar({

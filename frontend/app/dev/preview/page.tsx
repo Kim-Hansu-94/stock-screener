@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
+import { WatchlistCard } from '@/components/WatchlistCard'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
+import type { WatchlistStatusRow } from '@/lib/types'
 
 /**
  * 픽스처로 화면을 그려보는 개발용 미리보기.
@@ -77,6 +79,23 @@ const CLOSED_POSITIONS: PaperPosition[] = [
     exitSignal: { date: '2026-07-02', price: 91.2, reasons: ['trend'] }, signalReturnPct: -4 }),
 ]
 
+function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
+  return {
+    ticker: '000660', market: 'KR', name: 'SK하이닉스', date: '2026-08-19',
+    qualified: true, reason: null, drawdown: -34, in_drawdown_band: true,
+    no_new_low: true, box_ok: true, score: 0.72, days_since_low: 18,
+    vcp: true, higher_lows: true, volume_dry: true, aligned_mas: true, volume_trigger: false,
+    ...over,
+  }
+}
+
+// 감시 종목 카드는 뉴스를 상시로 붙여 두므로, 로딩/빈 목록도 여기서 눈으로 볼 것.
+const WATCHLIST: WatchlistStatusRow[] = [
+  watch({}),
+  watch({ ticker: '005930', name: '삼성전자', qualified: false, score: null,
+    reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
+]
+
 export default function PreviewPage() {
   if (process.env.NODE_ENV === 'production') notFound()
 
@@ -98,6 +117,11 @@ export default function PreviewPage() {
           />
           <ScorecardVerdict card={card({ resolved: 0, pending: 5 })} title="판정 완료 0건" />
         </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">감시 종목 카드 (뉴스는 실제 API 호출)</h2>
+        <WatchlistCard rows={WATCHLIST} />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
