@@ -7,17 +7,23 @@ import type { NewsArticle } from '@/lib/types'
 /** 자동 갱신 주기 — 서버 라우트의 재검증 주기(1시간)와 같게 둔다. 더 자주 불러도 같은 응답만 받는다. */
 const REFRESH_MS = 3_600_000
 
+/** 어느 쪽에서 받아온 기사인지 — 네이버 키가 없거나 실패하면 구글로 내려가므로 화면에 표시한다. */
+type NewsSource = 'naver' | 'google'
+
+const SOURCE_LABEL: Record<NewsSource, string> = { naver: '네이버뉴스', google: '구글뉴스' }
+
 interface FeedState {
   /** 이 결과가 어느 종목의 것인지. 종목이 바뀌면 이전 종목 기사를 잠깐이라도 보여주지 않기 위해 함께 들고 있는다. */
   query: string
   news: NewsArticle[] | null
+  source: NewsSource
   failed: boolean
 }
 
 // 감시 종목 카드에 상시 노출되는 뉴스 목록. 펼쳐야 보이는 StockCard의 뉴스와 달리
 // 화면에 계속 떠 있고, 페이지를 켜 둔 채로도 1시간마다 스스로 최신 기사로 바뀐다.
 export function StockNewsFeed({ query, className = '' }: { query: string; className?: string }) {
-  const [state, setState] = useState<FeedState>({ query, news: null, failed: false })
+  const [state, setState] = useState<FeedState>({ query, news: null, source: 'google', failed: false })
   // 백그라운드 탭에서는 타이머가 밀리므로, 탭으로 돌아왔을 때 얼마나 묵었는지 직접 잰다.
   const fetchedAt = useRef(0)
 
@@ -29,11 +35,15 @@ export function StockNewsFeed({ query, className = '' }: { query: string; classN
       const res = await fetch(`/api/stock-news?q=${encodeURIComponent(query)}`, { cache: 'no-store' })
       // 라우트는 실패해도 JSON({error})을 주므로, 상태 코드를 안 보면 장애가 '기사 0건'으로 보인다.
       if (!res.ok) throw new Error(`stock-news ${res.status}`)
-      const data: { news?: NewsArticle[] } = await res.json()
-      setState({ query, news: data.news ?? [], failed: false })
+      const data: { news?: NewsArticle[]; source?: NewsSource } = await res.json()
+      setState({ query, news: data.news ?? [], source: data.source ?? 'google', failed: false })
     } catch {
       // 갱신 실패 시 직전 목록을 지우지 않는다 — 빈 화면보다 조금 묵은 기사가 낫다.
-      setState((prev) => (prev.query === query ? { ...prev, failed: true } : { query, news: null, failed: true }))
+      setState((prev) =>
+        prev.query === query
+          ? { ...prev, failed: true }
+          : { query, news: null, source: 'google', failed: true },
+      )
     }
   }, [query])
 
@@ -59,7 +69,10 @@ export function StockNewsFeed({ query, className = '' }: { query: string; classN
   return (
     <div className={className}>
       <p className="mb-2 text-xs font-semibold text-muted-foreground">
-        최신 뉴스 <span className="font-normal text-muted-foreground/70">· 1시간마다 갱신</span>
+        최신 뉴스{' '}
+        <span className="font-normal text-muted-foreground/70">
+          {news !== null && news.length > 0 && `· ${SOURCE_LABEL[state.source]} `}· 1시간마다 갱신
+        </span>
       </p>
       {news === null && !failed && <p className="text-xs text-muted-foreground">뉴스 불러오는 중...</p>}
       {news === null && failed && <p className="text-xs text-muted-foreground">뉴스를 불러오지 못했습니다.</p>}
