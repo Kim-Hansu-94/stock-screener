@@ -126,3 +126,37 @@ def test_missing_key_skips_quietly(capsys):
     rows, diag = realestate.collect(CAPITAL_AREA, [(2026, 8)], service_key=None)
     assert rows == []
     assert "MOLIT_API_KEY" in capsys.readouterr().out
+
+
+# ── 인증키 형태 ──────────────────────────────────────────────────────────
+# data.go.kr은 같은 키를 Encoding/Decoding 두 형태로 주는데 화면에 따라 한쪽만
+# 보인다. 어느 쪽을 넣어도 되게 해두지 않으면, 인증 실패 메시지가
+# "SERVICE KEY IS NOT REGISTERED"로 떠서 키를 재발급받는 헛수고를 하게 된다.
+
+def test_encoded_service_key_is_unquoted():
+    assert realestate.normalize_service_key("abc%2BdefG%2Fhij%3D") == "abc+defG/hij="
+
+
+def test_raw_service_key_is_left_alone():
+    assert realestate.normalize_service_key("abc+defG/hij=") == "abc+defG/hij="
+
+
+def test_both_key_forms_reach_the_api_identically(monkeypatch):
+    sent = []
+
+    def capture(url, params, timeout):
+        sent.append(params["serviceKey"])
+
+        class Resp:
+            text = TRADE if "Trade" in url else RENT
+
+            def raise_for_status(self):
+                pass
+
+        return Resp()
+
+    monkeypatch.setattr(realestate.requests, "get", capture)
+    realestate.collect_region_month("abc%2Bdef", "11680", "서울 강남구", 2026, 8)
+    realestate.collect_region_month("abc+def", "11680", "서울 강남구", 2026, 8)
+
+    assert set(sent) == {"abc+def"}
