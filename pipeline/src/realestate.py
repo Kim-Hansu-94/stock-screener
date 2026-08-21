@@ -22,10 +22,28 @@ from datetime import date
 
 import requests
 
-_TRADE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
-_RENT_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
+_BASE = "https://apis.data.go.kr/1613000"
+
+# 국토부 아파트 매매는 두 종류다 — "실거래가 자료"(AptTrade)와 "실거래 상세
+# 자료"(AptTradeDev). 활용신청은 각각 따로라, 신청 안 한 쪽을 부르면 게이트웨이가
+# 403을 준다(resultCode가 아니라 HTTP 403이다). 어느 쪽을 신청했는지 사용자가
+# 알기 어려우므로 순서대로 시도하고, 통하는 것을 기억해 두 번 부르지 않는다.
+_TRADE_URLS = (
+    f"{_BASE}/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev",
+    f"{_BASE}/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade",
+)
+_RENT_URLS = (
+    f"{_BASE}/RTMSDataSvcAptRent/getRTMSDataSvcAptRent",
+)
 _NUM_OF_ROWS = 1000
 _TIMEOUT = 20
+# 연속 실패가 이만큼 쌓이면 공통 원인(키·신청·엔드포인트)으로 보고 중단한다.
+_ABORT_AFTER = 20
+# 기본 UA로 막히는 공공 API 게이트웨이가 있어 명시한다.
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; stock-screener/1.0)"}
+
+# 이번 실행에서 실제로 통한 엔드포인트. 지역·월마다 후보를 다시 훑지 않기 위한 캐시.
+_WORKING: dict[str, str] = {}
 
 # 응답 태그명이 API 개편마다 조금씩 달라져 왔다(dealAmount ↔ 거래금액 등).
 # 후보를 순서대로 시도하고, 하나도 못 찾으면 그 건은 건너뛰되 사유를 센다.
@@ -121,8 +139,7 @@ def _median(values: list[float]) -> float | None:
     return round(statistics.median(values), 1) if values else None
 
 
-def _fetch(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Element]:
-    """한 지역·한 달치 원본 건별 목록. 실패는 호출부가 세도록 예외로 올린다."""
+def _fetch_one(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Element]:
     resp = requests.get(
         url,
         params={
@@ -132,9 +149,16 @@ def _fetch(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Ele
             "numOfRows": _NUM_OF_ROWS,
             "pageNo": 1,
         },
+        headers=_HEADERS,
         timeout=_TIMEOUT,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # raise_for_status()는 상태 코드만 알려준다. 403 본문에 "요청하신 서비스는
+        # 이용할 수 없습니다" 같은 실제 사유가 들어 있어, 그걸 봐야 신청 문제인지
+        # 키 문제인지 구분된다.
+        body = " ".join(resp.text.split())[:200]
+        raise RuntimeError(f"HTTP {resp.status_code} ({url.rsplit('/', 1)[-1]}): {body}")
+
     root = ET.fromstring(resp.text)
 
     # 정상 응답이라도 본문에 에러코드가 실려 온다(HTTP 200 + resultCode != 00).
@@ -147,6 +171,30 @@ def _fetch(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Ele
     return root.findall(".//item")
 
 
+def _fetch(kind: str, urls: tuple[str, ...], service_key: str, region_code: str, ym: str) -> list[ET.Element]:
+    """한 지역·한 달치 원본 건별 목록.
+
+    후보 엔드포인트를 순서대로 시도한다. 한 번 통한 뒤로는 그것만 쓴다 —
+    2,772번 호출하는 작업이라 매번 후보를 훑으면 시간이 배로 든다.
+    """
+    known = _WORKING.get(kind)
+    if known:
+        return _fetch_one(known, service_key, region_code, ym)
+
+    last: Exception | None = None
+    for url in urls:
+        try:
+            items = _fetch_one(url, service_key, region_code, ym)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            continue
+        _WORKING[kind] = url
+        print(f"  사용 엔드포인트({kind}): {url.rsplit('/', 1)[-1]}", flush=True)
+        return items
+
+    raise last if last else RuntimeError("호출 후보 없음")
+
+
 def collect_region_month(
     service_key: str, region_code: str, region_name: str, year: int, month: int
 ) -> RegionMonth:
@@ -154,7 +202,7 @@ def collect_region_month(
     agg = RegionMonth(region_code, region_name, date(year, month, 1))
     ym = f"{year}{month:02d}"
 
-    for item in _fetch(_TRADE_URL, service_key, region_code, ym):
+    for item in _fetch("매매", _TRADE_URLS, service_key, region_code, ym):
         if _text(item, "canceled") == "O":  # 해제된 계약
             continue
         amount = _number(_text(item, "amount"))
@@ -163,7 +211,7 @@ def collect_region_month(
         agg.deal_prices.append(amount)
         agg.deal_areas.append(_number(_text(item, "area")) or 0.0)
 
-    for item in _fetch(_RENT_URL, service_key, region_code, ym):
+    for item in _fetch("전월세", _RENT_URLS, service_key, region_code, ym):
         deposit = _number(_text(item, "deposit"))
         rent = _number(_text(item, "rent")) or 0.0
         if deposit is None:
@@ -192,8 +240,12 @@ def collect(
     rows: list[dict] = []
     empty: list[str] = []
     errors: list[str] = []
+    consecutive_failures = 0
+    aborted = False
 
     for code, name in regions.items():
+        if aborted:
+            break
         got_any = False
         had_error = False
         for year, month in months:
@@ -201,8 +253,16 @@ def collect(
                 agg = collect_region_month(key, code, name, year, month)
             except Exception as exc:  # noqa: BLE001
                 had_error = True
+                consecutive_failures += 1
                 errors.append(f"{name}({code}) {year}-{month:02d}: {exc}")
+                # 키·신청 문제면 2,772건이 전부 같은 이유로 실패한다. 첫 실행이
+                # 그렇게 30분을 헛돌았다 — 연속으로 계속 깨지면 원인이 개별
+                # 지역이 아니라 공통이므로 일찍 멈추고 사유를 보여준다.
+                if consecutive_failures >= _ABORT_AFTER:
+                    aborted = True
+                    break
                 continue
+            consecutive_failures = 0
             if agg.deal_prices or agg.jeonse_deposits or agg.monthly_rent_count:
                 got_any = True
                 rows.append(agg.to_row())
@@ -211,4 +271,4 @@ def collect(
         if not got_any and not had_error:
             empty.append(f"{name}({code})")
 
-    return rows, {"empty": empty, "error": errors}
+    return rows, {"empty": empty, "error": errors, "aborted": ["연속 실패로 중단"] if aborted else []}
