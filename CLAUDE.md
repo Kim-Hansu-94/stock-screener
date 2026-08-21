@@ -38,6 +38,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
 | `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (오늘의 추천 탭) |
 | `db.py` | Supabase 클라이언트 래퍼 (`ScreenerDB`), 모든 `save_*`/`upsert` 메서드 |
+| `realestate.py` / `realestate_main.py` / `lawd_codes.py` | 부동산 실거래 동향 (국토부 Open API). **주식 파이프라인과 분리된 별도 워크플로**(`.github/workflows/realestate.yml`, 주 1회) — 실거래는 신고 기한이 30일이라 매일 볼 이유가 없고, 여기가 실패했다고 주식 스크리닝이 죽으면 안 된다. `MOLIT_API_KEY` 필요 (미설정이면 조용히 건너뜀) |
 
 ## supabase/schema.sql — 테이블별 용도
 
@@ -52,6 +53,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
+| `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성) |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
@@ -163,8 +165,17 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   **같이** 쓴다 — 한쪽만 바꾸면 두 화면 기준이 갈라짐. 종목발굴은 일봉 수집 범위와
   스냅샷 계산 범위를 같은 티커 집합으로 묶어둬야 "일봉은 받았는데 화면엔 없는" 상태를 피함
 
+- **부동산 지역코드**: 국토부 API는 `LAWD_CD`가 틀려도 **에러가 아니라 빈 결과**를 준다.
+  그래서 `realestate.py`가 전 기간 0건인 지역을 따로 모아 로그에 남긴다 — 그 목록이
+  `lawd_codes.py`를 고치는 근거다. 호출이 실패한 지역은 이 목록에서 빼야 한다(일시적
+  장애를 코드 오류로 착각하지 않도록)
+
 ## 알려진 이슈
 
+- `MOLIT_API_KEY` 시크릿 미등록 — 등록 전까지 부동산 수집이 매 실행 조용히 스킵됨.
+  data.go.kr에서 "국토교통부_아파트 매매 실거래가 자료"와 "전월세 자료" 활용신청 후
+  발급받은 서비스키를 Settings → Secrets and variables → Actions에 등록하면 된다.
+  등록 후 첫 실행은 `workflow_dispatch`로 `months=36`을 줘서 과거를 채울 것
 - `DART_API_KEY` 시크릿 미등록 — 등록 전까지 국내 종목 실적 수집이 매 실행 조용히 스킵됨
   (`dart_fundamentals.py`). GitHub 저장소 Settings → Secrets and variables → Actions에서
   등록하면 다음 실행부터 바로 채워짐

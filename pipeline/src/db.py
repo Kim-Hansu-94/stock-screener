@@ -115,6 +115,12 @@ class ScreenerDB:
         self.client.table("opportunity_snapshot").delete().eq("market", market).execute()
         _batch_upsert(self.client, "opportunity_snapshot", rows)
 
+    def save_realestate_monthly(self, rows: list[dict]) -> None:
+        # PK가 (region_code, month)라 같은 달을 다시 넣으면 덮어쓴다. 실거래 신고가
+        # 최대 30일 늦게 들어와 최근 달 수치가 계속 바뀌므로 upsert여야 한다.
+        if rows:
+            _batch_upsert(self.client, "realestate_monthly", rows)
+
     def save_fundamentals(self, rows: list[dict]) -> None:
         if rows:
             _batch_upsert(self.client, "stock_fundamentals", rows)

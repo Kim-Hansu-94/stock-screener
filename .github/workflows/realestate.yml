@@ -1,0 +1,49 @@
+name: Real Estate Collector
+
+# 주식 파이프라인과 분리해서 돈다. 실거래는 신고 기한이 30일이라 매일 볼 이유가
+# 없고, 무엇보다 부동산 수집이 실패했다고 주식 스크리닝까지 죽으면 안 된다.
+on:
+  schedule:
+    # 매주 월요일 20:10 UTC (화요일 05:10 KST) — 주식 파이프라인(21:30 UTC)과
+    # 겹치지 않는 시각. :00/:30을 피해 잡았다.
+    - cron: '10 20 * * 1'
+  workflow_dispatch:
+    inputs:
+      months:
+        description: '거슬러 훑을 개월 수 (첫 실행 과거 채우기는 36 권장)'
+        type: string
+        default: '3'
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+          echo "MOLIT_API_KEY=${{ secrets.MOLIT_API_KEY }}" >> pipeline/.env
+
+      - name: Collect
+        working-directory: pipeline
+        # MOLIT_API_KEY가 없으면 모듈이 조용히 건너뛰고 정상 종료한다(DART와 같은 취급).
+        run: python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}
