@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import statistics
+import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import date
@@ -37,6 +38,21 @@ _TAGS = {
     # 시세로 잡힌다.
     "canceled": ("cdealType", "해제여부"),
 }
+
+
+def normalize_service_key(key: str) -> str:
+    """data.go.kr 인증키를 원본 형태로 되돌린다.
+
+    data.go.kr은 같은 키를 Encoding(`abc%2Bdef`)과 Decoding(`abc+def`) 두 형태로
+    주는데, 화면에 따라 한쪽만 보이기도 한다. requests가 파라미터를 다시 인코딩하므로
+    Encoding 키를 그대로 넘기면 `%2B`가 `%252B`로 이중 인코딩돼 인증이 깨진다.
+    그때 서버는 "SERVICE KEY IS NOT REGISTERED"를 돌려줘서, 키가 잘못된 줄 알고
+    재발급받는 헛수고를 하게 된다.
+
+    발급 키는 base64 계열(A-Za-z0-9+/=)이라 원본에는 `%`가 나올 수 없다. 그래서
+    `%`가 보이면 인코딩된 형태로 보고 한 번 풀어준다 — 어느 쪽을 넣어도 동작한다.
+    """
+    return urllib.parse.unquote(key) if "%" in key else key
 
 
 def _text(item: ET.Element, key: str) -> str | None:
@@ -110,7 +126,7 @@ def _fetch(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Ele
     resp = requests.get(
         url,
         params={
-            "serviceKey": service_key,
+            "serviceKey": normalize_service_key(service_key),
             "LAWD_CD": region_code,
             "DEAL_YMD": ym,
             "numOfRows": _NUM_OF_ROWS,
