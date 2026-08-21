@@ -302,6 +302,7 @@ def main() -> None:
         # 횡보/조정 탭)에 즉시 반영되게 한 뒤, US 블록 없이 종료한다.
         print("KR 전용 실행 — 월봉 집계(mv_monthly_ohlcv) 갱신 후 종료", flush=True)
         db.refresh_monthly_ohlcv()
+        db.accrue_long_monthly()
         print("  → 완료", flush=True)
         return
 
@@ -416,9 +417,11 @@ def main() -> None:
         db.save_price_history(matched_rows)
         print(f"  → {len(matched_rows)}행 저장", flush=True)
 
-    # 모든 히스토리 저장 후 월봉 사전 집계 MV 갱신
+    # 모든 히스토리 저장 후 월봉 사전 집계 MV 갱신 + 확정 월봉 영구 적립.
+    # 적립을 빼먹으면 일봉이 600일 밖으로 밀려날 때 그 구간 고점이 영영 사라진다.
     print("월봉 집계(mv_monthly_ohlcv) 갱신 중...", flush=True)
     db.refresh_monthly_ohlcv()
+    db.accrue_long_monthly()
     print("  → 완료", flush=True)
 
 

@@ -126,3 +126,23 @@ def test_replace_opportunity_snapshot_does_nothing_when_empty():
     client, tables = _client_with_per_table_mocks()
     ScreenerDB(client).replace_opportunity_snapshot("KR", [])
     assert "opportunity_snapshot" not in tables
+
+
+# ── 월봉 적립 (일봉 600일 보관 전제) ──────────────────────────────────────
+# 일봉이 보관 구간 밖으로 밀려나기 전에 월봉으로 남겨두는 호출이라, 조용히
+# 빠지면 3년 고점이 몇 달 뒤에야 어긋난 채로 발견된다.
+
+def test_accrue_long_monthly_calls_the_rpc():
+    client = MagicMock()
+    ScreenerDB(client).accrue_long_monthly()
+    client.rpc.assert_called_once_with("accrue_long_monthly")
+
+
+def test_accrue_long_monthly_failure_does_not_stop_the_pipeline(capsys):
+    """적립이 실패해도 그날 스크리닝 전체를 죽이면 안 된다 (다음 실행에서 다시 적립된다)."""
+    client = MagicMock()
+    client.rpc.side_effect = RuntimeError("함수 미배포")
+
+    ScreenerDB(client).accrue_long_monthly()  # 예외가 새어 나오면 실패
+
+    assert "월봉 적립" in capsys.readouterr().out
