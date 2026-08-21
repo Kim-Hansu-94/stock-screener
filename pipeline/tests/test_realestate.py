@@ -27,14 +27,21 @@ RENT = _trade_xml(
 )
 
 
-def _fake_get(url, params, timeout):
+def _fake_get(url, params=None, headers=None, timeout=None):
     class Resp:
+        ok = True
+        status_code = 200
         text = TRADE if "Trade" in url else RENT
 
-        def raise_for_status(self):
-            pass
-
     return Resp()
+
+
+@pytest.fixture(autouse=True)
+def _reset_endpoint_cache():
+    """어느 엔드포인트가 통했는지는 실행 단위 캐시라, 테스트 사이에 새어 나가면 안 된다."""
+    realestate._WORKING.clear()
+    yield
+    realestate._WORKING.clear()
 
 
 def test_canceled_deals_are_excluded(monkeypatch):
@@ -80,15 +87,14 @@ def test_gap_and_ratio(monkeypatch):
 def test_api_error_in_body_is_raised_not_swallowed(monkeypatch):
     """키 미승인·트래픽 초과는 HTTP 200 + resultCode로 온다. 빈 결과로 넘기면 안 된다."""
 
-    def error_get(url, params, timeout):
+    def error_get(url, params=None, headers=None, timeout=None):
         class Resp:
+            ok = True
+            status_code = 200
             text = (
                 "<response><header><resultCode>30</resultCode>"
                 "<resultMsg>SERVICE KEY IS NOT REGISTERED ERROR</resultMsg></header></response>"
             )
-
-            def raise_for_status(self):
-                pass
 
         return Resp()
 
@@ -144,14 +150,13 @@ def test_raw_service_key_is_left_alone():
 def test_both_key_forms_reach_the_api_identically(monkeypatch):
     sent = []
 
-    def capture(url, params, timeout):
+    def capture(url, params=None, headers=None, timeout=None):
         sent.append(params["serviceKey"])
 
         class Resp:
+            ok = True
+            status_code = 200
             text = TRADE if "Trade" in url else RENT
-
-            def raise_for_status(self):
-                pass
 
         return Resp()
 
@@ -186,3 +191,67 @@ def test_entrypoint_loads_dotenv_before_reading_the_key(monkeypatch):
 
     assert loaded == [True], "load_dotenv를 부르지 않았다"
     assert exc.value.code == 1, "키가 없는데 정상 종료하면 초록불로 끝나 '다 됐다'로 보인다"
+
+
+# ── 403 대응 ─────────────────────────────────────────────────────────────
+# 첫 백필이 2,772건 전부 403으로 실패하며 30분을 헛돌았다. 원인 후보가
+# "신청 안 한 엔드포인트"와 "키 미반영" 둘인데, 상태 코드만으로는 구분이 안 된다.
+
+def test_falls_back_to_the_other_trade_endpoint_on_403():
+    """상세(Dev)만 부르면 기본형만 신청한 계정에서 전부 403이 난다."""
+    tried = []
+
+    def get(url, params=None, headers=None, timeout=None):
+        tried.append(url)
+
+        class Resp:
+            ok = "TradeDev" not in url
+            status_code = 200 if ok else 403
+            text = TRADE if ok else "요청하신 서비스는 이용할 수 없습니다"
+
+        return Resp()
+
+    realestate._WORKING.clear()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(realestate.requests, "get", get)
+        items = realestate._fetch("매매", realestate._TRADE_URLS, "KEY", "11110", "202608")
+
+    assert len(items) == 3
+    assert any("TradeDev" in u for u in tried), "상세를 먼저 시도해야 한다"
+    assert realestate._WORKING["매매"].endswith("getRTMSDataSvcAptTrade")
+
+
+def test_http_error_message_includes_the_response_body():
+    """403 본문에 실제 사유가 들어 있다. 상태 코드만 남기면 원인을 못 좁힌다."""
+
+    def get(url, params=None, headers=None, timeout=None):
+        class Resp:
+            ok = False
+            status_code = 403
+            text = "요청하신 서비스는 이용할 수 없습니다. 활용신청을 확인하세요."
+
+        return Resp()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(realestate.requests, "get", get)
+        with pytest.raises(RuntimeError, match="활용신청"):
+            realestate._fetch_one(realestate._TRADE_URLS[0], "KEY", "11110", "202608")
+
+
+def test_collect_aborts_early_when_every_call_fails(monkeypatch):
+    """키·신청 문제면 전 지역이 같은 이유로 깨진다 — 30분 헛돌지 말고 멈춘다."""
+    calls = []
+
+    def always_fail(key, code, name, year, month):
+        calls.append(code)
+        raise RuntimeError("HTTP 403")
+
+    monkeypatch.setattr(realestate, "collect_region_month", always_fail)
+    regions = {f"{i:05d}": f"지역{i}" for i in range(100)}
+    months = [(2026, m) for m in range(1, 13)]
+
+    rows, diag = realestate.collect(regions, months, service_key="KEY")
+
+    assert rows == []
+    assert diag["aborted"], "조기 중단 표시가 없다"
+    assert len(calls) <= realestate._ABORT_AFTER, f"{len(calls)}번이나 계속 시도했다"

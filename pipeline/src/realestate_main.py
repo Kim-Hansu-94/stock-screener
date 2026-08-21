@@ -59,7 +59,9 @@ def main() -> None:
     if not rows:
         print("  저장할 데이터 없음", flush=True)
         _report(diag)
-        return
+        # 한 건도 못 받았으면 실패다. 초록불로 끝나면 로그를 열어보기 전까지
+        # 정상 수집과 구분이 안 된다.
+        sys.exit(1)
 
     ScreenerDB().save_realestate_monthly(rows)
     print(f"  → {len(rows)}행 저장", flush=True)
@@ -67,6 +69,9 @@ def main() -> None:
 
 
 def _report(diag: dict[str, list[str]]) -> None:
+    if diag.get("aborted"):
+        print("  연속 실패가 이어져 조기 중단했습니다 — 아래 사유가 전 지역 공통입니다.", flush=True)
+
     # 지역코드가 틀리면 API가 에러가 아니라 빈 결과를 준다. 조용히 비는 걸 막으려고
     # 반드시 남긴다 — 이 목록이 lawd_codes.py를 고치는 근거다.
     empty = diag.get("empty") or []
