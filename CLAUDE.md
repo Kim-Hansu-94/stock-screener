@@ -61,6 +61,11 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 최대 요구치가 500일(`opportunities.py`의 `BARS_DAYS`)이기 때문. 600일 초과분 삭제는 `pg_cron`
 잡 `trim-stock-price-history`가 매주 수행한다 (`select * from cron.job`으로 확인).
 
+**"3년 고점"의 실제 창은 최근 36개월이다** — 월봉은 달 단위라 1095일 지점에서 자를 수 없어
+`get_opp_drawdowns`가 3년 전이 속한 달을 통째로 포함한다(창이 최대 30일 길어짐). 그 달을 빼면
+고점을 놓쳐 조정폭이 얕게 나오므로 포함하는 쪽을 택했다. 마이그레이션 직후 US 일부 종목에서
+구 RPC 값과 몇 % 차이가 났던 것이 이 때문이며, 재계산 값이 더 높은 게 정상이다.
+
 **3년 고점은 이제 "일봉 ∪ 월봉"에서 나온다** — 일봉이 600일뿐이라 그 이전 구간은
 `stock_long_monthly.close_high`(그 달 일봉 종가의 최댓값)가 맡는다. `high`(장중 고가)나
 `close`(월말 종가)로 대신하면 값이 어긋나므로 별도 컬럼이 필요했다. 마이그레이션 절차는
