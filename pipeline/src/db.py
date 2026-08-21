@@ -127,6 +127,21 @@ class ScreenerDB:
         # 일봉 저장 후 월봉 사전 집계 MV를 갱신 (CONCURRENTLY라 조회를 막지 않음).
         self.client.rpc("refresh_monthly_ohlcv").execute()
 
+    def accrue_long_monthly(self) -> None:
+        """방금 끝난 달의 월봉을 stock_long_monthly(영구 테이블)에 적립한다.
+
+        일봉은 600일만 보관하므로, 그 밖으로 밀려나기 전에 월봉으로 남겨두지 않으면
+        3년 고점 계산이 무너진다. mv_monthly_ohlcv는 일봉에서 파생되는 뷰라
+        같이 사라지므로 대신이 되지 못한다.
+
+        실패해도 파이프라인 본체는 계속 진행한다 — 다음 실행에서 다시 적립되고,
+        여기서 멈추면 그날 스크리닝 결과 전체가 날아간다.
+        """
+        try:
+            self.client.rpc("accrue_long_monthly").execute()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  월봉 적립(accrue_long_monthly) 실패: {exc}", flush=True)
+
     def get_recently_screened_tickers(self, market: str, days: int = 5) -> list[str]:
         from datetime import date, timedelta
         cutoff = (date.today() - timedelta(days=days)).isoformat()

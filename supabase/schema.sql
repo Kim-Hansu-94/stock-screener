@@ -129,8 +129,15 @@ create table if not exists stock_long_monthly (
   low          numeric,
   close        numeric,
   volume       bigint,
+  -- 그 달 "일봉 종가의 최댓값". 3년 고점(get_opp_drawdowns)이 max(high)가 아니라
+  -- max(close) 기준이라 필요하다 — 월봉의 close는 마지막 날 종가뿐이라 달 중간의
+  -- 고점을 놓치고, high는 장중 고가라 종가 기준보다 높게 나온다.
+  -- 10년 시드 구간(우리 일봉이 없던 과거)은 null이며, 3년 창 밖이라 영향이 없다.
+  close_high   numeric,
   primary key (ticker, market, month_start)
 );
+-- 기존 배포에 컬럼 추가 (supabase/monthly_01_backfill.sql이 백필까지 수행):
+-- ALTER TABLE stock_long_monthly ADD COLUMN IF NOT EXISTS close_high numeric;
 
 -- 횡보·조정 후보 스냅샷. 이전에는 페이지 요청마다 유니버스 1,460종목의 조정폭을
 -- 집계하고, 통과 종목의 일봉 14만 행을 받아 점수를 다시 계산했다(왕복 30회 이상).
@@ -242,16 +249,38 @@ returns table (
 language sql
 stable
 as $$
-  -- 사전 집계된 mv_monthly_ohlcv 조회 (윈도우 함수는 리프레시 시점에 이미 계산됨).
-  select ticker, market, last_date as date, open, high, low, close, volume
-  from mv_monthly_ohlcv
-  where market  = p_market
-    and ticker  = any(p_tickers)
-    and last_date >= p_cutoff
-  order by ticker, month_start
+  -- 사전 집계된 mv_monthly_ohlcv(최근 600일 구간) + stock_long_monthly(그 이전).
+  -- MV는 일봉에서 파생되므로 보관 기간을 줄이면 최근 구간만 남는다. 그 이전을
+  -- 영구 테이블에서 채워야 3년 월봉 차트가 잘리지 않는다.
+  -- 같은 달이 양쪽에 있으면 MV를 채택한다 — 진행 중인 달은 MV만 매일 갱신된다
+  -- (프론트 mergeMonthly와 같은 우선순위).
+  with merged as (
+    select ticker, market, month_start, last_date as date,
+           open, high, low, close, volume, 1 as priority
+    from mv_monthly_ohlcv
+    where market      = p_market
+      and ticker      = any(p_tickers)
+      and month_start >= date_trunc('month', p_cutoff)::date
+
+    union all
+
+    select ticker, market, month_start, month_start as date,
+           open::float8, high::float8, low::float8, close::float8, volume, 2 as priority
+    from stock_long_monthly
+    where market      = p_market
+      and ticker      = any(p_tickers)
+      and month_start >= date_trunc('month', p_cutoff)::date
+  )
+  select distinct on (ticker, month_start)
+    ticker, market, date, open, high, low, close, volume
+  from merged
+  order by ticker, month_start, priority
 $$;
 
--- 3년 고점/현재가/행수를 티커별로 집계 (Supabase 기본 max_rows=1000 우회용 RPC)
+-- 3년 고점/현재가/행수를 티커별로 집계 (Supabase 기본 max_rows=1000 우회용 RPC).
+-- 일봉은 600일만 보관하므로 그 이전 구간은 월봉(close_high)에서 가져온다.
+-- 경계를 일부러 맞추지 않는다 — 겹쳐도 max라 값이 안 변하고, 대신 컷오프가 월
+-- 중간에 걸려 그 달이 통째로 빠지는 구멍이 생기지 않는다.
 create or replace function get_opp_drawdowns(
   p_market text,
   p_tickers text[],
@@ -265,14 +294,63 @@ returns table(
 )
 language sql stable
 as $$
+  with candidates as (
+    select h.ticker, h.close as px
+    from stock_price_history h
+    where h.market  = p_market
+      and h.ticker  = any(p_tickers)
+      and h.date   >= p_cutoff
+
+    union all
+
+    select m.ticker, coalesce(m.close_high, m.close) as px
+    from stock_long_monthly m
+    where m.market       = p_market
+      and m.ticker       = any(p_tickers)
+      and m.month_start >= date_trunc('month', p_cutoff)::date
+      and m.month_start <  date_trunc('month', current_date)::date
+  ),
+  hi as (
+    select ticker, max(px) as high3y, count(*) as row_count
+    from candidates
+    group by ticker
+  ),
+  -- 현재가는 계속 일봉에서 — 최신 종가는 항상 보관 구간 안에 있다.
+  cur as (
+    select distinct on (h.ticker) h.ticker, h.close
+    from stock_price_history h
+    where h.market = p_market
+      and h.ticker = any(p_tickers)
+    order by h.ticker, h.date desc
+  )
+  select hi.ticker, hi.high3y::double precision, cur.close::double precision, hi.row_count
+  from hi
+  join cur using (ticker)
+$$;
+
+-- 방금 끝난 달의 월봉을 stock_long_monthly에 적립 (파이프라인이 매 실행 끝에 호출).
+-- 일봉이 600일 밖으로 밀려나기 전에 월봉으로 남겨두지 않으면 3년 고점이 무너진다.
+create or replace function accrue_long_monthly()
+returns void
+language sql
+as $$
+  insert into stock_long_monthly
+    (ticker, market, month_start, open, high, low, close, volume, close_high)
   select
-    ticker,
-    max(close)::double precision          as high3y,
-    (array_agg(close order by date desc))[1]::double precision as current_close,
-    count(*)                              as row_count
+    ticker, market, date_trunc('month', date)::date,
+    (array_agg(open  order by date asc ))[1],
+    max(high), min(low),
+    (array_agg(close order by date desc))[1],
+    sum(volume), max(close)
   from stock_price_history
-  where market   = p_market
-    and ticker   = any(p_tickers)
-    and date    >= p_cutoff
-  group by ticker
+  where date >= date_trunc('month', current_date - interval '2 months')::date
+    and date <  date_trunc('month', current_date)::date
+  group by ticker, market, date_trunc('month', date)
+  on conflict (ticker, market, month_start) do update set
+    open       = excluded.open,
+    high       = excluded.high,
+    low        = excluded.low,
+    close      = excluded.close,
+    volume     = excluded.volume,
+    close_high = excluded.close_high;
 $$;

@@ -46,17 +46,25 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `market_regime` | main.py | 홈 상승장/하락장 배지 |
 | `leading_sectors` | main.py | 홈 주도 섹터 |
 | `screened_stocks` | main.py | 홈 눌림목 카드 |
-| `stock_price_history` | main.py (3년치, 매주 자동 정리) | 손익비 계산, 차트 |
+| `stock_price_history` | main.py (600일치, 매주 자동 정리) | 손익비 계산, 차트 |
 | `stock_universe` | main.py | 종목명·섹터·시총 매핑 |
-| `stock_long_monthly` | long_history.py (10년, 거의 불변) | 10년 고점, 장기 하락 경고 |
+| `stock_long_monthly` | long_history.py (10년 시드) + `accrue_long_monthly()`(매 실행, 확정 월봉 적립) | 10년 고점, 장기 하락 경고, **3년 고점의 600일 이전 구간** |
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
-**용량 관리**: `stock_price_history` 인덱스 부풀림 방지용 주간 자동 리인덱스 +
-3년 초과분 자동 삭제가 `pg_cron`에 걸려 있음 (Supabase SQL Editor에서 `select * from cron.job`으로 확인).
+**용량 관리**: Supabase 무료 플랜은 DB 500MB가 한도다. `stock_price_history`가 전체의 84%를
+먹던 것을 두 가지로 줄였다 — (1) `close/high/low/volume`을 통째로 INCLUDE하던 인덱스를
+`close` 전용으로 교체, (2) 일봉 보관을 3년 → **600일**로 축소. 600일인 이유는 일봉을 읽는 곳의
+최대 요구치가 500일(`opportunities.py`의 `BARS_DAYS`)이기 때문. 600일 초과분 삭제는 `pg_cron`
+잡 `trim-stock-price-history`가 매주 수행한다 (`select * from cron.job`으로 확인).
+
+**3년 고점은 이제 "일봉 ∪ 월봉"에서 나온다** — 일봉이 600일뿐이라 그 이전 구간은
+`stock_long_monthly.close_high`(그 달 일봉 종가의 최댓값)가 맡는다. `high`(장중 고가)나
+`close`(월말 종가)로 대신하면 값이 어긋나므로 별도 컬럼이 필요했다. 마이그레이션 절차는
+`supabase/monthly_01_backfill.sql` ~ `monthly_05_cron.sql`에 번호 순서대로 있다.
 
 ## frontend/lib/ — 모듈별 역할
 
@@ -142,6 +150,9 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   쌓여 표본이 안 모인다. 손절은 1R로 가깝고 목표는 보통 2R 이상이라 손절이 훨씬 빨리 걸리므로,
   **"청산된 것만" 평균 내면 기댓값이 구조적으로 음수 쪽으로 치우친다** — pending을 집계에서 빼는
   이유가 이것이니 분모를 바꿀 때 주의
+- **월봉 적립 누락**: `main.py`가 `refresh_monthly_ohlcv()` 뒤에 `accrue_long_monthly()`를
+  반드시 함께 부른다. 이걸 빼면 일봉이 600일 밖으로 밀려날 때 그 구간 고점이 영영 사라져
+  조정폭이 조용히 얕아진다(에러도 안 나고 몇 달 뒤에야 티가 난다)
 - **시총 하한**: `pipeline.py`의 `KR_MIN_MARKET_CAP`(3,000억) / `US_MIN_MARKET_CAP`($20억)을
   눌림목 스크리너(`pipeline.py`)와 종목발굴 유니버스(`main.py`의 `kr_opp_mask`/`opp_mask`)가
   **같이** 쓴다 — 한쪽만 바꾸면 두 화면 기준이 갈라짐. 종목발굴은 일봉 수집 범위와
