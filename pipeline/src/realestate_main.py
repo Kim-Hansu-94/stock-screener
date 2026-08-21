@@ -11,7 +11,11 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from datetime import date
+
+from dotenv import load_dotenv
 
 from .db import ScreenerDB
 from .lawd_codes import CAPITAL_AREA
@@ -36,6 +40,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--months", type=int, default=_DEFAULT_MONTHS)
     args = parser.parse_args()
+
+    # 워크플로는 시크릿을 pipeline/.env에 쓴다. main.py처럼 여기서도 읽어야
+    # os.getenv가 값을 본다 — 이걸 빼먹어서 첫 두 실행이 "키 미설정"으로 건너뛰었다.
+    load_dotenv()
+
+    # collect()는 라이브러리로서 키가 없으면 조용히 건너뛴다(그 동작에 테스트가 걸려
+    # 있다). 하지만 엔트리포인트까지 조용하면 실행이 초록불로 끝나 "다 됐다"로 보인다.
+    # 여기서 멈춰서 그 착시를 막는다.
+    if not os.getenv("MOLIT_API_KEY"):
+        print("MOLIT_API_KEY를 읽지 못했습니다 (pipeline/.env 또는 환경변수 확인)", flush=True)
+        sys.exit(1)
 
     months = recent_months(date.today(), args.months)
     print(f"부동산 실거래 수집 — 수도권 {len(CAPITAL_AREA)}개 지역 × {len(months)}개월", flush=True)

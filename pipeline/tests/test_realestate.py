@@ -160,3 +160,29 @@ def test_both_key_forms_reach_the_api_identically(monkeypatch):
     realestate.collect_region_month("abc+def", "11680", "서울 강남구", 2026, 8)
 
     assert set(sent) == {"abc+def"}
+
+
+# ── 엔트리포인트 ─────────────────────────────────────────────────────────
+# 첫 두 실행이 "키 미설정"으로 조용히 건너뛰고 초록불로 끝났다. 원인은
+# realestate_main이 load_dotenv()를 안 불러 pipeline/.env를 못 읽은 것이었다.
+
+def test_recent_months_walks_back_across_the_year_boundary():
+    from pipeline.src.realestate_main import recent_months
+
+    assert recent_months(date(2026, 2, 15), 4) == [(2026, 2), (2026, 1), (2025, 12), (2025, 11)]
+
+
+def test_entrypoint_loads_dotenv_before_reading_the_key(monkeypatch):
+    """워크플로는 키를 pipeline/.env에 쓴다. 여기서 읽지 않으면 환경변수가 비어 있다."""
+    from pipeline.src import realestate_main
+
+    loaded = []
+    monkeypatch.setattr(realestate_main, "load_dotenv", lambda: loaded.append(True))
+    monkeypatch.setattr(realestate_main.os, "getenv", lambda name: None)
+    monkeypatch.setattr("sys.argv", ["realestate_main", "--months", "1"])
+
+    with pytest.raises(SystemExit) as exc:
+        realestate_main.main()
+
+    assert loaded == [True], "load_dotenv를 부르지 않았다"
+    assert exc.value.code == 1, "키가 없는데 정상 종료하면 초록불로 끝나 '다 됐다'로 보인다"
