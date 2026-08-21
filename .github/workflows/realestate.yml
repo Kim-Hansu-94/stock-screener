@@ -43,7 +43,21 @@ jobs:
           echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
           echo "MOLIT_API_KEY=${{ secrets.MOLIT_API_KEY }}" >> pipeline/.env
 
+      - name: Check MOLIT_API_KEY
+        # 키가 없으면 수집기는 조용히 건너뛰고 정상 종료한다. 그러면 실행이 40초 만에
+        # 초록불로 끝나서 "다 됐다"로 보이는데 실제로는 아무것도 안 쌓인다 — 실제로
+        # 첫 실행(run 32458056411)이 그렇게 끝났다. 여기서 먼저 걸러 이유를 분명히 한다.
+        # 값은 절대 출력하지 않는다. 길이만 보면 "등록했는데 빈 값" / "이름이 다름"을
+        # 구분하는 데 충분하다.
+        env:
+          MOLIT_API_KEY: ${{ secrets.MOLIT_API_KEY }}
+        run: |
+          if [ -z "$MOLIT_API_KEY" ]; then
+            echo "::error::MOLIT_API_KEY 시크릿이 비어 있습니다. Settings → Secrets and variables → Actions → Repository secrets에 이 이름 그대로 등록했는지 확인하세요 (Environment/Dependabot secrets는 이 워크플로가 못 읽습니다)."
+            exit 1
+          fi
+          echo "MOLIT_API_KEY 확인됨 (길이 ${#MOLIT_API_KEY}자)"
+
       - name: Collect
         working-directory: pipeline
-        # MOLIT_API_KEY가 없으면 모듈이 조용히 건너뛰고 정상 종료한다(DART와 같은 취급).
         run: python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}

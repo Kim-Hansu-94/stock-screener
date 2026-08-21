@@ -172,7 +172,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 ## 알려진 이슈
 
-- `MOLIT_API_KEY` 시크릿 미등록 — 등록 전까지 부동산 수집이 매 실행 조용히 스킵됨.
+- `MOLIT_API_KEY` 시크릿 미등록 — 워크플로가 시작 전에 키를 확인하고 **에러로 멈춘다**.
+  (수집기 자체는 조용히 건너뛰지만, 그러면 40초 만에 초록불로 끝나 "다 됐다"로 보인다.)
   data.go.kr에서 "국토교통부_아파트 매매 실거래가 자료"와 "전월세 자료" 활용신청 후
   발급받은 서비스키를 Settings → Secrets and variables → Actions에 등록하면 된다.
   키는 Encoding/Decoding 어느 형태로 넣어도 된다(`normalize_service_key`가 처리).
