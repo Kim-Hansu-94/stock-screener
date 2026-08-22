@@ -53,7 +53,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
 | `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
-| `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성) |
+| `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
@@ -178,6 +178,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   발급받은 서비스키를 Settings → Secrets and variables → Actions에 등록하면 된다.
   키는 Encoding/Decoding 어느 형태로 넣어도 된다(`normalize_service_key`가 처리).
   등록 후 첫 실행은 `workflow_dispatch`로 `months=36`을 줘서 과거를 채울 것
+  (5,544건 호출이라 한 시간을 넘긴다 — 워크플로 `timeout-minutes`가 240인 이유)
 - `DART_API_KEY` 시크릿 미등록 — 등록 전까지 국내 종목 실적 수집이 매 실행 조용히 스킵됨
   (`dart_fundamentals.py`). GitHub 저장소 Settings → Secrets and variables → Actions에서
   등록하면 다음 실행부터 바로 채워짐
