@@ -40,6 +40,30 @@ _NUM_OF_ROWS = 1000
 _TIMEOUT = 20
 # 연속 실패가 이만큼 쌓이면 공통 원인(키·신청·엔드포인트)으로 보고 중단한다.
 _ABORT_AFTER = 20
+
+# 전용면적 구간. 부동산원·KB가 쓰는 관례를 따랐다 — 60㎡ 이하(소형),
+# 60~85㎡(국민주택규모, 거래가 가장 많다), 85~135㎡(중대형), 135㎡ 초과(대형).
+# 소형과 대형은 사이클이 어긋나게 움직여서(상승 초기엔 중소형이 먼저 뛴다) 한데
+# 묶어 평균 내면 두 흐름이 상쇄돼 "움직임 없음"으로 보인다.
+#
+# 'ALL'은 구 전체 합계다. 기본 화면은 이 한 줄만 쓰고, 펼칠 때 구간별을 보여준다.
+AREA_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("~60", 0.0, 60.0),
+    ("60~85", 60.0, 85.0),
+    ("85~135", 85.0, 135.0),
+    ("135~", 135.0, float("inf")),
+)
+ALL_BAND = "ALL"
+
+
+def band_of(area: float) -> str | None:
+    """전용면적 → 구간 이름. 면적을 모르면 None(구간별에서 빠지고 ALL에만 들어간다)."""
+    if not area or area <= 0:
+        return None
+    for name, low, high in AREA_BANDS:
+        if low < area <= high:
+            return name
+    return None
 # 기본 UA로 막히는 공공 API 게이트웨이가 있어 명시한다.
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; stock-screener/1.0)"}
 
@@ -95,38 +119,57 @@ def _number(raw: str | None) -> float | None:
 
 @dataclass
 class RegionMonth:
-    """한 지역·한 달의 집계 결과."""
+    """한 지역·한 달의 원본 거래. 면적을 함께 들고 있어야 구간별로 나눌 수 있다."""
 
     region_code: str
     region_name: str
     month: date
-    deal_prices: list[float] = field(default_factory=list)
-    deal_areas: list[float] = field(default_factory=list)
-    jeonse_deposits: list[float] = field(default_factory=list)
-    monthly_rent_count: int = 0
+    # (금액, 전용면적) — 면적을 버리면 나중에 평형별로 쪼갤 수 없다.
+    deals: list[tuple[float, float]] = field(default_factory=list)
+    jeonse: list[tuple[float, float]] = field(default_factory=list)
+    monthly_rents: list[float] = field(default_factory=list)  # 면적만 (건수용)
 
-    def to_row(self) -> dict:
-        price_avg = _mean(self.deal_prices)
-        deposit_avg = _mean(self.jeonse_deposits)
+    def has_data(self) -> bool:
+        return bool(self.deals or self.jeonse or self.monthly_rents)
+
+    def to_rows(self) -> list[dict]:
+        """구 전체(ALL) + 면적 구간별 행. 데이터가 없는 구간은 만들지 않는다."""
+        rows = [self._row(ALL_BAND, self.deals, self.jeonse, self.monthly_rents)]
+        for name, _, _ in AREA_BANDS:
+            deals = [d for d in self.deals if band_of(d[1]) == name]
+            jeonse = [j for j in self.jeonse if band_of(j[1]) == name]
+            rents = [a for a in self.monthly_rents if band_of(a) == name]
+            if deals or jeonse or rents:
+                rows.append(self._row(name, deals, jeonse, rents))
+        return rows
+
+    def _row(
+        self,
+        band: str,
+        deals: list[tuple[float, float]],
+        jeonse: list[tuple[float, float]],
+        rents: list[float],
+    ) -> dict:
+        prices = [price for price, _ in deals]
+        deposits = [deposit for deposit, _ in jeonse]
+        price_avg = _mean(prices)
+        deposit_avg = _mean(deposits)
         # ㎡당 단가는 "건별 단가의 평균"으로 낸다. 총액평균 ÷ 면적평균으로 내면
         # 큰 평수 몇 건이 분모를 끌어올려 단가가 실제보다 낮게 나온다.
-        per_area = [
-            price / area
-            for price, area in zip(self.deal_prices, self.deal_areas)
-            if area and area > 0
-        ]
+        per_area = [price / area for price, area in deals if area and area > 0]
         return {
             "region_code": self.region_code,
             "region_name": self.region_name,
             "month": self.month.isoformat(),
-            "deal_count": len(self.deal_prices),
+            "area_band": band,
+            "deal_count": len(prices),
             "price_avg": price_avg,
-            "price_median": _median(self.deal_prices),
+            "price_median": _median(prices),
             "price_per_area_avg": _mean(per_area),
-            "jeonse_count": len(self.jeonse_deposits),
+            "jeonse_count": len(deposits),
             "deposit_avg": deposit_avg,
-            "deposit_median": _median(self.jeonse_deposits),
-            "monthly_rent_count": self.monthly_rent_count,
+            "deposit_median": _median(deposits),
+            "monthly_rent_count": len(rents),
             "jeonse_ratio": (deposit_avg / price_avg) if price_avg and deposit_avg else None,
             "gap_avg": (price_avg - deposit_avg) if price_avg and deposit_avg else None,
         }
@@ -209,18 +252,18 @@ def collect_region_month(
         amount = _number(_text(item, "amount"))
         if amount is None:
             continue
-        agg.deal_prices.append(amount)
-        agg.deal_areas.append(_number(_text(item, "area")) or 0.0)
+        agg.deals.append((amount, _number(_text(item, "area")) or 0.0))
 
     for item in _fetch("전월세", _RENT_URLS, service_key, region_code, ym):
         deposit = _number(_text(item, "deposit"))
         rent = _number(_text(item, "rent")) or 0.0
         if deposit is None:
             continue
+        area = _number(_text(item, "area")) or 0.0
         if rent > 0:
-            agg.monthly_rent_count += 1
+            agg.monthly_rents.append(area)
         else:
-            agg.jeonse_deposits.append(deposit)
+            agg.jeonse.append((deposit, area))
 
     return agg
 
@@ -273,9 +316,9 @@ def collect(
                     break
                 continue
             consecutive_failures = 0
-            if agg.deal_prices or agg.jeonse_deposits or agg.monthly_rent_count:
+            if agg.has_data():
                 got_any = True
-                region_rows.append(agg.to_row())
+                region_rows.extend(agg.to_rows())
         if region_rows:
             rows.extend(region_rows)
             if on_rows:

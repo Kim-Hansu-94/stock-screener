@@ -15,6 +15,12 @@ create table if not exists realestate_monthly (
   region_name   text not null,          -- '서울 강남구'
   month         date not null,          -- 계약 연월 (그달 1일)
 
+  -- 전용면적 구간: 'ALL'(구 전체) / '~60' / '60~85' / '85~135' / '135~'
+  -- 소형과 대형은 사이클이 어긋나게 움직여(상승 초기엔 중소형이 먼저 뛴다)
+  -- 한데 묶어 평균 내면 두 흐름이 상쇄돼 "움직임 없음"으로 보인다.
+  -- 기본 화면은 ALL 한 줄만 쓰고, 펼칠 때 구간별을 보여준다.
+  area_band     text not null,
+
   -- 매매
   deal_count            int,            -- 거래 건수
   price_avg             numeric,        -- 평균 거래금액 (만원)
@@ -35,7 +41,7 @@ create table if not exists realestate_monthly (
   gap_avg               numeric,        -- 평균 갭 (만원)
 
   updated_at    timestamptz not null default now(),
-  primary key (region_code, month)
+  primary key (region_code, month, area_band)
 );
 
 create index if not exists idx_realestate_month

@@ -44,19 +44,27 @@ def _reset_endpoint_cache():
     realestate._WORKING.clear()
 
 
+def _all_row(rows: list[dict]) -> dict:
+    return next(r for r in rows if r["area_band"] == realestate.ALL_BAND)
+
+
+def _band_row(rows: list[dict], band: str) -> dict:
+    return next(r for r in rows if r["area_band"] == band)
+
+
 def test_canceled_deals_are_excluded(monkeypatch):
     """해제된 계약(cdealType='O')을 빼지 않으면 없던 거래가 시세로 잡힌다."""
     monkeypatch.setattr(realestate.requests, "get", _fake_get)
     agg = realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8)
 
-    assert agg.deal_prices == [100000.0, 200000.0]  # 90만은 해제분이라 제외
-    assert agg.to_row()["deal_count"] == 2
+    assert [price for price, _ in agg.deals] == [100000.0, 200000.0]  # 90만은 해제분
+    assert _all_row(agg.to_rows())["deal_count"] == 2
 
 
 def test_jeonse_and_monthly_rent_are_separated(monkeypatch):
     """갭·전세가율은 전세만 써야 한다 — 월세 보증금이 섞이면 전세가 급락한 것처럼 보인다."""
     monkeypatch.setattr(realestate.requests, "get", _fake_get)
-    row = realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_row()
+    row = _all_row(realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_rows())
 
     assert row["jeonse_count"] == 2
     assert row["monthly_rent_count"] == 1
@@ -66,7 +74,7 @@ def test_jeonse_and_monthly_rent_are_separated(monkeypatch):
 def test_price_per_area_uses_per_deal_unit_price(monkeypatch):
     """총액평균 ÷ 면적평균으로 내면 큰 평수가 분모를 키워 단가가 낮게 나온다."""
     monkeypatch.setattr(realestate.requests, "get", _fake_get)
-    row = realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_row()
+    row = _all_row(realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_rows())
 
     expected = round((100000 / 84.9 + 200000 / 59.9) / 2, 1)
     assert row["price_per_area_avg"] == expected
@@ -77,7 +85,7 @@ def test_price_per_area_uses_per_deal_unit_price(monkeypatch):
 
 def test_gap_and_ratio(monkeypatch):
     monkeypatch.setattr(realestate.requests, "get", _fake_get)
-    row = realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_row()
+    row = _all_row(realestate.collect_region_month("KEY", "11680", "서울 강남구", 2026, 8).to_rows())
 
     assert row["price_avg"] == 150000.0
     assert row["gap_avg"] == 90000.0
@@ -112,8 +120,7 @@ def test_collect_reports_empty_regions_separately_from_errors(monkeypatch):
         if code == "88888":
             raise RuntimeError("타임아웃")
         agg = realestate.RegionMonth(code, name, date(year, month, 1))
-        agg.deal_prices.append(100000.0)
-        agg.deal_areas.append(84.9)
+        agg.deals.append((100000.0, 84.9))
         return agg
 
     monkeypatch.setattr(realestate, "collect_region_month", mixed)
@@ -121,7 +128,7 @@ def test_collect_reports_empty_regions_separately_from_errors(monkeypatch):
         {"11680": "강남", "99999": "없는구", "88888": "터진구"}, [(2026, 8)], service_key="KEY"
     )
 
-    assert len(rows) == 1
+    assert len(rows) == 2  # 강남만, ALL + 60~85
     assert diag["empty"] == ["없는구(99999)"]
     assert len(diag["error"]) == 1
     assert "터진구" in diag["error"][0]
@@ -266,8 +273,7 @@ def test_rows_are_handed_over_per_region_not_only_at_the_end(monkeypatch):
 
     def fake(key, code, name, year, month):
         agg = realestate.RegionMonth(code, name, date(year, month, 1))
-        agg.deal_prices.append(100000.0)
-        agg.deal_areas.append(84.9)
+        agg.deals.append((100000.0, 84.9))
         return agg
 
     monkeypatch.setattr(realestate, "collect_region_month", fake)
@@ -278,8 +284,9 @@ def test_rows_are_handed_over_per_region_not_only_at_the_end(monkeypatch):
     )
 
     assert len(handed) == 3, "지역마다 한 번씩 넘겨야 한다 (끝에서 한 번이 아니라)"
-    assert all(len(batch) == 2 for batch in handed), "지역별 2개월분이 함께 넘어가야 한다"
-    assert len(rows) == 6, "누적 결과도 그대로 돌려줘야 한다"
+    # 지역별 2개월 × (ALL + 60~85 구간) = 4행
+    assert all(len(batch) == 4 for batch in handed), "지역별 2개월분이 함께 넘어가야 한다"
+    assert len(rows) == 12, "누적 결과도 그대로 돌려줘야 한다"
 
 
 def test_collect_still_works_without_a_callback(monkeypatch):
@@ -287,10 +294,67 @@ def test_collect_still_works_without_a_callback(monkeypatch):
 
     def fake(key, code, name, year, month):
         agg = realestate.RegionMonth(code, name, date(year, month, 1))
-        agg.deal_prices.append(100000.0)
-        agg.deal_areas.append(84.9)
+        agg.deals.append((100000.0, 84.9))
         return agg
 
     monkeypatch.setattr(realestate, "collect_region_month", fake)
     rows, _ = realestate.collect({"11110": "종로"}, [(2026, 8)], service_key="KEY")
-    assert len(rows) == 1
+    assert len(rows) == 2  # ALL + 60~85
+
+
+# ── 면적 구간 ────────────────────────────────────────────────────────────
+# 소형과 대형은 사이클이 어긋나게 움직인다(상승 초기엔 중소형이 먼저 뛴다).
+# 한데 묶어 평균 내면 두 흐름이 상쇄돼 "움직임 없음"으로 보인다.
+
+@pytest.mark.parametrize(
+    ("area", "expected"),
+    [
+        (59.9, "~60"),
+        (60.0, "~60"),      # 경계는 이하 포함
+        (60.1, "60~85"),
+        (84.9, "60~85"),
+        (85.0, "60~85"),
+        (85.1, "85~135"),
+        (135.0, "85~135"),
+        (200.0, "135~"),
+    ],
+)
+def test_band_boundaries(area, expected):
+    assert realestate.band_of(area) == expected
+
+
+def test_area_unknown_falls_out_of_bands_but_stays_in_total():
+    """면적을 못 받은 거래를 임의 구간에 넣으면 그 구간 통계가 오염된다."""
+    assert realestate.band_of(0) is None
+
+    agg = realestate.RegionMonth("11680", "서울 강남구", date(2026, 8, 1))
+    agg.deals.append((100000.0, 0.0))   # 면적 불명
+    agg.deals.append((200000.0, 84.9))
+
+    rows = agg.to_rows()
+    assert _all_row(rows)["deal_count"] == 2, "전체에는 둘 다 들어가야 한다"
+    assert _band_row(rows, "60~85")["deal_count"] == 1, "구간에는 면적 아는 것만"
+    assert [r["area_band"] for r in rows] == ["ALL", "60~85"], "빈 구간 행은 만들지 않는다"
+
+
+def test_bands_split_price_and_jeonse_independently():
+    """평형별 갭을 보려면 매매·전세가 같은 구간 기준으로 나뉘어야 한다."""
+    agg = realestate.RegionMonth("11680", "서울 강남구", date(2026, 8, 1))
+    agg.deals += [(80000.0, 55.0), (150000.0, 84.0), (160000.0, 84.0)]
+    agg.jeonse += [(40000.0, 55.0), (90000.0, 84.0)]
+    agg.monthly_rents.append(55.0)
+
+    rows = agg.to_rows()
+    small = _band_row(rows, "~60")
+    mid = _band_row(rows, "60~85")
+
+    assert small["deal_count"] == 1 and small["price_avg"] == 80000.0
+    assert small["gap_avg"] == 40000.0
+    assert small["monthly_rent_count"] == 1
+
+    assert mid["deal_count"] == 2 and mid["price_avg"] == 155000.0
+    assert mid["gap_avg"] == 65000.0
+    assert mid["monthly_rent_count"] == 0
+
+    # 전체는 여전히 구 단위 합계 — 기본 화면이 이 한 줄을 쓴다
+    assert _all_row(rows)["deal_count"] == 3
