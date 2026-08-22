@@ -385,3 +385,40 @@ def test_entrypoint_builds_the_db_from_env(monkeypatch):
     realestate_main.main()
 
     assert built == [1], "ScreenerDB.from_env()로 만들어야 한다"
+
+
+# ── 타임아웃 재시도 ──────────────────────────────────────────────────────
+# 5,544건 백필에서 26건이 Read timeout으로 빠졌다. 놓친 달은 주간 실행이
+# 최근 3개월만 훑으므로 자동으로 메워지지 않는다.
+
+def test_timeout_is_retried_once(monkeypatch):
+    attempts = []
+
+    def flaky(url, params=None, headers=None, timeout=None):
+        attempts.append(url)
+        if len(attempts) == 1:
+            raise realestate.requests.Timeout("read timed out")
+
+        class Resp:
+            ok = True
+            status_code = 200
+            text = TRADE
+
+        return Resp()
+
+    monkeypatch.setattr(realestate.requests, "get", flaky)
+    items = realestate._fetch_one(realestate._TRADE_URLS[0], "KEY", "11110", "202608")
+
+    assert len(attempts) == 2, "타임아웃이면 한 번 더 시도해야 한다"
+    assert len(items) == 3
+
+
+def test_timeout_twice_gives_up(monkeypatch):
+    """무한 재시도하면 API가 느린 날 실행이 끝나지 않는다."""
+
+    def always_timeout(url, params=None, headers=None, timeout=None):
+        raise realestate.requests.Timeout("read timed out")
+
+    monkeypatch.setattr(realestate.requests, "get", always_timeout)
+    with pytest.raises(realestate.requests.Timeout):
+        realestate._fetch_one(realestate._TRADE_URLS[0], "KEY", "11110", "202608")

@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from .db import ScreenerDB
 from .lawd_codes import CAPITAL_AREA
-from .realestate import collect
+from .realestate import collect, probe_prefix
 
 _DEFAULT_MONTHS = 3
 
@@ -39,6 +39,11 @@ def recent_months(today: date, count: int) -> list[tuple[int, int]]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--months", type=int, default=_DEFAULT_MONTHS)
+    parser.add_argument(
+        "--probe",
+        default="",
+        help="시도 코드 2자리(예: 28,41)를 주면 수집 대신 유효한 시군구 코드를 스캔한다",
+    )
     args = parser.parse_args()
 
     # 워크플로는 시크릿을 pipeline/.env에 쓴다. main.py처럼 여기서도 읽어야
@@ -51,6 +56,10 @@ def main() -> None:
     if not os.getenv("MOLIT_API_KEY"):
         print("MOLIT_API_KEY를 읽지 못했습니다 (pipeline/.env 또는 환경변수 확인)", flush=True)
         sys.exit(1)
+
+    if args.probe:
+        _probe(args.probe)
+        return
 
     months = recent_months(date.today(), args.months)
     print(f"부동산 실거래 수집 — 수도권 {len(CAPITAL_AREA)}개 지역 × {len(months)}개월", flush=True)
@@ -68,6 +77,19 @@ def main() -> None:
 
     print(f"  → 총 {len(rows)}행 저장", flush=True)
     _report(diag)
+
+
+def _probe(prefixes: str) -> None:
+    """행정구역 개편으로 코드가 바뀐 지역을 찾기 위한 일회성 스캔."""
+    key = os.environ["MOLIT_API_KEY"]
+    # 두 달 전 — 거래가 충분히 쌓였고 신고 기한(30일)도 지난 달.
+    target = recent_months(date.today(), 3)[-1]
+    ym = f"{target[0]}{target[1]:02d}"
+
+    for prefix in [p.strip() for p in prefixes.split(",") if p.strip()]:
+        print(f"시도 코드 {prefix}xxx 스캔 ({ym} 기준)...", flush=True)
+        found = probe_prefix(key, prefix, ym)
+        print(f"  → {prefix}: 유효 코드 {len(found)}개", flush=True)
 
 
 def _report(diag: dict[str, list[str]]) -> None:

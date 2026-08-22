@@ -184,6 +184,16 @@ def _median(values: list[float]) -> float | None:
 
 
 def _fetch_one(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Element]:
+    # 5,544번 호출하는 동안 26건이 Read timeout으로 빠졌다. 한 번만 다시 시도해도
+    # 대부분 메워진다 — 놓친 달은 다음 주간 실행이 자동으로 채워주지 않는다
+    # (최근 3개월만 훑기 때문에).
+    try:
+        return _fetch_once(url, service_key, region_code, ym)
+    except requests.Timeout:
+        return _fetch_once(url, service_key, region_code, ym)
+
+
+def _fetch_once(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Element]:
     resp = requests.get(
         url,
         params={
@@ -334,3 +344,26 @@ def collect(
             empty.append(f"{name}({code})")
 
     return rows, {"empty": empty, "error": errors, "aborted": ["연속 실패로 중단"] if aborted else []}
+
+
+def probe_prefix(service_key: str, prefix: str, ym: str) -> list[tuple[str, int]]:
+    """시도 코드(앞 2자리)로 시작하는 시군구 코드를 전부 두드려 본다.
+
+    국토부 API는 LAWD_CD가 틀리면 에러가 아니라 빈 결과를 준다. 그래서 거꾸로,
+    "데이터가 나오는 코드"를 찾는 탐색에 쓸 수 있다. 행정구역 개편으로 코드가
+    바뀐 지역(인천 중구·동구·서구, 부천시, 화성시)을 기억으로 찍어 맞히려다
+    또 틀리는 것보다, 한 번 스캔해서 확정하는 편이 낫다.
+
+    한 달치만 본다 — 유효한 코드인지 아닌지만 알면 되므로.
+    """
+    found: list[tuple[str, int]] = []
+    for suffix in range(1000):
+        code = f"{prefix}{suffix:03d}"
+        try:
+            items = _fetch("매매", _TRADE_URLS, service_key, code, ym)
+        except Exception:  # noqa: BLE001
+            continue
+        if items:
+            found.append((code, len(items)))
+            print(f"    {code}: {len(items)}건", flush=True)
+    return found
