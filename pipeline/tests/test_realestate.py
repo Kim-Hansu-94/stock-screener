@@ -358,3 +358,30 @@ def test_bands_split_price_and_jeonse_independently():
 
     # 전체는 여전히 구 단위 합계 — 기본 화면이 이 한 줄을 쓴다
     assert _all_row(rows)["deal_count"] == 3
+
+
+def test_entrypoint_builds_the_db_from_env(monkeypatch):
+    """ScreenerDB는 client를 받는다 — 인자 없이 만들면 TypeError로 즉시 죽는다.
+
+    실제로 그렇게 배포돼서 백필이 31초 만에 실패했다(run 32578679424).
+    collect까지 도달하는지를 확인하는 스모크 테스트.
+    """
+    from unittest.mock import MagicMock
+
+    from pipeline.src import realestate_main
+
+    built: list[int] = []
+
+    def fake_from_env():
+        built.append(1)
+        return MagicMock()
+
+    monkeypatch.setattr(realestate_main, "load_dotenv", lambda: None)
+    monkeypatch.setenv("MOLIT_API_KEY", "KEY")
+    monkeypatch.setattr(realestate_main.ScreenerDB, "from_env", staticmethod(fake_from_env))
+    monkeypatch.setattr(realestate_main, "collect", lambda *a, **k: ([{"region_code": "11110"}], {}))
+    monkeypatch.setattr("sys.argv", ["realestate_main", "--months", "1"])
+
+    realestate_main.main()
+
+    assert built == [1], "ScreenerDB.from_env()로 만들어야 한다"
