@@ -255,3 +255,42 @@ def test_collect_aborts_early_when_every_call_fails(monkeypatch):
     assert rows == []
     assert diag["aborted"], "조기 중단 표시가 없다"
     assert len(calls) <= realestate._ABORT_AFTER, f"{len(calls)}번이나 계속 시도했다"
+
+
+# ── 중간 저장 ────────────────────────────────────────────────────────────
+# 36개월 백필(5,544건 호출)이 60분 타임아웃에 걸려 취소됐는데, 끝에서 한 번에
+# 저장하는 구조라 한 시간치가 통째로 날아갔다. 지역 단위로 흘려보내야 한다.
+
+def test_rows_are_handed_over_per_region_not_only_at_the_end(monkeypatch):
+    handed: list[list[dict]] = []
+
+    def fake(key, code, name, year, month):
+        agg = realestate.RegionMonth(code, name, date(year, month, 1))
+        agg.deal_prices.append(100000.0)
+        agg.deal_areas.append(84.9)
+        return agg
+
+    monkeypatch.setattr(realestate, "collect_region_month", fake)
+    regions = {"11110": "종로", "11140": "중구", "11170": "용산"}
+
+    rows, _ = realestate.collect(
+        regions, [(2026, 8), (2026, 7)], service_key="KEY", on_rows=handed.append
+    )
+
+    assert len(handed) == 3, "지역마다 한 번씩 넘겨야 한다 (끝에서 한 번이 아니라)"
+    assert all(len(batch) == 2 for batch in handed), "지역별 2개월분이 함께 넘어가야 한다"
+    assert len(rows) == 6, "누적 결과도 그대로 돌려줘야 한다"
+
+
+def test_collect_still_works_without_a_callback(monkeypatch):
+    """on_rows는 선택이다 — 안 주면 예전처럼 끝에서 모아 돌려준다."""
+
+    def fake(key, code, name, year, month):
+        agg = realestate.RegionMonth(code, name, date(year, month, 1))
+        agg.deal_prices.append(100000.0)
+        agg.deal_areas.append(84.9)
+        return agg
+
+    monkeypatch.setattr(realestate, "collect_region_month", fake)
+    rows, _ = realestate.collect({"11110": "종로"}, [(2026, 8)], service_key="KEY")
+    assert len(rows) == 1
