@@ -55,7 +55,10 @@ def main() -> None:
     months = recent_months(date.today(), args.months)
     print(f"부동산 실거래 수집 — 수도권 {len(CAPITAL_AREA)}개 지역 × {len(months)}개월", flush=True)
 
-    rows, diag = collect(CAPITAL_AREA, months)
+    # 지역 하나가 끝날 때마다 바로 저장한다. 36개월 백필은 한 시간 넘게 걸려
+    # 도중에 끊길 수 있는데, 끝에서 한 번에 저장하면 그때까지 받은 게 다 날아간다.
+    db = ScreenerDB()
+    rows, diag = collect(CAPITAL_AREA, months, on_rows=db.save_realestate_monthly)
     if not rows:
         print("  저장할 데이터 없음", flush=True)
         _report(diag)
@@ -63,8 +66,7 @@ def main() -> None:
         # 정상 수집과 구분이 안 된다.
         sys.exit(1)
 
-    ScreenerDB().save_realestate_monthly(rows)
-    print(f"  → {len(rows)}행 저장", flush=True)
+    print(f"  → 총 {len(rows)}행 저장", flush=True)
     _report(diag)
 
 

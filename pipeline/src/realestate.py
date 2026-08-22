@@ -17,6 +17,7 @@ import os
 import statistics
 import urllib.parse
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -225,9 +226,16 @@ def collect_region_month(
 
 
 def collect(
-    regions: dict[str, str], months: list[tuple[int, int]], service_key: str | None = None
+    regions: dict[str, str],
+    months: list[tuple[int, int]],
+    service_key: str | None = None,
+    on_rows: "Callable[[list[dict]], None] | None" = None,
 ) -> tuple[list[dict], dict[str, list[str]]]:
     """지역 × 월을 훑어 집계 행과 진단 정보를 돌려준다.
+
+    on_rows를 주면 지역 하나가 끝날 때마다 그 지역 행을 넘긴다. 36개월 백필은
+    5,544번 호출이라 한 시간 넘게 걸리는데, 끝에서 한 번에 저장하면 도중에
+    끊길 때 전부 날아간다(실제로 60분 타임아웃에 걸려 그렇게 됐다).
 
     진단은 두 갈래로 나눈다 — 지역코드가 틀려서 계속 0건인 것("empty")과
     호출 자체가 실패한 것("error")은 대응이 완전히 다르기 때문이다.
@@ -243,11 +251,13 @@ def collect(
     consecutive_failures = 0
     aborted = False
 
-    for code, name in regions.items():
+    total = len(regions)
+    for index, (code, name) in enumerate(regions.items(), start=1):
         if aborted:
             break
         got_any = False
         had_error = False
+        region_rows: list[dict] = []
         for year, month in months:
             try:
                 agg = collect_region_month(key, code, name, year, month)
@@ -265,7 +275,16 @@ def collect(
             consecutive_failures = 0
             if agg.deal_prices or agg.jeonse_deposits or agg.monthly_rent_count:
                 got_any = True
-                rows.append(agg.to_row())
+                region_rows.append(agg.to_row())
+        if region_rows:
+            rows.extend(region_rows)
+            if on_rows:
+                on_rows(region_rows)
+
+        # 진행 상황을 남긴다. 없으면 한 시간 동안 로그가 한 줄도 안 찍혀
+        # 멈춘 것인지 도는 것인지 알 수 없다.
+        print(f"  [{index}/{total}] {name} — {len(region_rows)}개월분", flush=True)
+
         # 호출이 실패한 지역을 "0건"으로도 세면 안 된다 — 잘못된 지역코드를 찾으려고
         # 보는 목록인데, 일시적 장애가 섞이면 멀쩡한 코드를 고치게 된다.
         if not got_any and not had_error:

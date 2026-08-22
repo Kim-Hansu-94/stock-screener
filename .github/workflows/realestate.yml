@@ -17,7 +17,9 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 36개월 백필은 5,544번 호출이라 한 시간을 넘긴다(첫 시도가 60분에서 잘렸다).
+    # 주간 정기 실행은 3개월치라 10분 안쪽이므로 이 값이 커도 손해는 없다.
+    timeout-minutes: 240
 
     steps:
       - uses: actions/checkout@v4
