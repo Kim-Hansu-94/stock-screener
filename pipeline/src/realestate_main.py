@@ -57,7 +57,7 @@ def main() -> None:
 
     # 지역 하나가 끝날 때마다 바로 저장한다. 36개월 백필은 한 시간 넘게 걸려
     # 도중에 끊길 수 있는데, 끝에서 한 번에 저장하면 그때까지 받은 게 다 날아간다.
-    db = ScreenerDB()
+    db = ScreenerDB.from_env()
     rows, diag = collect(CAPITAL_AREA, months, on_rows=db.save_realestate_monthly)
     if not rows:
         print("  저장할 데이터 없음", flush=True)
