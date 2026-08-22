@@ -13,6 +13,10 @@ on:
         description: '거슬러 훑을 개월 수 (첫 실행 과거 채우기는 36 권장)'
         type: string
         default: '3'
+      probe:
+        description: '지역코드 스캔 (예: 28 또는 28,41). 넣으면 수집 대신 스캔만 한다'
+        type: string
+        default: ''
 
 jobs:
   collect:
@@ -62,4 +66,9 @@ jobs:
 
       - name: Collect
         working-directory: pipeline
-        run: python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}
+        run: |
+          if [ -n "${{ github.event.inputs.probe }}" ]; then
+            python -m src.realestate_main --probe "${{ github.event.inputs.probe }}"
+          else
+            python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}
+          fi
