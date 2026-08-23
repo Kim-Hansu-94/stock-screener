@@ -40,6 +40,10 @@ _NUM_OF_ROWS = 1000
 _TIMEOUT = 20
 # 연속 실패가 이만큼 쌓이면 공통 원인(키·신청·엔드포인트)으로 보고 중단한다.
 _ABORT_AFTER = 20
+# 프로브는 1,000번을 두드리므로 한 건이 오래 붙잡고 있으면 안 된다. 정상 응답은
+# 1~2초라 8초면 넉넉하고, 막힌 상태는 빨리 드러난다.
+_PROBE_TIMEOUT = 8
+_PROBE_ABORT_TIMEOUTS = 10
 
 # 전용면적 구간. 부동산원·KB가 쓰는 관례를 따랐다 — 60㎡ 이하(소형),
 # 60~85㎡(국민주택규모, 거래가 가장 많다), 85~135㎡(중대형), 135㎡ 초과(대형).
@@ -193,7 +197,9 @@ def _fetch_one(url: str, service_key: str, region_code: str, ym: str) -> list[ET
         return _fetch_once(url, service_key, region_code, ym)
 
 
-def _fetch_once(url: str, service_key: str, region_code: str, ym: str) -> list[ET.Element]:
+def _fetch_once(
+    url: str, service_key: str, region_code: str, ym: str, timeout: int = _TIMEOUT
+) -> list[ET.Element]:
     resp = requests.get(
         url,
         params={
@@ -204,7 +210,7 @@ def _fetch_once(url: str, service_key: str, region_code: str, ym: str) -> list[E
             "pageNo": 1,
         },
         headers=_HEADERS,
-        timeout=_TIMEOUT,
+        timeout=timeout,
     )
     if not resp.ok:
         # raise_for_status()는 상태 코드만 알려준다. 403 본문에 "요청하신 서비스는
@@ -351,18 +357,40 @@ def probe_prefix(service_key: str, prefix: str, ym: str) -> list[tuple[str, int]
 
     국토부 API는 LAWD_CD가 틀리면 에러가 아니라 빈 결과를 준다. 그래서 거꾸로,
     "데이터가 나오는 코드"를 찾는 탐색에 쓸 수 있다. 행정구역 개편으로 코드가
-    바뀐 지역(인천 중구·동구·서구, 부천시, 화성시)을 기억으로 찍어 맞히려다
-    또 틀리는 것보다, 한 번 스캔해서 확정하는 편이 낫다.
+    바뀐 지역을 기억으로 찍어 맞히려다 또 틀리는 것보다, 한 번 스캔해서 확정하는
+    편이 낫다.
 
-    한 달치만 본다 — 유효한 코드인지 아닌지만 알면 되므로.
+    ⚠️ 하루 호출 한도(개발계정 1만 건)를 백필과 같은 날 나눠 쓰면 도중에 응답이
+    끊긴다. 실제로 백필 5,544건을 쓴 날 프로브를 돌렸다가 4시간 동안 한 건도
+    못 받고 잘렸다. 그래서 여기서는 타임아웃을 짧게 잡고 재시도하지 않는다 —
+    막힌 상태라면 빨리 티가 나야 4시간을 버리지 않는다.
     """
     found: list[tuple[str, int]] = []
+    # 어느 엔드포인트가 통하는지 먼저 확정해 둔다(프로브 도중에 후보를 번갈아
+    # 부르면 한도만 두 배로 쓴다).
+    url = _WORKING.get("매매") or _TRADE_URLS[-1]
+    timeouts = 0
+
     for suffix in range(1000):
         code = f"{prefix}{suffix:03d}"
+        if suffix and suffix % 100 == 0:
+            print(f"    ... {code}까지 확인 (발견 {len(found)}개, 타임아웃 {timeouts}건)", flush=True)
         try:
-            items = _fetch("매매", _TRADE_URLS, service_key, code, ym)
+            items = _fetch_once(url, service_key, code, ym, timeout=_PROBE_TIMEOUT)
+        except requests.Timeout:
+            timeouts += 1
+            # 연속으로 계속 끊기면 한도 소진이나 차단이다. 계속 두드려도 소용없다.
+            if timeouts >= _PROBE_ABORT_TIMEOUTS:
+                print(
+                    f"    타임아웃 {timeouts}건 연속 — 호출 한도 소진이나 차단으로 보고 중단합니다."
+                    " 하루 지나고 다시 시도하세요.",
+                    flush=True,
+                )
+                break
+            continue
         except Exception:  # noqa: BLE001
             continue
+        timeouts = 0
         if items:
             found.append((code, len(items)))
             print(f"    {code}: {len(items)}건", flush=True)

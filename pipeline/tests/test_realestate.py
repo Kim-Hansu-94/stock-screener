@@ -422,3 +422,54 @@ def test_timeout_twice_gives_up(monkeypatch):
     monkeypatch.setattr(realestate.requests, "get", always_timeout)
     with pytest.raises(realestate.requests.Timeout):
         realestate._fetch_one(realestate._TRADE_URLS[0], "KEY", "11110", "202608")
+
+
+# ── 프로브 ───────────────────────────────────────────────────────────────
+# 백필과 같은 날 프로브를 돌렸다가 하루 호출 한도가 소진돼, 4시간 동안 한 건도
+# 못 받고 잘렸다(run 32610092184). 막힌 상태는 빨리 드러나야 한다.
+
+def test_probe_aborts_when_calls_keep_timing_out(monkeypatch, capsys):
+    calls = []
+
+    def always_timeout(url, params=None, headers=None, timeout=None):
+        calls.append(params["LAWD_CD"])
+        raise realestate.requests.Timeout("read timed out")
+
+    monkeypatch.setattr(realestate.requests, "get", always_timeout)
+    found = realestate.probe_prefix("KEY", "28", "202606")
+
+    assert found == []
+    assert len(calls) <= realestate._PROBE_ABORT_TIMEOUTS, f"{len(calls)}번이나 계속 두드렸다"
+    assert "한도" in capsys.readouterr().out, "왜 멈췄는지 알려줘야 한다"
+
+
+def test_probe_reports_codes_that_return_data(monkeypatch):
+    def selective(url, params=None, headers=None, timeout=None):
+        code = params["LAWD_CD"]
+
+        class Resp:
+            ok = True
+            status_code = 200
+            text = TRADE if code in ("28185", "28200") else _trade_xml("")
+
+        return Resp()
+
+    monkeypatch.setattr(realestate.requests, "get", selective)
+    found = realestate.probe_prefix("KEY", "28", "202606")
+
+    assert [code for code, _ in found] == ["28185", "28200"]
+
+
+def test_probe_does_not_retry_timeouts(monkeypatch):
+    """수집 경로는 타임아웃을 한 번 재시도하지만, 1,000번 두드리는 프로브에서
+    재시도하면 막힌 날 시간이 두 배로 든다."""
+    calls = []
+
+    def timeout_then_ok(url, params=None, headers=None, timeout=None):
+        calls.append(params["LAWD_CD"])
+        raise realestate.requests.Timeout("read timed out")
+
+    monkeypatch.setattr(realestate.requests, "get", timeout_then_ok)
+    realestate.probe_prefix("KEY", "28", "202606")
+
+    assert len(calls) == len(set(calls)), "같은 코드를 두 번 부르면 재시도한 것이다"
