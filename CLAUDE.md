@@ -84,7 +84,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션(매도 신호 포함), 열린 티커 집합 |
 | `queries/realestate.ts` | 부동산 탭(`app/realestate/page.tsx`) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다 |
-| `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비)·지역 상세(월별+전월대비) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
+| `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비, 매매가 내림차순)·지역 상세(월별+전월대비)·지도 색상(`priceMapColor`, 매매가 → 단일색조 연속 스케일) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
+| `data/capital-sigungu.json` | 수도권 77개 시군구 SVG 지도 좌표(사전 계산). 통계청 SGIS(2018, 공공누리 1유형) 경계를 `southkorea/southkorea-maps`에서 받아 LAWD_CD로 매핑하고 d3-geo로 투영해 만들었다(재현 스크립트는 저장 안 함 — 경계 자체가 거의 안 바뀌어 일회성). 옹진군은 원양 도서 때문에 투영 기준(fitSize)에서 뺐다 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -120,7 +121,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
-| `realestate/` | 부동산 동향 — 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 표시는 `components/RealestateTables.tsx` |
+| `realestate/` | 부동산 동향 — 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx` |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 |

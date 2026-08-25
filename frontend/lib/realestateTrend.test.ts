@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { regionGroup, regionOverview, regionRows, withMomChange } from './realestateTrend'
+import { priceMapColor, regionGroup, regionOverview, regionRows, withMomChange } from './realestateTrend'
 import type { RealestateMonthlyRow } from './types'
 
 function row(over: Partial<RealestateMonthlyRow>): RealestateMonthlyRow {
@@ -112,5 +112,36 @@ describe('withMomChange', () => {
     const rows = [row({ month: '2026-05-01', price_avg: null }), row({ month: '2026-06-01', price_avg: 100000 })]
     const result = withMomChange(rows)
     expect(result[0].momPricePct).toBeNull()
+  })
+})
+
+describe('priceMapColor', () => {
+  function lightnessOf(color: string): number {
+    const match = color.match(/(\d+(?:\.\d+)?)%\)?$/)
+    if (!match) throw new Error(`no lightness in ${color}`)
+    return Number(match[1])
+  }
+
+  it('gets darker (lower lightness) as price rises', () => {
+    const lo = lightnessOf(priceMapColor(0, 0, 100))
+    const mid = lightnessOf(priceMapColor(50, 0, 100))
+    const hi = lightnessOf(priceMapColor(100, 0, 100))
+    expect(lo).toBeGreaterThan(mid)
+    expect(mid).toBeGreaterThan(hi)
+  })
+
+  it('stays a single hue (only lightness changes)', () => {
+    const a = priceMapColor(10, 0, 100).match(/^hsl\((\d+)/)?.[1]
+    const b = priceMapColor(90, 0, 100).match(/^hsl\((\d+)/)?.[1]
+    expect(a).toBe(b)
+  })
+
+  it('falls back to the midpoint when every region has the same price', () => {
+    expect(priceMapColor(50, 50, 50)).toBe(priceMapColor(0, 0, 0))
+  })
+
+  it('clamps values outside the observed range instead of extrapolating', () => {
+    expect(priceMapColor(-10, 0, 100)).toBe(priceMapColor(0, 0, 100))
+    expect(priceMapColor(110, 0, 100)).toBe(priceMapColor(100, 0, 100))
   })
 })

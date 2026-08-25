@@ -1,5 +1,15 @@
 // 부동산 동향 화면용 순수 함수 — realestate_monthly 원본 행을 화면이 쓰는 모양으로 가공한다.
+import { formatKrwAmount } from './calculations'
 import type { AreaBand, RealestateMonthlyRow } from './types'
+
+// price_avg 등은 만원 단위라, formatKrwAmount(원 단위 전용)에 넘기려면 10,000을 곱해야
+// 한다. 음수(역전세로 갭이 마이너스인 경우)는 formatKrwAmount가 억 단위로 안 접어서
+// 부호를 떼어냈다 붙인다.
+export function formatManwon(manwon: number | null): string {
+  if (manwon == null) return '—'
+  const sign = manwon < 0 ? '-' : ''
+  return sign + formatKrwAmount(Math.abs(manwon) * 10000)
+}
 
 const GROUP_BY_PREFIX: Record<string, string> = { '11': '서울', '28': '인천', '41': '경기' }
 
@@ -76,4 +86,20 @@ export const AREA_BAND_LABEL: Record<AreaBand, string> = {
   '60~85': '60~85㎡',
   '85~135': '85~135㎡',
   '135~': '135㎡~',
+}
+
+// 매매 평균가 → 지도 색상. --primary(#3182F6, HSL 약 215° 92% 58%)와 같은 색상으로
+// 밝기만 바꾼 단일 색상 연속 스케일이다(매매가는 값이 있으면 있는 대로 연속적인
+// 크기 비교라, 여러 색을 섞는 구간형 대신 "하나의 색, 밝음→어두움"이 맞다).
+// 값이 없는 지역(매매 없이 전월세만 있는 달)은 --border 회색으로 뺀다.
+const PRICE_SCALE_HUE = 215
+const PRICE_SCALE_SATURATION = 92
+const PRICE_SCALE_L_MIN = 24 // 가장 비쌈 → 가장 진하게
+const PRICE_SCALE_L_MAX = 90 // 가장 쌈 → 배경에 가깝게 연하게
+export const PRICE_SCALE_NO_DATA = '#e5e8eb'
+
+export function priceMapColor(price: number, min: number, max: number): string {
+  const t = max > min ? Math.min(1, Math.max(0, (price - min) / (max - min))) : 0.5
+  const lightness = PRICE_SCALE_L_MAX - t * (PRICE_SCALE_L_MAX - PRICE_SCALE_L_MIN)
+  return `hsl(${PRICE_SCALE_HUE} ${PRICE_SCALE_SATURATION}% ${lightness}%)`
 }

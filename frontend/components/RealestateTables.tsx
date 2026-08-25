@@ -1,17 +1,7 @@
 import Link from 'next/link'
-import { formatKrwAmount } from '@/lib/calculations'
 import { changeTextClass, formatSignedPercent } from '@/lib/marketColors'
-import { AREA_BAND_LABEL, regionGroup, type DetailMonthRow, type RegionTrend } from '@/lib/realestateTrend'
+import { AREA_BAND_LABEL, formatManwon, regionGroup, type DetailMonthRow, type RegionTrend } from '@/lib/realestateTrend'
 import type { AreaBand } from '@/lib/types'
-
-// price_avg 등은 만원 단위라, formatKrwAmount(원 단위 전용)에 넘기려면 10,000을 곱해야
-// 한다. 음수(역전세로 갭이 마이너스인 경우)는 formatKrwAmount가 억 단위로 안 접어서
-// 부호를 떼어냈다 붙인다.
-function formatManwon(manwon: number | null): string {
-  if (manwon == null) return '—'
-  const sign = manwon < 0 ? '-' : ''
-  return sign + formatKrwAmount(Math.abs(manwon) * 10000)
-}
 
 const GROUP_ORDER = ['서울', '인천', '경기', '기타']
 
