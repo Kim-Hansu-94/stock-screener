@@ -174,6 +174,7 @@ async function HomeContent() {
                         riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
                         riskFrame={section.riskMap[stock.ticker]?.frame ?? null}
                         wayResistance={section.riskMap[stock.ticker]?.wayResistance ?? null}
+                        targetBasis={section.riskMap[stock.ticker]?.targetBasis ?? null}
                         owned={openTickers.has(`${section.market}:${stock.ticker}`)}
                       />
                     ))}

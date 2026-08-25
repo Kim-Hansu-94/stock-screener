@@ -2,11 +2,13 @@ import { notFound } from 'next/navigation'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 import { WatchlistCard } from '@/components/WatchlistCard'
+import { StockCard } from '@/components/StockCard'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
-import type { AreaBand, RealestateMonthlyRow, WatchlistStatusRow } from '@/lib/types'
+import { computeStopTarget } from '@/lib/risk'
+import type { AreaBand, PriceHistoryRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow } from '@/lib/types'
 
 /**
  * 픽스처로 화면을 그려보는 개발용 미리보기.
@@ -98,6 +100,72 @@ const WATCHLIST: WatchlistStatusRow[] = [
     reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
 ]
 
+// 손익비 카드용 일봉 픽스처 — lib/risk.test.ts의 두 시나리오를 그대로 재현한다.
+// (1) 얕은 눌림목이라 위에 의미 있는 저항이 없어 고정 2R로 떨어지는 경우
+//     ('신고가 코앞 2R 기본값' 테스트와 동일한 모양 — 손익비 2.00 뭉침의 실제 원인)
+// (2) 급등 후 진짜 저항이 남아 있어 그 가격이 목표가 되는 경우 (대조군)
+function historyFrom(ticker: string, points: { close: number; high: number; low: number }[]): PriceHistoryRow[] {
+  const startDate = new Date('2026-01-05')
+  return points.map(({ close, high, low }, i) => {
+    const date = new Date(startDate)
+    date.setDate(startDate.getDate() + i)
+    return { ticker, market: 'KR' as const, date: date.toISOString().slice(0, 10), open: close, high, low, close, volume: 500_000 }
+  })
+}
+
+function default2rHistory(ticker: string): PriceHistoryRow[] {
+  const points: { close: number; high: number; low: number }[] = []
+  let close = 100
+  for (let i = 0; i < 70; i++) {
+    close += 1
+    points.push({ close, high: close + 0.5, low: close - 0.5 })
+  }
+  const peak = close
+  for (let i = 1; i <= 3; i++) {
+    const c = peak - i * 0.5
+    points.push({ close: c, high: c + 0.5, low: c - 0.5 })
+  }
+  return historyFrom(ticker, points)
+}
+
+function resistanceTargetHistory(ticker: string): PriceHistoryRow[] {
+  const points: { close: number; high: number; low: number }[] = []
+  for (let i = 0; i < 60; i++) points.push({ close: 100, high: 101, low: 99 })
+  for (let i = 0; i < 40; i++) {
+    const c = 100 + (i + 1) * 1.25
+    points.push({ close: c, high: c + 0.5, low: c - 0.5 })
+  }
+  for (let i = 0; i < 8; i++) {
+    const c = 150 - (i + 1) * 1.25
+    points.push({ close: c, high: c + 0.5, low: c - 0.5 })
+  }
+  return historyFrom(ticker, points)
+}
+
+function screened(over: Partial<ScreenedStockRow>): ScreenedStockRow {
+  return {
+    date: '2026-08-19', market: 'KR', ticker: '000000', name: 'Sample', name_kr: '샘플종목',
+    sector: 'IT', close: 100, market_cap: 500_000_000_000, rsi: 52, passed: true, failed_criteria: [],
+    ...over,
+  }
+}
+
+const DEFAULT_2R_HISTORY = default2rHistory('DEFAULT2R')
+const RESISTANCE_HISTORY = resistanceTargetHistory('RESIST')
+
+const STOCK_CARDS: { stock: ScreenedStockRow; history: PriceHistoryRow[]; label: string }[] = [
+  {
+    label: '위 저항 없음 → 2R 기본값 (손익비 2.00 뭉침의 실제 원인)',
+    stock: screened({ ticker: 'DEFAULT2R', name: '샘플(신고가 코앞)', close: DEFAULT_2R_HISTORY.at(-1)!.close }),
+    history: DEFAULT_2R_HISTORY,
+  },
+  {
+    label: '위에 실제 저항 있음 → 그 가격이 목표가 (대조군)',
+    stock: screened({ ticker: 'RESIST', name: '샘플(저항 존재)', close: RESISTANCE_HISTORY.at(-1)!.close }),
+    history: RESISTANCE_HISTORY,
+  },
+]
+
 function reRow(over: Partial<RealestateMonthlyRow>): RealestateMonthlyRow {
   return {
     region_code: '11680', region_name: '서울 강남구', month: '2026-06-01', area_band: 'ALL',
@@ -160,6 +228,35 @@ export default function PreviewPage() {
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">감시 종목 카드 (뉴스는 실제 API 호출)</h2>
         <WatchlistCard rows={WATCHLIST} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          눌림목 카드 — 손익비 목표가 근거 (뉴스·매수 버튼은 실제 API 호출)
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {STOCK_CARDS.map(({ stock, history, label }) => {
+            const risk = computeStopTarget(history, stock.close)
+            return (
+              <div key={stock.ticker} className="flex flex-col gap-2">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <StockCard
+                  stock={stock}
+                  history={history}
+                  market="KR"
+                  usdKrwRate={1350}
+                  stop={risk.stop}
+                  target={risk.target}
+                  riskReward={risk.riskReward}
+                  riskReason={risk.reason}
+                  riskFrame={risk.frame}
+                  wayResistance={risk.wayResistance}
+                  targetBasis={risk.targetBasis}
+                />
+              </div>
+            )
+          })}
+        </div>
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
