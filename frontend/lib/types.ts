@@ -231,5 +231,25 @@ export interface ScreenedStockPerf {
   riskReward: number | null
 }
 
+/** realestate_monthly 한 행 — 시군구 × 월 × 전용면적 구간. 금액은 전부 만원 단위. */
+export type AreaBand = 'ALL' | '~60' | '60~85' | '85~135' | '135~'
+
+export interface RealestateMonthlyRow {
+  region_code: string
+  region_name: string
+  month: string // 그달 1일 (예: '2026-07-01')
+  area_band: AreaBand
+  deal_count: number | null
+  price_avg: number | null
+  price_median: number | null
+  price_per_area_avg: number | null
+  jeonse_count: number | null
+  deposit_avg: number | null
+  deposit_median: number | null
+  monthly_rent_count: number | null
+  jeonse_ratio: number | null
+  gap_avg: number | null
+}
+
 
 

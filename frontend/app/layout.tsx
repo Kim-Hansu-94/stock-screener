@@ -30,9 +30,13 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background">
         <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur-sm">
-          <nav className="mx-auto flex max-w-3xl items-center gap-6 px-4 py-3">
-            <span className="text-sm font-bold tracking-tight text-foreground break-keep">김한수의 보물지도</span>
-            <NavLinks />
+          <nav className="mx-auto flex max-w-3xl items-center gap-4 px-4 py-3">
+            <span className="shrink-0 text-sm font-bold tracking-tight text-foreground break-keep">김한수의 보물지도</span>
+            {/* 탭이 6개로 늘면서 좁은 폰(320px)에서 넘친다 — 제목은 고정하고 탭 줄만
+                가로 스크롤로 받는다. */}
+            <div className="flex items-center gap-6 overflow-x-auto">
+              <NavLinks />
+            </div>
           </nav>
         </header>
         {children}
