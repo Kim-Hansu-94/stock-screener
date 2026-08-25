@@ -40,7 +40,8 @@ export function regionOverview(rows: RealestateMonthlyRow[]): RegionTrend[] {
       momPricePct: momPct(latest.price_avg, prior?.price_avg),
     })
   }
-  return result.sort((a, b) => a.region_name.localeCompare(b.region_name, 'ko'))
+  // 매매 평균가 내림차순. 가격이 없는 지역(매매 없이 전월세만 있는 달)은 맨 뒤로 뺀다.
+  return result.sort((a, b) => (b.latest.price_avg ?? -1) - (a.latest.price_avg ?? -1))
 }
 
 /** 한 지역의 전체 구간 행만 추린다 (상세 화면 진입점). */
