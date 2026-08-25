@@ -63,6 +63,25 @@ describe('regionOverview', () => {
     expect(trend.prior?.month).toBe('2026-02-01')
     expect(trend.momPricePct).toBeCloseTo(((200000 - 180000) / 180000) * 100, 5)
   })
+
+  it('sorts by latest average sale price, highest first', () => {
+    const rows = [
+      row({ region_code: '11680', region_name: '서울 강남구', price_avg: 250000 }),
+      row({ region_code: '28185', region_name: '인천 연수구', price_avg: 80000 }),
+      row({ region_code: '41590', region_name: '화성시', price_avg: 150000 }),
+    ]
+    const overview = regionOverview(rows)
+    expect(overview.map((r) => r.region_code)).toEqual(['11680', '41590', '28185'])
+  })
+
+  it('puts regions with no sale price (jeonse/rent only) last', () => {
+    const rows = [
+      row({ region_code: '11680', region_name: '서울 강남구', price_avg: null, deal_count: 0 }),
+      row({ region_code: '28185', region_name: '인천 연수구', price_avg: 80000 }),
+    ]
+    const overview = regionOverview(rows)
+    expect(overview.map((r) => r.region_code)).toEqual(['28185', '11680'])
+  })
 })
 
 describe('regionRows', () => {
