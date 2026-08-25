@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { calculateChangePercent, formatKrwAmount, formatRelativeTime } from '@/lib/calculations'
 import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
-import type { RiskFrame, RiskReason } from '@/lib/risk'
+import type { RiskFrame, RiskReason, TargetBasis } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
 import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
 import { translateSector } from '@/lib/sectorMap'
@@ -31,8 +31,17 @@ interface StockCardProps {
   riskFrame: RiskFrame | null
   /** 목표가까지 가는 길에 걸린 첫 저항 — 한 번 막힐 수 있는 지점 */
   wayResistance: number | null
+  /** 목표가의 산출 근거 — 차트상 저항인지, 위쪽에 저항이 없어 쓴 기본값인지 */
+  targetBasis: TargetBasis | null
   /** 이미 가상 매수해 둔 종목인지 (매수 버튼 대신 '보유 중' 표시) */
   owned?: boolean
+}
+
+// 목표가가 실제 차트 저항이 아니라 근거값(리스크 관리 규칙)일 때만 보여주는 안내.
+// 손익비가 2.00으로 자주 뭉쳐 보이는 이유가 버그가 아니라 이 기본값이 반복
+// 적용된 결과임을 밝혀, 사용자가 목표가를 차트에 없는 저항으로 오인하지 않게 한다.
+const TARGET_BASIS_NOTE: Partial<Record<TargetBasis, string>> = {
+  default_2r: '위쪽에 저항 없음 · 목표가는 손절폭의 2배(2R) 기준값',
 }
 
 // 손익비가 산출되지 않은 사유를 화면 문구로 변환. 빈 "—"가 오류로 오인되지 않도록
@@ -96,7 +105,7 @@ function RiskRewardBar({
   )
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, owned = false }: StockCardProps) {
+export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, targetBasis, owned = false }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
@@ -230,6 +239,11 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
           </div>
           {stop !== null && target !== null && (
             <RiskRewardBar stop={stop} close={stock.close} target={target} market={market} />
+          )}
+          {targetBasis !== null && TARGET_BASIS_NOTE[targetBasis] && (
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {TARGET_BASIS_NOTE[targetBasis]}
+            </p>
           )}
         </div>
 

@@ -117,6 +117,7 @@ describe('computeStopTarget pivot significance', () => {
     // 실제로 방어된 180이 목표가 된다 — 차트에 존재하는 가격이라는 점이 중요하다.
     expect(result.target).toBeCloseTo(180, 5)
     expect(result.riskReward).toBeGreaterThan(1)
+    expect(result.targetBasis).toBe('resistance')
   })
 })
 
@@ -144,6 +145,7 @@ describe('임팩트 투영 목표가', () => {
     // 전고점(150)을 넘어선 목표여야 한다
     expect(result.target!).toBeGreaterThan(150)
     expect(result.riskReward!).toBeGreaterThan(1)
+    expect(result.targetBasis).toBe('resistance')
   })
 
   it('목표까지 가는 길에 걸린 저항을 경유 저항으로 알려준다', () => {
@@ -153,6 +155,31 @@ describe('임팩트 투영 목표가', () => {
       expect(result.wayResistance).toBeGreaterThan(219)
       expect(result.wayResistance).toBeLessThan(result.target!)
     }
+  })
+})
+
+describe('신고가 코앞 2R 기본값', () => {
+  it('위쪽에 저항도, 이를 넘는 구간 고점도 없으면 고정 2R을 쓰고 그 근거를 표시한다', () => {
+    // 실제 신고된 문제 상황 재현: 60일 이상 꾸준히 오른 종목이 신고가 바로 아래로
+    // 살짝(1% 미만) 눌린 형태 — 눌림목 스크리너가 통과시키는 전형적인 모양이다.
+    // 되돌림이 얕아 직전 고점은 프로미넌스 기준(3%)에도, 최소 보상 기준(1R)에도
+    // 못 미쳐 저항으로 인정되지 않고, 구간 고점도 진입가+2R에 못 미친다 —
+    // 이 경우 고정 2R 기본값으로 떨어지는데, 이게 손익비가 2.00에 자주 뭉치는
+    // 원인이다(버그가 아니라 이 기본값이 반복 적용된 결과).
+    const bars = makeUptrendBars(70, 100, 1)
+    const peak = bars.at(-1)!.close
+    for (let i = 1; i <= 3; i++) {
+      const c = peak - i * 0.5
+      bars.push({ date: dayLabel(70 + i - 1), high: c + 0.5, low: c - 0.5, close: c })
+    }
+    const entry = bars.at(-1)!.close
+
+    const result = computeStopTarget(bars, entry)
+
+    expect(result.frame).toBe('trend')
+    expect(result.targetBasis).toBe('default_2r')
+    expect(result.riskReward).not.toBeNull()
+    expect(result.riskReward!).toBeCloseTo(2, 5)
   })
 })
 
@@ -176,6 +203,7 @@ describe('박스 기준 손익비', () => {
     expect(result.riskReward).not.toBeNull()
     expect(result.stop!).toBeLessThan(entry)
     expect(result.target!).toBeGreaterThan(entry)
+    expect(result.targetBasis).toBe('range_high')
   })
 
   it('이미 박스 상단이면 위쪽 여유가 없다고 알린다', () => {

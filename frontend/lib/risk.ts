@@ -47,6 +47,13 @@ export type RiskFrame = 'trend' | 'range'
 
 type TrendStatus = 'uptrend' | 'insufficient_data' | 'below_sma60' | 'sma60_falling'
 
+// 목표가가 어떤 근거로 나왔는지. 'resistance'/'period_high'는 차트에 실제로 찍힌
+// 가격이지만, 'default_2r'은 위쪽에 근거가 없을 때 쓰는 리스크 관리 규칙값이다
+// (실제 저항이 아님 — 신고가 부근 종목이 이 경로를 자주 타 손익비가 2.00으로
+// 뭉쳐 보이는데, 이는 버그가 아니라 이 기본값이 반복 사용된 결과다). 화면에서
+// 두 종류를 구분해 보여줘야 목표가를 차트 근거가 있는 값으로 오인하지 않는다.
+export type TargetBasis = 'resistance' | 'period_high' | 'default_2r' | 'range_high'
+
 export interface RiskResult {
   stop: number | null
   target: number | null
@@ -55,6 +62,7 @@ export interface RiskResult {
   frame: RiskFrame | null
   /** 진입가와 목표가 사이에 걸린 첫 저항 — 한 번 막힐 수 있는 지점 */
   wayResistance: number | null
+  targetBasis: TargetBasis | null
 }
 
 // Granular version of the uptrend gate: same thresholds as isUptrend, but reports WHICH
@@ -121,7 +129,7 @@ const MIN_REWARD_R = 1
 // 어떤 계산이든 넘지 않는 보상 상한 — 실제 저항이 없을 때 쓰는 2R 기준선도 이 안에 들어온다.
 const MAX_REWARD_R = 4
 
-const NO_RISK = { stop: null, target: null, riskReward: null, wayResistance: null } as const
+const NO_RISK = { stop: null, target: null, riskReward: null, wayResistance: null, targetBasis: null } as const
 
 /** 상승 추세 종목: 구조적 손절 + 실제 저항 기반 목표 */
 function trendFrame(bars: PriceBar[], entry: number): RiskResult {
@@ -149,14 +157,22 @@ function trendFrame(bars: PriceBar[], entry: number): RiskResult {
   const meaningful = pivotsAbove.filter((h) => h - entry >= MIN_REWARD_R * risk)
 
   let target: number
+  let targetBasis: TargetBasis
   if (meaningful.length > 0) {
     target = meaningful[0]
+    targetBasis = 'resistance'
+  } else if (periodHigh > entry + 2 * risk) {
+    // 위쪽에 의미 있는 저항은 없지만, 90일 구간 자체 고점은 2R보다 높다 — 그 고점을 쓴다.
+    target = periodHigh
+    targetBasis = 'period_high'
   } else {
-    // 위쪽에 실제 저항이 없음 = 신고가 부근. 예전엔 여기서 최근 상승폭을 그대로 앞에
-    // 투영했는데(임팩트 투영), 그 값이 차트에 한 번도 찍힌 적 없는 가격이라 실제
-    // 저항처럼 오인됐다. 이제는 미래를 예측하지 않고, 차트에 있는 periodHigh나
-    // 정해진 배수(2R) 중 하나만 근거로 쓴다.
-    target = Math.max(periodHigh, entry + 2 * risk)
+    // 위쪽에 실제 저항도, 그보다 높은 구간 고점도 없음 = 신고가 코앞. 예전엔 여기서
+    // 최근 상승폭을 그대로 앞에 투영했는데(임팩트 투영), 그 값이 차트에 한 번도
+    // 찍힌 적 없는 가격이라 실제 저항처럼 오인됐다(#29). 이제는 미래를 예측하지
+    // 않고 고정 2R을 쓴다 — 이건 차트 근거가 아니라 리스크 관리 규칙값이므로
+    // targetBasis로 구분해 화면에 그렇게 표시한다.
+    target = entry + 2 * risk
+    targetBasis = 'default_2r'
   }
 
   target = Math.min(target, entry + MAX_REWARD_R * risk)
@@ -172,6 +188,7 @@ function trendFrame(bars: PriceBar[], entry: number): RiskResult {
     reason: 'ok',
     frame: 'trend',
     wayResistance: onTheWay.length > 0 ? onTheWay[0] : null,
+    targetBasis,
   }
 }
 
@@ -201,6 +218,7 @@ function rangeFrame(bars: PriceBar[], entry: number): RiskResult {
     reason: 'ok',
     frame: 'range',
     wayResistance: null,
+    targetBasis: 'range_high',
   }
 }
 
