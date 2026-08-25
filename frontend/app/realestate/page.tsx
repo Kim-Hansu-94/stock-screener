@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { getRealestateMonthly } from '@/lib/queries/realestate'
 import { AREA_BANDS, regionOverview, regionRows, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
+import { RealestateMap } from '@/components/RealestateMap'
 import type { AreaBand } from '@/lib/types'
 
 async function RealestateContent({
@@ -19,10 +20,20 @@ async function RealestateContent({
   const rows = await getRealestateMonthly()
 
   if (!regionCode) {
+    const overview = regionOverview(rows)
+    const hasPricedRegion = overview.some((r) => r.latest.price_avg != null)
     return (
-      <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-        <RealestateOverviewTable regions={regionOverview(rows)} />
-      </section>
+      <div className="space-y-5">
+        {hasPricedRegion && (
+          <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+            <h2 className="mb-4 text-base font-bold text-foreground">지역별 매매가 지도</h2>
+            <RealestateMap regions={overview} />
+          </section>
+        )}
+        <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <RealestateOverviewTable regions={overview} />
+        </section>
+      </div>
     )
   }
 

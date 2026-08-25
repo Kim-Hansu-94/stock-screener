@@ -4,6 +4,7 @@ import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable
 import { WatchlistCard } from '@/components/WatchlistCard'
 import { StockCard } from '@/components/StockCard'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
+import { RealestateMap } from '@/components/RealestateMap'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
@@ -273,6 +274,11 @@ export default function PreviewPage() {
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
         <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 목록 (상승·하락·표본 부족 혼합)</h2>
         <RealestateOverviewTable regions={regionOverview(RE_OVERVIEW_ROWS)} />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지도 (일부 지역만 데이터 있음)</h2>
+        <RealestateMap regions={regionOverview(RE_OVERVIEW_ROWS)} />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
