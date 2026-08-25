@@ -2,9 +2,11 @@ import { notFound } from 'next/navigation'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 import { WatchlistCard } from '@/components/WatchlistCard'
+import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
-import type { WatchlistStatusRow } from '@/lib/types'
+import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
+import type { AreaBand, RealestateMonthlyRow, WatchlistStatusRow } from '@/lib/types'
 
 /**
  * 픽스처로 화면을 그려보는 개발용 미리보기.
@@ -96,11 +98,47 @@ const WATCHLIST: WatchlistStatusRow[] = [
     reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
 ]
 
+function reRow(over: Partial<RealestateMonthlyRow>): RealestateMonthlyRow {
+  return {
+    region_code: '11680', region_name: '서울 강남구', month: '2026-06-01', area_band: 'ALL',
+    deal_count: 42, price_avg: 250000, price_median: 245000, price_per_area_avg: 2900,
+    jeonse_count: 15, deposit_avg: 130000, deposit_median: 128000, monthly_rent_count: 3,
+    jeonse_ratio: 0.52, gap_avg: 120000,
+    ...over,
+  }
+}
+
+// 상승·하락·표본 부족(직전달 없음)·미수집(빈 지역)을 한 화면에서 함께 본다 —
+// 실제 데이터로는 이 조합이 좀처럼 안 나온다.
+const RE_OVERVIEW_ROWS: RealestateMonthlyRow[] = [
+  reRow({ month: '2026-05-01', price_avg: 240000 }),
+  reRow({ month: '2026-06-01', price_avg: 250000 }), // 강남 +4.2%
+  reRow({ region_code: '28185', region_name: '인천 연수구', month: '2026-05-01', price_avg: 90000 }),
+  reRow({ region_code: '28185', region_name: '인천 연수구', month: '2026-06-01', price_avg: 82000 }), // 연수 -8.9%
+  reRow({ region_code: '41590', region_name: '화성시', month: '2026-06-01', price_avg: 60000 }), // 직전달 없음
+]
+
+const RE_DETAIL_BAND_ROWS: RealestateMonthlyRow[] = [
+  reRow({ area_band: 'ALL', month: '2026-04-01', price_avg: 235000, deal_count: 30 }),
+  reRow({ area_band: 'ALL', month: '2026-05-01', price_avg: 240000, deal_count: 38 }),
+  reRow({ area_band: 'ALL', month: '2026-06-01', price_avg: 250000, deal_count: 42 }),
+  reRow({ area_band: '60~85', month: '2026-05-01', price_avg: 220000, deal_count: 20 }),
+  reRow({ area_band: '60~85', month: '2026-06-01', price_avg: 228000, deal_count: 24 }),
+]
+
+function detailByBand(rows: RealestateMonthlyRow[]): Record<AreaBand, DetailMonthRow[]> {
+  const byBand = {} as Record<AreaBand, DetailMonthRow[]>
+  for (const band of AREA_BANDS) byBand[band] = withMomChange(rows.filter((r) => r.area_band === band))
+  return byBand
+}
+
 export default function PreviewPage() {
   if (process.env.NODE_ENV === 'production') notFound()
 
+  // w-full: 부동산 상세의 넓은 표 때문에 <main>이 flex-stretch 대신 콘텐츠 폭으로 커지는
+  // 문제가 있었다 — 실제 페이지(app/realestate/page.tsx)와 같은 이유로 필요.
   return (
-    <main className="mx-auto max-w-4xl space-y-8 px-4 py-8">
+    <main className="mx-auto w-full max-w-4xl space-y-8 px-4 py-8">
       <h1 className="text-2xl font-bold text-foreground">컴포넌트 미리보기 (개발용)</h1>
 
       <section className="space-y-3">
@@ -133,6 +171,26 @@ export default function PreviewPage() {
         <h2 className="text-base font-semibold text-foreground">내 매매장 — 청산 완료</h2>
         <PaperTradeSummary closed={CLOSED_POSITIONS} />
         <PaperTradeTable items={CLOSED_POSITIONS} showSell={false} />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 목록 (상승·하락·표본 부족 혼합)</h2>
+        <RealestateOverviewTable regions={regionOverview(RE_OVERVIEW_ROWS)} />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 목록 (미수집)</h2>
+        <RealestateOverviewTable regions={[]} />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 상세 (구간별 펼치기 포함)</h2>
+        <RealestateDetailTable regionName="서울 강남구" byBand={detailByBand(RE_DETAIL_BAND_ROWS)} />
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 상세 (거래 없음)</h2>
+        <RealestateDetailTable regionName="인천 옹진군" byBand={detailByBand([])} />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">

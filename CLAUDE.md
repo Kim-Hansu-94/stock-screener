@@ -83,6 +83,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션(매도 신호 포함), 열린 티커 집합 |
+| `queries/realestate.ts` | 부동산 탭(`app/realestate/page.tsx`) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다 |
+| `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비)·지역 상세(월별+전월대비) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -95,7 +97,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `sectorMap.ts` | 섹터명 한글 번역 |
 | `calculations.ts` | 등락률·SMA·볼린저밴드 등 차트용 순수 계산 |
 | `supabase.ts` | Supabase 클라이언트 생성 |
-| `types.ts` (266줄) | 전체 타입 정의 |
+| `types.ts` (255줄) | 전체 타입 정의 |
 
 `queries/*` 함수 → 어느 화면에서 쓰는지:
 
@@ -108,6 +110,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `getMonthlyPriceHistory` | `opportunities.ts` | 오늘의 추천 (`api/daily-report`) |
 | `getScorecardTrades` / `getScreenedStockPerformance` / `getExitSignals` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 |
 | `fetchUsdKrwRate` / `fetchPriceRowsPaged` | `shared.ts` | 미장 원화 환산 · 가격 이력 페이지네이션 (여러 곳에서 공용) |
+| `getRealestateMonthly` | `queries/realestate.ts` | 부동산 동향 (`app/realestate/page.tsx`) |
 
 ## frontend/app/ — 페이지별 역할
 
@@ -117,6 +120,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
+| `realestate/` | 부동산 동향 — 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 표시는 `components/RealestateTables.tsx` |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 |
