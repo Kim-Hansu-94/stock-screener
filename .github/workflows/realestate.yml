@@ -17,6 +17,10 @@ on:
         description: '지역코드 스캔 (예: 28 또는 28,41). 넣으면 수집 대신 스캔만 한다'
         type: string
         default: ''
+      probe_month:
+        description: '프로브 대상 월(YYYYMM, 예: 202507). 생략하면 두 달 전을 쓴다 — 신설 지역을 찾을 땐 시행일 이후 달을 직접 지정할 것'
+        type: string
+        default: ''
 
 jobs:
   collect:
@@ -68,7 +72,7 @@ jobs:
         working-directory: pipeline
         run: |
           if [ -n "${{ github.event.inputs.probe }}" ]; then
-            python -m src.realestate_main --probe "${{ github.event.inputs.probe }}"
+            python -m src.realestate_main --probe "${{ github.event.inputs.probe }}" --probe-month "${{ github.event.inputs.probe_month }}"
           else
             python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}
           fi

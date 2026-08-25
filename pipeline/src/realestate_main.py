@@ -44,6 +44,15 @@ def main() -> None:
         default="",
         help="시도 코드 2자리(예: 28,41)를 주면 수집 대신 유효한 시군구 코드를 스캔한다",
     )
+    parser.add_argument(
+        "--probe-month",
+        default="",
+        help=(
+            "프로브에 쓸 계약월(YYYYMM). 생략하면 두 달 전(신고 기한이 지나 데이터가"
+            " 안정된 달)을 쓴다. 행정구역 개편으로 신설된 지역은 시행일 이후 달을"
+            " 직접 지정해야 한다 — 그 이전 달에는 새 코드로 거래가 없어 프로브에 안 걸린다."
+        ),
+    )
     args = parser.parse_args()
 
     # 워크플로는 시크릿을 pipeline/.env에 쓴다. main.py처럼 여기서도 읽어야
@@ -58,7 +67,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.probe:
-        _probe(args.probe)
+        _probe(args.probe, args.probe_month)
         return
 
     months = recent_months(date.today(), args.months)
@@ -79,12 +88,15 @@ def main() -> None:
     _report(diag)
 
 
-def _probe(prefixes: str) -> None:
+def _probe(prefixes: str, month: str = "") -> None:
     """행정구역 개편으로 코드가 바뀐 지역을 찾기 위한 일회성 스캔."""
     key = os.environ["MOLIT_API_KEY"]
-    # 두 달 전 — 거래가 충분히 쌓였고 신고 기한(30일)도 지난 달.
-    target = recent_months(date.today(), 3)[-1]
-    ym = f"{target[0]}{target[1]:02d}"
+    if month:
+        ym = month
+    else:
+        # 두 달 전 — 거래가 충분히 쌓였고 신고 기한(30일)도 지난 달.
+        target = recent_months(date.today(), 3)[-1]
+        ym = f"{target[0]}{target[1]:02d}"
 
     for prefix in [p.strip() for p in prefixes.split(",") if p.strip()]:
         print(f"시도 코드 {prefix}xxx 스캔 ({ym} 기준)...", flush=True)

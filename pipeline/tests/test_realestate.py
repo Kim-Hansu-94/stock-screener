@@ -460,6 +460,37 @@ def test_probe_reports_codes_that_return_data(monkeypatch):
     assert [code for code, _ in found] == ["28185", "28200"]
 
 
+def test_probe_month_override_is_used_instead_of_two_months_ago(monkeypatch):
+    """행정구역 개편 직후 신설된 지역은 시행일 이전 달로 프로브하면 절대 안 걸린다."""
+    from pipeline.src import realestate_main
+
+    seen_months: list[str] = []
+    monkeypatch.setattr(
+        realestate_main, "probe_prefix", lambda key, prefix, ym: seen_months.append(ym) or []
+    )
+    monkeypatch.setenv("MOLIT_API_KEY", "KEY")
+
+    realestate_main._probe("28", "202507")
+
+    assert seen_months == ["202507"]
+
+
+def test_probe_without_month_falls_back_to_two_months_ago(monkeypatch):
+    from pipeline.src import realestate_main
+    from pipeline.src.realestate_main import recent_months
+
+    seen_months: list[str] = []
+    monkeypatch.setattr(
+        realestate_main, "probe_prefix", lambda key, prefix, ym: seen_months.append(ym) or []
+    )
+    monkeypatch.setenv("MOLIT_API_KEY", "KEY")
+
+    realestate_main._probe("28")
+
+    target = recent_months(date.today(), 3)[-1]
+    assert seen_months == [f"{target[0]}{target[1]:02d}"]
+
+
 def test_probe_does_not_retry_timeouts(monkeypatch):
     """수집 경로는 타임아웃을 한 번 재시도하지만, 1,000번 두드리는 프로브에서
     재시도하면 막힌 날 시간이 두 배로 든다."""
