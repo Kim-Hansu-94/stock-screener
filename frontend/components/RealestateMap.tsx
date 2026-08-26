@@ -186,7 +186,7 @@ export function RealestateMap({ regions }: { regions: RegionTrend[] }) {
               // 500, 클라이언트는 하이드레이션 불일치로 깨진다.
               const tooltip = `${r.region_name}${price != null ? ` — ${formatManwon(price)}` : ' — 데이터 없음'}`
               return (
-                <a key={r.region_code} href={`/realestate?region=${r.region_code}`}>
+                <a key={r.region_code} href={`/?region=${r.region_code}`}>
                   {/* non-scaling-stroke: 확대해도 경계선이 굵어지지 않고 항상 화면 기준
                       같은 두께로 남는다. 라벨 글자는 반대로 확대할수록 커져야
                       촘촘한 서울 자치구까지 읽히므로 그대로 g의 scale을 따라간다. */}
