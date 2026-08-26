@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { LinkPendingSpinner } from '@/components/LinkPendingSpinner'
 
 const LINKS = [
   { href: '/', label: '눌림목 종목' },
@@ -29,6 +30,7 @@ export function NavLinks() {
             }`}
           >
             {label}
+            <LinkPendingSpinner />
           </Link>
         )
       })}
