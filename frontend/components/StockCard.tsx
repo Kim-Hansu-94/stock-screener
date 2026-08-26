@@ -11,12 +11,14 @@ import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
 import { translateSector } from '@/lib/sectorMap'
 import { MARKET_BEAR_CRITERION, STOCK_CRITERIA_COUNT } from '@/lib/screenerCriteria'
 import { BuyButton } from '@/components/TradeButton'
+import { LoadingFallback } from '@/components/LoadingFallback'
+import { Spinner } from '@/components/Spinner'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
 const StockChart = dynamic(
   () => import('./StockChart').then((mod) => mod.StockChart),
-  { ssr: false, loading: () => <p className="py-8 text-center text-xs text-muted-foreground">차트 로딩 중...</p> },
+  { ssr: false, loading: () => <LoadingFallback label="차트 로딩 중..." className="py-8" /> },
 )
 
 interface StockCardProps {
@@ -279,7 +281,10 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
               targetPrice={target ?? undefined}
             />
             {newsLoading && (
-              <p className="mt-4 text-xs text-muted-foreground">뉴스 불러오는 중...</p>
+              <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Spinner className="size-3" />
+                뉴스 불러오는 중...
+              </p>
             )}
             {!newsLoading && news && news.length > 0 && (
               <div className="mt-4 border-t border-border pt-3">

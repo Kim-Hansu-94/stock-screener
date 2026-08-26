@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatRelativeTime } from '@/lib/calculations'
+import { Spinner } from '@/components/Spinner'
 import type { NewsArticle } from '@/lib/types'
 
 /** 자동 갱신 주기 — 서버 라우트의 재검증 주기(1시간)와 같게 둔다. 더 자주 불러도 같은 응답만 받는다. */
@@ -74,7 +75,12 @@ export function StockNewsFeed({ query, className = '' }: { query: string; classN
           {news !== null && news.length > 0 && `· ${SOURCE_LABEL[state.source]} `}· 1시간마다 갱신
         </span>
       </p>
-      {news === null && !failed && <p className="text-xs text-muted-foreground">뉴스 불러오는 중...</p>}
+      {news === null && !failed && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Spinner className="size-3" />
+          뉴스 불러오는 중...
+        </p>
+      )}
       {news === null && failed && <p className="text-xs text-muted-foreground">뉴스를 불러오지 못했습니다.</p>}
       {news !== null && news.length === 0 && (
         <p className="text-xs text-muted-foreground">최근 기사가 없습니다.</p>
