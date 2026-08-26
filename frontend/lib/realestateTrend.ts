@@ -8,7 +8,9 @@ import type { AreaBand, RealestateMonthlyRow } from './types'
 export function formatManwon(manwon: number | null): string {
   if (manwon == null) return '—'
   const sign = manwon < 0 ? '-' : ''
-  return sign + formatKrwAmount(Math.abs(manwon) * 10000)
+  // 부동산 가격은 억 단위 안에서도 지역별 격차가 커서(예: 8.3억 vs 8.9억),
+  // 정수로 반올림하면 그 차이가 지워진다 — 소수 첫째자리까지 보여준다.
+  return sign + formatKrwAmount(Math.abs(manwon) * 10000, 1)
 }
 
 const GROUP_BY_PREFIX: Record<string, string> = { '11': '서울', '28': '인천', '41': '경기' }
