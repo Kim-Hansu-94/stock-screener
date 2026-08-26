@@ -116,175 +116,200 @@ function RegimeCriteria({ regime }: { regime: Regime | null }) {
   )
 }
 
-async function HomeContent() {
+// 카드 하나의 셸(그림자·모서리)만 공유해, 로딩 중에도 자리가 안정적으로 잡히게 한다.
+const SECTION_CARD_CLASS =
+  'space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]'
+
+function SectionSkeleton() {
+  return (
+    <div className={SECTION_CARD_CLASS}>
+      <p className="py-8 text-center text-sm text-muted-foreground">불러오는 중...</p>
+    </div>
+  )
+}
+
+// 감시 종목·한국장·미국장을 하나의 Suspense로 묶으면 셋 중 가장 느린 쿼리(보통 한국장의
+// 종목별 시세 조회) 하나 때문에 먼저 끝난 것도 같이 안 보이고 기다리게 된다. 셋을 독립된
+// 컴포넌트 + 각자의 Suspense로 나눠, 끝난 순서대로 스트리밍되게 한다.
+async function WatchlistSection() {
   await connection()
-  const [sections, usdKrwRate, watchlist, openTickers] = await Promise.all([
-    Promise.all(MARKETS.map(({ market, label, universe }) => loadMarketSection(market, label, universe))),
-    fetchUsdKrwRate(),
-    getWatchlistStatus(),
+  const watchlist = await getWatchlistStatus()
+  return <WatchlistCard rows={watchlist} />
+}
+
+async function MarketSection({ market, label, universe }: { market: Market; label: string; universe: string }) {
+  await connection()
+  const [section, openTickers, usdKrwRate] = await Promise.all([
+    loadMarketSection(market, label, universe),
     getOpenTickers(),
+    // 원화 환산은 미국장 카드에서만 쓰인다 — 한국장에서 굳이 환율 API를 기다리지 않는다.
+    market === 'US' ? fetchUsdKrwRate() : Promise.resolve(1),
   ])
 
   return (
-    <>
-      <WatchlistCard rows={watchlist} />
-      {sections.map((section) => (
-        <section key={section.market} className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-foreground">{section.label} 시장</h2>
-              <RegimePill regime={section.regime} />
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">{section.universe} 탐색</p>
-            <RegimeCriteria regime={section.regime} />
-            {section.date && (
-              <p className="mt-0.5 text-xs text-muted-foreground">기준: {section.date}</p>
-            )}
-          </div>
+    <section className={SECTION_CARD_CLASS}>
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-foreground">{section.label} 시장</h2>
+          <RegimePill regime={section.regime} />
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">{section.universe} 탐색</p>
+        <RegimeCriteria regime={section.regime} />
+        {section.date && (
+          <p className="mt-0.5 text-xs text-muted-foreground">기준: {section.date}</p>
+        )}
+      </div>
 
-          {section.error && <p className="text-sm text-destructive">{section.error}</p>}
+      {section.error && <p className="text-sm text-destructive">{section.error}</p>}
 
-          {!section.error && (
+      {!section.error && (
+        <>
+          <LeadingSectors marketLabel={section.label} sectors={section.sectors} />
+
+          {section.stocks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              오늘은 표시할 후보가 없습니다 (데이터 부족 또는 후보군 없음).
+            </p>
+          ) : (
             <>
-              <LeadingSectors marketLabel={section.label} sectors={section.sectors} />
-
-              {section.stocks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  오늘은 표시할 후보가 없습니다 (데이터 부족 또는 후보군 없음).
+              {!section.stocks.some((s) => s.passed) && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  오늘 전 조건을 충족한 종목은 없습니다. 아래는 조건에 가장 근접한 상위
+                  후보이며, 어떤 조건이 미달인지 카드에 표시됩니다. 참고용으로만 보세요.
                 </p>
-              ) : (
-                <>
-                  {!section.stocks.some((s) => s.passed) && (
-                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      오늘 전 조건을 충족한 종목은 없습니다. 아래는 조건에 가장 근접한 상위
-                      후보이며, 어떤 조건이 미달인지 카드에 표시됩니다. 참고용으로만 보세요.
-                    </p>
-                  )}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {section.stocks.map((stock) => (
-                      <StockCard
-                        key={stock.ticker}
-                        stock={stock}
-                        history={section.priceHistory[stock.ticker] ?? []}
-                        market={section.market}
-                        usdKrwRate={usdKrwRate}
-                        stop={section.riskMap[stock.ticker]?.stop ?? null}
-                        target={section.riskMap[stock.ticker]?.target ?? null}
-                        riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
-                        riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
-                        riskFrame={section.riskMap[stock.ticker]?.frame ?? null}
-                        wayResistance={section.riskMap[stock.ticker]?.wayResistance ?? null}
-                        targetBasis={section.riskMap[stock.ticker]?.targetBasis ?? null}
-                        owned={openTickers.has(`${section.market}:${stock.ticker}`)}
-                      />
-                    ))}
-                  </div>
-                </>
               )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {section.stocks.map((stock) => (
+                  <StockCard
+                    key={stock.ticker}
+                    stock={stock}
+                    history={section.priceHistory[stock.ticker] ?? []}
+                    market={section.market}
+                    usdKrwRate={usdKrwRate}
+                    stop={section.riskMap[stock.ticker]?.stop ?? null}
+                    target={section.riskMap[stock.ticker]?.target ?? null}
+                    riskReward={section.riskMap[stock.ticker]?.riskReward ?? null}
+                    riskReason={section.riskMap[stock.ticker]?.reason ?? 'insufficient_data'}
+                    riskFrame={section.riskMap[stock.ticker]?.frame ?? null}
+                    wayResistance={section.riskMap[stock.ticker]?.wayResistance ?? null}
+                    targetBasis={section.riskMap[stock.ticker]?.targetBasis ?? null}
+                    owned={openTickers.has(`${section.market}:${stock.ticker}`)}
+                  />
+                ))}
+              </div>
             </>
           )}
-        </section>
-      ))}
+        </>
+      )}
+    </section>
+  )
+}
 
-      <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-        <h3 className="text-sm font-semibold text-secondary-foreground">스크리닝 기준</h3>
-        <table className="mt-3 w-full border-collapse text-xs text-secondary-foreground">
-          <tbody className="divide-y divide-border">
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">대상 종목</td>
-              <td className="py-1.5">한국 코스피 · 코스닥 / 미국 S&amp;P 1500 (대형 · 중형 · 소형) + NASDAQ 100</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">시장 분위기</td>
-              <td className="py-1.5">지수 종가 &gt; 50일선 &gt; 200일선 (상승장 확인)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">주도 섹터</td>
-              <td className="py-1.5">최근 5일 거래대금 기준 상위 5개 섹터에 속한 종목 (초대형주는 면제: 한국 20조원 · 미국 2,000억달러 이상)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">시가총액</td>
-              <td className="py-1.5">한국 3,000억원 이상 / 미국 20억달러 이상</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">장기 추세</td>
-              <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선 + 현재가 &gt; 200일선</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">단기 눌림</td>
-              <td className="py-1.5">20일선 −5% ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">선행 상승</td>
-              <td className="py-1.5">최근 60거래일 수익률 +15% 이상 (강한 상승 파동 후의 눌림만)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">RSI</td>
-              <td className="py-1.5">40 ~ 60 구간 + 3일 전보다 상승 중</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">거래량</td>
-              <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균의 85% (매도 압력 약화)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">반등 확인</td>
-              <td className="py-1.5">당일 종가 &gt; 전일 고가 (하락 중 매수 방지)</td>
-            </tr>
-            <tr>
-              <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">급락 차단</td>
-              <td className="py-1.5">직전 2일 연속 −1% 초과 하락 시 제외</td>
-            </tr>
-          </tbody>
-        </table>
-        <p className="mt-3 text-xs text-muted-foreground">
-          매일 오전 6:30 (KST)에 파이프라인이 자동 실행됩니다. 미장 마감 직후이자 국내 개장(오전 9시) 이전이라
-          전 영업일 종가 기준으로 스크리닝하며, 완료 즉시 사이트 전체 데이터가 함께 갱신됩니다.
-          정시 실행이 실패한 날에는 오전 8시·11시 백업 스케줄이 자동으로 다시 실행합니다.
-        </p>
-        <p className="mt-2 text-xs text-muted-foreground">
-          전 조건 충족 종목이 5개 미만인 날에는 미달 조건이 가장 적은 근접 후보로 5개까지 채워
-          보여줍니다. 근접 후보는 카드에 미달 조건이 표시되며(하락장 날은 &lsquo;시장 하락장&rsquo; 포함),
-          매수 신호가 아닌 관찰 목록입니다. 추천 이력·성적표에는 전 조건 충족 종목만 집계됩니다.
-        </p>
-      </div>
+// 데이터에 의존하지 않는 정적 안내 카드 — Suspense 밖에 둬 정적 셸의 일부로 즉시 그려지게 한다.
+function ScreeningCriteria() {
+  return (
+    <div className={SECTION_CARD_CLASS}>
+      <h3 className="text-sm font-semibold text-secondary-foreground">스크리닝 기준</h3>
+      <table className="mt-3 w-full border-collapse text-xs text-secondary-foreground">
+        <tbody className="divide-y divide-border">
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">대상 종목</td>
+            <td className="py-1.5">한국 코스피 · 코스닥 / 미국 S&amp;P 1500 (대형 · 중형 · 소형) + NASDAQ 100</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">시장 분위기</td>
+            <td className="py-1.5">지수 종가 &gt; 50일선 &gt; 200일선 (상승장 확인)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">주도 섹터</td>
+            <td className="py-1.5">최근 5일 거래대금 기준 상위 5개 섹터에 속한 종목 (초대형주는 면제: 한국 20조원 · 미국 2,000억달러 이상)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">시가총액</td>
+            <td className="py-1.5">한국 3,000억원 이상 / 미국 20억달러 이상</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">장기 추세</td>
+            <td className="py-1.5">60일 이동평균선 우상향 + 현재가 &gt; 60일선 + 현재가 &gt; 200일선</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">단기 눌림</td>
+            <td className="py-1.5">20일선 −5% ≤ 현재가 ≤ 10일선 (눌림목 구간)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">선행 상승</td>
+            <td className="py-1.5">최근 60거래일 수익률 +15% 이상 (강한 상승 파동 후의 눌림만)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">RSI</td>
+            <td className="py-1.5">40 ~ 60 구간 + 3일 전보다 상승 중</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">거래량</td>
+            <td className="py-1.5">최근 5일 평균 거래량 &lt; 직전 20일 평균의 85% (매도 압력 약화)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">반등 확인</td>
+            <td className="py-1.5">당일 종가 &gt; 전일 고가 (하락 중 매수 방지)</td>
+          </tr>
+          <tr>
+            <td className="py-1.5 pr-4 font-medium text-muted-foreground whitespace-nowrap">급락 차단</td>
+            <td className="py-1.5">직전 2일 연속 −1% 초과 하락 시 제외</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-muted-foreground">
+        매일 오전 6:30 (KST)에 파이프라인이 자동 실행됩니다. 미장 마감 직후이자 국내 개장(오전 9시) 이전이라
+        전 영업일 종가 기준으로 스크리닝하며, 완료 즉시 사이트 전체 데이터가 함께 갱신됩니다.
+        정시 실행이 실패한 날에는 오전 8시·11시 백업 스케줄이 자동으로 다시 실행합니다.
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        전 조건 충족 종목이 5개 미만인 날에는 미달 조건이 가장 적은 근접 후보로 5개까지 채워
+        보여줍니다. 근접 후보는 카드에 미달 조건이 표시되며(하락장 날은 &lsquo;시장 하락장&rsquo; 포함),
+        매수 신호가 아닌 관찰 목록입니다. 추천 이력·성적표에는 전 조건 충족 종목만 집계됩니다.
+      </p>
+    </div>
+  )
+}
 
-      <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
-        <h3 className="text-sm font-semibold text-secondary-foreground">추천 매매 방법</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          이 스크리너는 스캘핑용이 아니라 눌림목 스윙 트레이드 구조로 설계되어 있습니다.
-        </p>
-        <ol className="mt-3 space-y-2.5 text-xs text-secondary-foreground">
-          <li className="flex gap-2">
-            <span className="font-semibold text-muted-foreground whitespace-nowrap">1. 보유 기간</span>
-            <span>
-              &quot;1주일&quot; 같은 고정 기간을 정하지 말고, 종목 카드에 표시되는 <b>손절가/목표가에 닿을 때까지 보유</b>합니다.
-              목표가는 직전 저항(피벗 고점) 기준이라 하루 만에 도달할 수도, 1~2주 넘게 걸릴 수도 있습니다.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span className="font-semibold text-muted-foreground whitespace-nowrap">2. 수량 결정</span>
-            <span>
-              손절 거리(진입가 − 손절가) 기준으로 <b>계좌의 1~2%만 리스크에 걸리도록</b> 수량을 정합니다.
-              RSI 40~60 구간 진입은 과매도 반등이 아닌 추세 지속 베팅이므로, 손절을 타이트하게 지키는 것이 중요합니다.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span className="font-semibold text-muted-foreground whitespace-nowrap">3. 진입 시점</span>
-            <span>
-              추천은 전 영업일 종가 기준이므로 실제 진입은 다음날 시가가 됩니다.
-              <b>시가가 크게 갭업해 있으면</b> 손익비가 이미 나빠진 상태이므로 그런 날은 스킵하거나 소량만 진입합니다.
-            </span>
-          </li>
-          <li className="flex gap-2">
-            <span className="font-semibold text-muted-foreground whitespace-nowrap">4. 중도 점검</span>
-            <span>
-              목표가 도달 전이라도 시장이 하락장으로 바뀌거나 추세가 꺾이면 미리 정리해야 합니다.
-              보유 중에는 <b>&quot;보유 종목 점검&quot; 탭</b>에서 이탈 신호를 매일 확인하세요.
-            </span>
-          </li>
-        </ol>
-      </div>
-    </>
+function TradingGuide() {
+  return (
+    <div className={SECTION_CARD_CLASS}>
+      <h3 className="text-sm font-semibold text-secondary-foreground">추천 매매 방법</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        이 스크리너는 스캘핑용이 아니라 눌림목 스윙 트레이드 구조로 설계되어 있습니다.
+      </p>
+      <ol className="mt-3 space-y-2.5 text-xs text-secondary-foreground">
+        <li className="flex gap-2">
+          <span className="font-semibold text-muted-foreground whitespace-nowrap">1. 보유 기간</span>
+          <span>
+            &quot;1주일&quot; 같은 고정 기간을 정하지 말고, 종목 카드에 표시되는 <b>손절가/목표가에 닿을 때까지 보유</b>합니다.
+            목표가는 직전 저항(피벗 고점) 기준이라 하루 만에 도달할 수도, 1~2주 넘게 걸릴 수도 있습니다.
+          </span>
+        </li>
+        <li className="flex gap-2">
+          <span className="font-semibold text-muted-foreground whitespace-nowrap">2. 수량 결정</span>
+          <span>
+            손절 거리(진입가 − 손절가) 기준으로 <b>계좌의 1~2%만 리스크에 걸리도록</b> 수량을 정합니다.
+            RSI 40~60 구간 진입은 과매도 반등이 아닌 추세 지속 베팅이므로, 손절을 타이트하게 지키는 것이 중요합니다.
+          </span>
+        </li>
+        <li className="flex gap-2">
+          <span className="font-semibold text-muted-foreground whitespace-nowrap">3. 진입 시점</span>
+          <span>
+            추천은 전 영업일 종가 기준이므로 실제 진입은 다음날 시가가 됩니다.
+            <b>시가가 크게 갭업해 있으면</b> 손익비가 이미 나빠진 상태이므로 그런 날은 스킵하거나 소량만 진입합니다.
+          </span>
+        </li>
+        <li className="flex gap-2">
+          <span className="font-semibold text-muted-foreground whitespace-nowrap">4. 중도 점검</span>
+          <span>
+            목표가 도달 전이라도 시장이 하락장으로 바뀌거나 추세가 꺾이면 미리 정리해야 합니다.
+            보유 중에는 <b>&quot;보유 종목 점검&quot; 탭</b>에서 이탈 신호를 매일 확인하세요.
+          </span>
+        </li>
+      </ol>
+    </div>
   )
 }
 
@@ -298,9 +323,18 @@ export default function HomePage() {
         </p>
       </div>
 
-      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
-        <HomeContent />
+      <Suspense fallback={<SectionSkeleton />}>
+        <WatchlistSection />
       </Suspense>
+
+      {MARKETS.map(({ market, label, universe }) => (
+        <Suspense key={market} fallback={<SectionSkeleton />}>
+          <MarketSection market={market} label={label} universe={universe} />
+        </Suspense>
+      ))}
+
+      <ScreeningCriteria />
+      <TradingGuide />
     </main>
   )
 }
