@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { cacheLife, cacheTag } from 'next/cache'
+import { LoadingFallback } from '@/components/LoadingFallback'
 import { SCREENER_CACHE_TAG, fetchUsdKrwRate } from '@/lib/queries/shared'
 import {
   getFundamentals,
@@ -113,7 +114,7 @@ async function DiscoverContent() {
 export default function DiscoverPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
-      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+      <Suspense fallback={<LoadingFallback />}>
         <DiscoverContent />
       </Suspense>
     </main>

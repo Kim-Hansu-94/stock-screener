@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
 import { LeadingSectors } from '@/components/LeadingSectors'
+import { LoadingFallback } from '@/components/LoadingFallback'
 import { StockCard } from '@/components/StockCard'
 import { WatchlistCard } from '@/components/WatchlistCard'
 import { fetchUsdKrwRate } from '@/lib/queries/shared'
@@ -123,7 +124,7 @@ const SECTION_CARD_CLASS =
 function SectionSkeleton() {
   return (
     <div className={SECTION_CARD_CLASS}>
-      <p className="py-8 text-center text-sm text-muted-foreground">불러오는 중...</p>
+      <LoadingFallback label="불러오는 중..." className="py-8" />
     </div>
   )
 }

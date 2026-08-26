@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from '@/components/StockChart'
+import { Spinner } from '@/components/Spinner'
 import type {
   DailyReportResult,
   DailyReportResponse,
@@ -32,7 +33,8 @@ export function DailyReport() {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-accent bg-accent p-4 text-sm text-accent-foreground">
+      <div className="flex items-center gap-2 rounded-lg border border-accent bg-accent p-4 text-sm text-accent-foreground">
+        <Spinner className="size-4" />
         패턴 매칭 결과 불러오는 중...
       </div>
     )

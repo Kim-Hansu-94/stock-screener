@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
+import { LoadingFallback } from '@/components/LoadingFallback'
 import { getPaperTrades } from '@/lib/queries/trades'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 
@@ -60,7 +61,7 @@ export default function PositionsPage() {
         </p>
       </div>
 
-      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+      <Suspense fallback={<LoadingFallback />}>
         <PositionsContent />
       </Suspense>
     </main>

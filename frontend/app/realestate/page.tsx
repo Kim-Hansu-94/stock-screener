@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { LoadingFallback } from '@/components/LoadingFallback'
 import { getRealestateMonthly } from '@/lib/queries/realestate'
 import { AREA_BANDS, regionOverview, regionRows, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
@@ -70,7 +71,7 @@ export default function RealestatePage({
         </p>
       </div>
 
-      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+      <Suspense fallback={<LoadingFallback />}>
         <RealestateContent searchParams={searchParams} />
       </Suspense>
     </main>

@@ -42,7 +42,7 @@ export function RealestateOverviewTable({ regions }: { regions: RegionTrend[] })
               <tbody className="divide-y divide-border">
                 {grouped.get(group)!.map((r) => (
                   <tr key={r.region_code} className="hover:bg-muted/50">
-                    <td className="px-2 py-1.5">
+                    <td className="px-2 py-1.5 whitespace-nowrap">
                       <Link
                         href={`/realestate?region=${r.region_code}`}
                         className="font-medium text-foreground hover:text-primary"
@@ -51,7 +51,7 @@ export function RealestateOverviewTable({ regions }: { regions: RegionTrend[] })
                         <LinkPendingSpinner />
                       </Link>
                     </td>
-                    <td className="px-2 py-1.5 text-right font-mono">{formatManwon(r.latest.price_avg)}</td>
+                    <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{formatManwon(r.latest.price_avg)}</td>
                     <td className={`px-2 py-1.5 text-right font-mono text-xs ${changeTextClass(r.momPricePct)}`}>
                       {r.momPricePct != null ? formatSignedPercent(r.momPricePct, 1) : '—'}
                     </td>
@@ -94,22 +94,22 @@ function MonthTable({ rows }: { rows: DetailMonthRow[] }) {
           {rows.map((row) => (
             <tr key={row.month} className="hover:bg-muted/50">
               <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{row.month.slice(0, 7)}</td>
-              <td className="px-2 py-1.5 text-right font-mono">{formatManwon(row.price_avg)}</td>
-              <td className={`px-2 py-1.5 text-right font-mono text-xs ${changeTextClass(row.momPricePct)}`}>
+              <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{formatManwon(row.price_avg)}</td>
+              <td className={`px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap ${changeTextClass(row.momPricePct)}`}>
                 {row.momPricePct != null ? formatSignedPercent(row.momPricePct, 1) : '—'}
               </td>
-              <td className="px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
+              <td className="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {row.price_per_area_avg != null
                   ? `${Math.round(row.price_per_area_avg).toLocaleString('ko-KR')}만원/㎡`
                   : '—'}
               </td>
-              <td className="px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
+              <td className="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {formatManwon(row.deposit_avg)}
               </td>
-              <td className="px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
+              <td className="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {formatManwon(row.gap_avg)}
               </td>
-              <td className="px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
+              <td className="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap text-muted-foreground">
                 {row.deal_count ?? 0}
               </td>
             </tr>

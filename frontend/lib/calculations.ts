@@ -64,14 +64,19 @@ export function relativeStrengthIndex(values: number[], window: number = 14): (n
   return result
 }
 
-export function formatKrwAmount(krw: number): string {
+/**
+ * @param eokDecimals 억원 단위일 때 보여줄 소수 자릿수. 시총처럼 자릿수가 큰 값은
+ * 반올림해도 티가 안 나 기본값 0을 쓰고, 부동산 평균가처럼 억 단위 안에서 오르내리는
+ * 값은 호출부(formatManwon)에서 1을 넘겨 소수 첫째자리까지 보여준다.
+ */
+export function formatKrwAmount(krw: number, eokDecimals = 0): string {
   const jo = 1_000_000_000_000
   const eok = 100_000_000
   if (krw >= jo) {
     return `${(krw / jo).toFixed(1)}조원`
   }
   if (krw >= eok) {
-    return `${Math.round(krw / eok)}억원`
+    return `${(krw / eok).toFixed(eokDecimals)}억원`
   }
   return `${Math.round(krw).toLocaleString('ko-KR')}원`
 }

@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { connection } from 'next/server'
+import { LoadingFallback } from '@/components/LoadingFallback'
 import { getScorecardTrades, getScreenedStockPerformance, getRegimesInRange } from '@/lib/queries/performance'
 import { segmentBy, summarize, MIN_SEGMENT_SAMPLE, MAX_HOLD_BARS } from '@/lib/scorecard'
 import { translateSector } from '@/lib/sectorMap'
@@ -116,7 +117,7 @@ export default function HistoryPage() {
         </p>
       </div>
 
-      <Suspense fallback={<p className="py-16 text-center text-muted-foreground">로딩 중...</p>}>
+      <Suspense fallback={<LoadingFallback />}>
         <HistoryContent />
       </Suspense>
     </main>
