@@ -205,7 +205,7 @@ export default function PreviewPage() {
   if (process.env.NODE_ENV === 'production') notFound()
 
   // w-full: 부동산 상세의 넓은 표 때문에 <main>이 flex-stretch 대신 콘텐츠 폭으로 커지는
-  // 문제가 있었다 — 실제 페이지(app/realestate/page.tsx)와 같은 이유로 필요.
+  // 문제가 있었다 — 실제 페이지(app/page.tsx, 부동산)와 같은 이유로 필요.
   return (
     <main className="mx-auto w-full max-w-4xl space-y-8 px-4 py-8">
       <h1 className="text-2xl font-bold text-foreground">컴포넌트 미리보기 (개발용)</h1>

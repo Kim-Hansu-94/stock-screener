@@ -1,4 +1,4 @@
-// 부동산 동향 탭(app/realestate) 쿼리.
+// 부동산 동향 탭(app/page.tsx, 홈) 쿼리.
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'

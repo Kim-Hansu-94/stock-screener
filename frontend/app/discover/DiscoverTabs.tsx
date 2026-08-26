@@ -9,9 +9,9 @@ import type { OpportunityStockRow } from '@/lib/types'
 type Tab = 'report' | 'search' | 'opportunity'
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: 'opportunity', label: '횡보 조정 종목' },
   { id: 'report', label: '오늘의 추천' },
   { id: 'search', label: '패턴 검색' },
-  { id: 'opportunity', label: '횡보 조정 종목' },
 ]
 
 export function DiscoverTabs({
@@ -25,7 +25,7 @@ export function DiscoverTabs({
   usdKrwRate: number
   ownedTickers: string[]
 }) {
-  const [tab, setTab] = useState<Tab>('report')
+  const [tab, setTab] = useState<Tab>('opportunity')
 
   return (
     <div className="space-y-5">
@@ -45,6 +45,15 @@ export function DiscoverTabs({
           </button>
         ))}
       </div>
+
+      {tab === 'opportunity' && (
+        <OpportunityTab
+          opportunities={opportunities}
+          opportunityError={opportunityError}
+          usdKrwRate={usdKrwRate}
+          ownedTickers={ownedTickers}
+        />
+      )}
 
       {tab === 'report' && (
         <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
@@ -76,15 +85,6 @@ export function DiscoverTabs({
           </div>
           <SimilaritySearch />
         </section>
-      )}
-
-      {tab === 'opportunity' && (
-        <OpportunityTab
-          opportunities={opportunities}
-          opportunityError={opportunityError}
-          usdKrwRate={usdKrwRate}
-          ownedTickers={ownedTickers}
-        />
       )}
     </div>
   )

@@ -44,7 +44,7 @@ export function RealestateOverviewTable({ regions }: { regions: RegionTrend[] })
                   <tr key={r.region_code} className="hover:bg-muted/50">
                     <td className="px-2 py-1.5 whitespace-nowrap">
                       <Link
-                        href={`/realestate?region=${r.region_code}`}
+                        href={`/?region=${r.region_code}`}
                         className="font-medium text-foreground hover:text-primary"
                       >
                         {r.region_name}
@@ -133,7 +133,7 @@ export function RealestateDetailTable({
   return (
     <div className="space-y-4">
       <div>
-        <Link href="/realestate" className="text-xs text-muted-foreground hover:text-foreground">
+        <Link href="/" className="text-xs text-muted-foreground hover:text-foreground">
           ← 지역 목록
           <LinkPendingSpinner />
         </Link>

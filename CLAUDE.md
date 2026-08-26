@@ -44,15 +44,15 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 | 테이블 | 쓰는 곳 | 읽는 곳 |
 |---|---|---|
-| `market_regime` | main.py | 홈 상승장/하락장 배지 |
-| `leading_sectors` | main.py | 홈 주도 섹터 |
-| `screened_stocks` | main.py | 홈 눌림목 카드 |
+| `market_regime` | main.py | 눌림목 종목 탭 상승장/하락장 배지 |
+| `leading_sectors` | main.py | 눌림목 종목 탭 주도 섹터 |
+| `screened_stocks` | main.py | 눌림목 종목 탭 카드 |
 | `stock_price_history` | main.py (600일치, 매주 자동 정리) | 손익비 계산, 차트 |
 | `stock_universe` | main.py | 종목명·섹터·시총 매핑 |
 | `stock_long_monthly` | long_history.py (10년 시드) + `accrue_long_monthly()`(매 실행, 확정 월봉 적립) | 10년 고점, 장기 하락 경고, **3년 고점의 600일 이전 구간** |
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 |
-| `watchlist_status` | watchlist.py | 홈 감시 종목 카드 |
+| `watchlist_status` | watchlist.py | 눌림목 종목 탭 감시 종목 카드 |
 | `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
@@ -78,12 +78,12 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | 파일 | 역할 |
 |---|---|
 | `queries/shared.ts` | `SCREENER_CACHE_TAG`, `fetchUsdKrwRate`, `fetchPriceRowsPaged`(공용 페이지네이션 헬퍼) |
-| `queries/screener.ts` | 홈 화면(`app/page.tsx`) 쿼리 — 눌림목 스크리너 + 감시 카드 |
+| `queries/screener.ts` | 눌림목 종목 화면(`app/pullback/page.tsx`) 쿼리 — 눌림목 스크리너 + 감시 카드 |
 | `queries/universe.ts` | 종목 유니버스(이름·섹터·시총) 메타 조회 — 여러 화면 공용 |
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션(매도 신호 포함), 열린 티커 집합 |
-| `queries/realestate.ts` | 부동산 탭(`app/realestate/page.tsx`) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다 |
+| `queries/realestate.ts` | 부동산 탭(`app/page.tsx`, 홈) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다 |
 | `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비, 매매가 내림차순)·지역 상세(월별+전월대비)·지도 색상(`priceMapColor`, 매매가 → 단일색조 연속 스케일) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
 | `data/capital-sigungu.json` | 수도권 77개 시군구 SVG 지도 좌표(사전 계산). 통계청 SGIS(2018, 공공누리 1유형) 경계를 `southkorea/southkorea-maps`에서 받아 LAWD_CD로 매핑하고 d3-geo로 투영해 만들었다(재현 스크립트는 저장 안 함 — 경계 자체가 거의 안 바뀌어 일회성). 옹진군은 원양 도서 때문에 투영 기준(fitSize)에서 뺐다 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
@@ -104,24 +104,24 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 | 함수 | 파일 | 화면 |
 |---|---|---|
-| `getLatestRegime` / `getLeadingSectors` / `getScreenedStocks` / `getPriceHistoryByTicker` | `screener.ts` | 홈 (`app/page.tsx`) |
-| `getWatchlistStatus` | `screener.ts` | 홈 감시 카드 |
+| `getLatestRegime` / `getLeadingSectors` / `getScreenedStocks` / `getPriceHistoryByTicker` | `screener.ts` | 눌림목 종목 (`app/pullback/page.tsx`) |
+| `getWatchlistStatus` | `screener.ts` | 눌림목 종목 탭 감시 카드 |
 | `getOpportunitySnapshot` / `getLongMonthlyHistory` / `getFundamentals` | `opportunities.ts` | 종목발굴 → 횡보·조정 (`app/discover/page.tsx`) |
 | `getUniverseStocks` / `getUniverseNameMap` / `getUniverseMarketCaps` | `universe.ts` | 유니버스 메타 조회 (여러 곳에서 공용) |
 | `getMonthlyPriceHistory` | `opportunities.ts` | 오늘의 추천 (`api/daily-report`) |
 | `getScorecardTrades` / `getScreenedStockPerformance` / `getExitSignals` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 |
 | `fetchUsdKrwRate` / `fetchPriceRowsPaged` | `shared.ts` | 미장 원화 환산 · 가격 이력 페이지네이션 (여러 곳에서 공용) |
-| `getRealestateMonthly` | `queries/realestate.ts` | 부동산 동향 (`app/realestate/page.tsx`) |
+| `getRealestateMonthly` | `queries/realestate.ts` | 부동산 동향 (`app/page.tsx`, 홈) |
 
 ## frontend/app/ — 페이지별 역할
 
 | 경로 | 내용 |
 |---|---|
-| `page.tsx` | 홈 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 |
-| `discover/` | 종목발굴 — 오늘의 추천(패턴유사도) / 패턴검색 / 횡보·조정(사전계산) 3탭. `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `DailyReport.tsx` / `SimilaritySearch.tsx` / `OpportunityTab.tsx`로 분리 |
-| `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
+| `page.tsx` | **홈(`/`)** — 부동산 동향. 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx`. 탭 순서 개편(2026-08)으로 구 `realestate/`가 루트로, 구 홈은 `pullback/`로 이동 |
+| `pullback/` | 눌림목 종목 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 (구 홈, 경로 `/pullback`) |
+| `discover/` | 종목발굴 — 횡보·조정(사전계산) / 오늘의 추천(패턴유사도) / 패턴검색 3탭(이 순서로 노출, 기본 선택 탭도 횡보·조정). `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `OpportunityTab.tsx` / `DailyReport.tsx` / `SimilaritySearch.tsx`로 분리 |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
-| `realestate/` | 부동산 동향 — 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx` |
+| `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `api/daily-report` | 오늘의 추천 API (Gold Standard 패턴 매칭) |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 |
@@ -130,7 +130,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 ## frontend/components/
 
-`StockCard.tsx`(홈 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
+`StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
 `WatchlistCard.tsx`(감시 카드) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx`
 
