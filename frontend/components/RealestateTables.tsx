@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { LinkPendingSpinner } from './LinkPendingSpinner'
 import { changeTextClass, formatSignedPercent } from '@/lib/marketColors'
 import { AREA_BAND_LABEL, formatManwon, regionGroup, type DetailMonthRow, type RegionTrend } from '@/lib/realestateTrend'
 import type { AreaBand } from '@/lib/types'
@@ -47,6 +48,7 @@ export function RealestateOverviewTable({ regions }: { regions: RegionTrend[] })
                         className="font-medium text-foreground hover:text-primary"
                       >
                         {r.region_name}
+                        <LinkPendingSpinner />
                       </Link>
                     </td>
                     <td className="px-2 py-1.5 text-right font-mono">{formatManwon(r.latest.price_avg)}</td>
@@ -133,6 +135,7 @@ export function RealestateDetailTable({
       <div>
         <Link href="/realestate" className="text-xs text-muted-foreground hover:text-foreground">
           ← 지역 목록
+          <LinkPendingSpinner />
         </Link>
         <h3 className="mt-1 text-base font-bold text-foreground">{regionName}</h3>
       </div>
