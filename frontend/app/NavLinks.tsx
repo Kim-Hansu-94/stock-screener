@@ -23,10 +23,10 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
-            className={`text-sm transition-colors break-keep ${
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm whitespace-nowrap transition-colors ${
               active
-                ? 'border-b-2 border-foreground pb-0.5 font-bold text-foreground'
-                : 'font-medium text-muted-foreground hover:text-foreground'
+                ? 'bg-accent font-bold text-accent-foreground'
+                : 'bg-secondary font-medium text-secondary-foreground hover:bg-border'
             }`}
           >
             {label}

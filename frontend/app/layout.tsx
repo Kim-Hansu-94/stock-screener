@@ -30,11 +30,15 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background">
         <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur-sm">
-          <nav className="mx-auto flex max-w-3xl items-center gap-4 px-4 py-3">
-            <span className="shrink-0 text-sm font-bold tracking-tight text-foreground break-keep">김한수의 보물지도</span>
-            {/* 탭이 6개로 늘면서 좁은 폰(320px)에서 넘친다 — 제목은 고정하고 탭 줄만
-                가로 스크롤로 받는다. */}
-            <div className="flex items-center gap-6 overflow-x-auto">
+          <nav className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
+            {/* 제목을 두 줄로 접어 탭 줄에 가로 폭을 더 내준다 — 탭이 6개로 늘면서
+                좁은 폰(320px)에서 마지막 탭(스크리너 성적)이 살짝 잘려 보이던 문제. */}
+            <span className="shrink-0 text-sm leading-tight font-bold tracking-tight text-foreground">
+              김한수의
+              <br />
+              보물지도
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 pr-1">
               <NavLinks />
             </div>
           </nav>
