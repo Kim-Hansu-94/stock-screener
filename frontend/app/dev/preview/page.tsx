@@ -179,12 +179,17 @@ function reRow(over: Partial<RealestateMonthlyRow>): RealestateMonthlyRow {
 
 // 상승·하락·표본 부족(직전달 없음)·미수집(빈 지역)을 한 화면에서 함께 본다 —
 // 실제 데이터로는 이 조합이 좀처럼 안 나온다.
+//
+// 화성시는 일부러 옛 코드(41590)가 아니라 분구된 새 코드 2개(41591/41593)로 넣는다 —
+// 지도 SVG 폴리곤은 옛 코드 하나뿐이라, mapPriceByCode의 병합이 없으면 이 케이스가
+// 회색으로 빠지는 걸 여기서 바로 확인할 수 있다.
 const RE_OVERVIEW_ROWS: RealestateMonthlyRow[] = [
   reRow({ month: '2026-05-01', price_avg: 240000 }),
   reRow({ month: '2026-06-01', price_avg: 250000 }), // 강남 +4.2%
   reRow({ region_code: '28185', region_name: '인천 연수구', month: '2026-05-01', price_avg: 90000 }),
   reRow({ region_code: '28185', region_name: '인천 연수구', month: '2026-06-01', price_avg: 82000 }), // 연수 -8.9%
-  reRow({ region_code: '41590', region_name: '화성시', month: '2026-06-01', price_avg: 60000 }), // 직전달 없음
+  reRow({ region_code: '41591', region_name: '화성 만세구', month: '2026-06-01', price_avg: 55000, deal_count: 20 }),
+  reRow({ region_code: '41593', region_name: '화성 효행구', month: '2026-06-01', price_avg: 65000, deal_count: 10 }),
 ]
 
 const RE_DETAIL_BAND_ROWS: RealestateMonthlyRow[] = [

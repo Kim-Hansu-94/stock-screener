@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { priceMapColor, regionGroup, regionOverview, regionRows, withMomChange } from './realestateTrend'
+import { mapPriceByCode, priceMapColor, regionGroup, regionOverview, regionRows, withMomChange } from './realestateTrend'
 import type { RealestateMonthlyRow } from './types'
 
 function row(over: Partial<RealestateMonthlyRow>): RealestateMonthlyRow {
@@ -112,6 +112,32 @@ describe('withMomChange', () => {
     const rows = [row({ month: '2026-05-01', price_avg: null }), row({ month: '2026-06-01', price_avg: 100000 })]
     const result = withMomChange(rows)
     expect(result[0].momPricePct).toBeNull()
+  })
+})
+
+describe('mapPriceByCode', () => {
+  it('passes through a region whose code was never split', () => {
+    const rows = [row({ region_code: '11680', price_avg: 250000 })]
+    const map = mapPriceByCode(regionOverview(rows))
+    expect(map.get('11680')).toBe(250000)
+  })
+
+  it('merges a split region into its legacy code by count-weighted average', () => {
+    const rows = [
+      row({ region_code: '41591', region_name: '화성 만세구', price_avg: 55000, deal_count: 20 }),
+      row({ region_code: '41593', region_name: '화성 효행구', price_avg: 65000, deal_count: 10 }),
+    ]
+    const map = mapPriceByCode(regionOverview(rows))
+    // (55000*20 + 65000*10) / 30
+    expect(map.get('41590')).toBeCloseTo(58333.33, 1)
+    // 새 코드 자체도 지역 상세용으로 그대로 남아 있어야 한다.
+    expect(map.get('41591')).toBe(55000)
+  })
+
+  it('leaves the legacy code out when none of its children have a sale price yet', () => {
+    const rows = [row({ region_code: '41591', region_name: '화성 만세구', price_avg: null, deal_count: 0 })]
+    const map = mapPriceByCode(regionOverview(rows))
+    expect(map.has('41590')).toBe(false)
   })
 })
 
