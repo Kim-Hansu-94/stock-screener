@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import capitalSigungu from '@/lib/data/capital-sigungu.json'
-import { formatManwon, priceMapColor, PRICE_SCALE_NO_DATA } from '@/lib/realestateTrend'
+import { formatManwon, mapPriceByCode, priceMapColor, PRICE_SCALE_NO_DATA, SPLIT_REGION_CHILDREN } from '@/lib/realestateTrend'
 import type { RegionTrend } from '@/lib/realestateTrend'
 
 const [VB_X, VB_Y, VB_W, VB_H] = capitalSigungu.viewBox.split(' ').map(Number)
@@ -26,10 +26,7 @@ function toViewBoxPoint(rect: DOMRect, clientX: number, clientY: number) {
 }
 
 export function RealestateMap({ regions }: { regions: RegionTrend[] }) {
-  const priceByCode = new Map<string, number>()
-  for (const r of regions) {
-    if (r.latest.price_avg != null) priceByCode.set(r.region_code, r.latest.price_avg)
-  }
+  const priceByCode = mapPriceByCode(regions)
   const prices = [...priceByCode.values()]
 
   const svgRef = useRef<SVGSVGElement>(null)
@@ -185,8 +182,11 @@ export function RealestateMap({ regions }: { regions: RegionTrend[] }) {
               // 표현식 두 개(배열)면 안 되고 문자열 하나여야 한다 — 안 그러면 서버는
               // 500, 클라이언트는 하이드레이션 불일치로 깨진다.
               const tooltip = `${r.region_name}${price != null ? ` — ${formatManwon(price)}` : ' — 데이터 없음'}`
+              // 분구된 지역은 이 폴리곤의 옛 코드로 상세를 조회해도 데이터가 없다(새
+              // 코드로만 쌓인다) — 그 지역의 첫 번째 신설구로 대신 이동시킨다.
+              const linkCode = SPLIT_REGION_CHILDREN[r.region_code]?.[0] ?? r.region_code
               return (
-                <a key={r.region_code} href={`/?region=${r.region_code}`}>
+                <a key={r.region_code} href={`/?region=${linkCode}`}>
                   {/* non-scaling-stroke: 확대해도 경계선이 굵어지지 않고 항상 화면 기준
                       같은 두께로 남는다. 라벨 글자는 반대로 확대할수록 커져야
                       촘촘한 서울 자치구까지 읽히므로 그대로 g의 scale을 따라간다. */}

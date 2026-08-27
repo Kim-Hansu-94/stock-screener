@@ -100,6 +100,44 @@ const PRICE_SCALE_L_MIN = 24 // 가장 비쌈 → 가장 진하게
 const PRICE_SCALE_L_MAX = 90 // 가장 쌈 → 배경에 가깝게 연하게
 export const PRICE_SCALE_NO_DATA = '#e5e8eb'
 
+// 지도 SVG(capital-sigungu.json)는 2018년 SGIS 경계를 그대로 쓰는데, 그 뒤 분구된
+// 지역(부천 2024-01-01, 화성 2026-02-01)은 폴리곤이 옛 코드 하나 그대로인 반면
+// 실거래는 새 코드 여러 개로 나뉘어 들어온다 — 그대로 두면 데이터가 있어도 옛 코드로
+// 매칭이 안 돼 회색으로 보인다. 폴리곤을 다시 그리기 전까지는 새 코드들을 건수
+// 가중 평균으로 합쳐 옛 폴리곤 자리에 칠한다.
+//
+// 인천 중구·동구·서구(2026-07-01, 제물포·영종·서해·검단구 분구)는 뺐다 — 영종도가
+// 중구에서 갈라져 나가 옛 폴리곤과 새 코드가 1:1도 다대다 합산도 아니고, 새 코드 4개
+// (28125/28155/28275/28290)가 어느 구 이름인지도 아직 확인 전이라 잘못 합치면 오히려
+// 틀린 값을 보여주게 된다.
+export const SPLIT_REGION_CHILDREN: Record<string, string[]> = {
+  '41190': ['41192', '41194', '41196'], // 부천시 → 원미·소사·오정구
+  '41590': ['41591', '41593', '41595', '41597'], // 화성시 → 만세·효행·병점·동탄구
+}
+
+/** region_code → 최신 매매 평균가. 분구된 옛 코드는 SPLIT_REGION_CHILDREN의 새 코드들을
+ * 건수 가중 평균으로 합쳐 채운다(지도가 옛 폴리곤 하나로 계속 그리기 때문). */
+export function mapPriceByCode(regions: RegionTrend[]): Map<string, number> {
+  const byCode = new Map(regions.map((r) => [r.region_code, r.latest]))
+  const result = new Map<string, number>()
+  for (const r of regions) {
+    if (r.latest.price_avg != null) result.set(r.region_code, r.latest.price_avg)
+  }
+  for (const [legacyCode, children] of Object.entries(SPLIT_REGION_CHILDREN)) {
+    let weightedSum = 0
+    let totalCount = 0
+    for (const code of children) {
+      const latest = byCode.get(code)
+      if (latest?.price_avg == null) continue
+      const count = latest.deal_count ?? 0
+      totalCount += count
+      weightedSum += latest.price_avg * count
+    }
+    if (totalCount > 0) result.set(legacyCode, weightedSum / totalCount)
+  }
+  return result
+}
+
 export function priceMapColor(price: number, min: number, max: number): string {
   const t = max > min ? Math.min(1, Math.max(0, (price - min) / (max - min))) : 0.5
   const lightness = PRICE_SCALE_L_MAX - t * (PRICE_SCALE_L_MAX - PRICE_SCALE_L_MIN)
