@@ -23,14 +23,16 @@ export function NavLinks() {
           <Link
             key={href}
             href={href}
-            className={`text-sm transition-colors break-keep ${
+            className={`relative shrink-0 rounded-full px-3 py-1.5 text-sm whitespace-nowrap transition-colors ${
               active
-                ? 'border-b-2 border-foreground pb-0.5 font-bold text-foreground'
-                : 'font-medium text-muted-foreground hover:text-foreground'
+                ? 'bg-accent font-bold text-accent-foreground'
+                : 'bg-secondary font-medium text-secondary-foreground hover:bg-border'
             }`}
           >
             {label}
-            <LinkPendingSpinner />
+            {/* absolute 배치 — 인라인으로 두면 보이지 않을 때도 오른쪽에 폭을 차지해
+                텍스트가 버튼 중앙에서 왼쪽으로 밀린다 (레이아웃에서 완전히 뺀다). */}
+            <LinkPendingSpinner className="absolute top-1/2 right-1.5 size-3 -translate-y-1/2" />
           </Link>
         )
       })}
