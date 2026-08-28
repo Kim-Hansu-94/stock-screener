@@ -3,6 +3,7 @@ import { Geist_Mono } from "next/font/google";
 import { NavLinks } from "./NavLinks";
 import { ScrollButtons } from "@/components/ScrollButtons";
 import { DailyAlertPopup } from "@/components/DailyAlertPopup";
+import { SwipeNavigation } from "@/components/SwipeNavigation";
 import "./globals.css";
 
 // 본문 폰트는 globals.css의 --font-sans(Pretendard self-host)가 담당한다.
@@ -44,7 +45,7 @@ export default function RootLayout({
             </div>
           </nav>
         </header>
-        {children}
+        <SwipeNavigation>{children}</SwipeNavigation>
         <ScrollButtons />
         <DailyAlertPopup />
       </body>
