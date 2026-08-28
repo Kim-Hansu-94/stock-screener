@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { DailyAlertPreview } from './DailyAlertPreview'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 import { WatchlistCard } from '@/components/WatchlistCard'
@@ -214,6 +215,11 @@ export default function PreviewPage() {
   return (
     <main className="mx-auto w-full max-w-4xl space-y-8 px-4 py-8">
       <h1 className="text-2xl font-bold text-foreground">컴포넌트 미리보기 (개발용)</h1>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">사이트 진입 알림 팝업</h2>
+        <DailyAlertPreview />
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">성적 카드 — 상태별</h2>

@@ -76,6 +76,18 @@ export interface OpportunitySnapshotRow {
   as_of_date: string | null
 }
 
+/** 사이트 진입 팝업(DailyAlertPopup)용 — /api/alerts 응답 */
+export interface AlertStock {
+  ticker: string
+  market: Market
+  name: string
+  nameKr: string | null
+}
+
+export interface OpportunityAlertStock extends AlertStock {
+  score: number
+}
+
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
 export interface FundamentalsRow {
   ticker: string
