@@ -27,7 +27,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 |---|---|
 | `main.py` | 파이프라인 전체 오케스트레이션 (엔트리포인트, `python -m src.main [--kr-only]`) |
 | `pipeline.py` | KR/US 스크리닝 실행 (`run_kr_pipeline` / `run_us_pipeline`), 눌림목 후보 선정 |
-| `screener.py` | 눌림목 조건 평가 (`evaluate_pullback`) — 9개 CRITERION_* 판정 |
+| `screener.py` | 눌림목 조건 평가 (`evaluate_pullback`) — 8개 CRITERION_* 판정 |
 | `universe_kr.py` / `universe_us.py` | KOSPI / S&P1500+NASDAQ100+Russell3000 유니버스 수집 |
 | `prices_kr.py` | FinanceDataReader로 국장 일봉 조회 |
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |

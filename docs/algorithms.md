@@ -25,9 +25,15 @@ KR/US 공용. Python(`pipeline/src/indicators.py`)과 TS(`frontend/lib/calculati
 
 ## 눌림목 스크리닝 (pipeline/src/screener.py)
 
-`evaluate_pullback()`이 9개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
+`evaluate_pullback()`이 8개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
 전부 평가해 **미달 조건 목록**을 반환한다(통과/탈락 이분법이 아님 — 전원 미달인 날도
 "가장 근접한" 상위 후보를 보여주기 위해).
+
+`frontend/lib/screenerCriteria.ts`의 `STOCK_CRITERIA_COUNT`도 이 8과 반드시 같아야 한다.
+과거 한때 9로 잘못 박혀 있었는데("급락 차단"이라는, 실제로는 구현된 적 없는 9번째 조건이
+UI 안내 문구에만 있었음) — `StockCard.tsx`의 `totalCriteria - failed_criteria.length` 계산이
+분모를 그 값으로 쓰므로, 숫자가 실제 CRITERION_* 개수보다 크면 모든 종목이 그 차이만큼
+"공짜로 통과"한 것처럼 보인다(2026-08, 아베크롬비 9/9 표시를 계기로 발견).
 
 | 조건 (failed_criteria 라벨) | 판정식 | 상수 |
 |---|---|---|

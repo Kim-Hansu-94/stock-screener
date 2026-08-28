@@ -116,7 +116,7 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
 
   const newsQuery = market === 'KR' ? (stock.name_kr || stock.name) : stock.ticker
 
-  // 하락장 날은 시장 조건 1개가 더해져 분모가 10, 평상시엔 9.
+  // 하락장 날은 시장 조건 1개가 더해져 분모가 9, 평상시엔 8.
   const totalCriteria =
     STOCK_CRITERIA_COUNT + (stock.failed_criteria.includes(MARKET_BEAR_CRITERION) ? 1 : 0)
   const metCriteria = totalCriteria - stock.failed_criteria.length
