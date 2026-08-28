@@ -110,7 +110,7 @@ export default function HistoryPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">스크리너 성적</h1>
         <p className="text-sm text-muted-foreground">
-          홈 화면에 뜬 종목을 그대로 샀다면 어땠을지를 봅니다. 9개 조건을 전부 채우는 날은
+          홈 화면에 뜬 종목을 그대로 샀다면 어땠을지를 봅니다. 8개 조건을 전부 채우는 날은
           드물어서 상위 후보(미달 1~2개)까지 함께 집계하고, 조건 충족도별로 성적을 갈라
           보여줍니다. 추천일 종가에 사서 목표가에 팔거나 손절가에 걸리는 것으로 가정하고,
           {MAX_HOLD_BARS}거래일 안에 둘 다 안 걸리면 그날 종가로 정리한 것으로 칩니다.
