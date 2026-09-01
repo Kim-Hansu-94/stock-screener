@@ -23,6 +23,9 @@ PULLBACK_LOWER_TOLERANCE = 0.05  # sma20 대비 5%까지 하회 허용 — 대�
 # 좁은 눌림목 구간(sma20~sma10)에 잘 걸리지 않아 하한을 sma20 아래로 넓힌다.
 BOUNCE_LOOKBACK = MID_TERM_WINDOW  # 조정 시작점(H)/조정 저점(L)을 재는 창 — 눌림구간과 같은 스케일
 BOUNCE_VOLUME_WINDOW = MID_TERM_WINDOW
+MAX_PULLBACK_RETRACEMENT = 0.5  # 직전 상승폭(IMPULSE_LOOKBACK_DAYS 구간 저→고)의 50% 넘게
+# 되돌리면 조정이 아니라 추세 하락(매매의 기술) — SMA20*0.95 하한은 이평선 대비 상대
+# 위치일 뿐이라 "얼마나 깊게 빠졌나"를 직접 재지 못해 이 조건으로 보완한다.
 
 
 # 조건별 실패 라벨 — DB(failed_criteria text[])에 그대로 저장되어 프론트에 표시된다.
@@ -34,6 +37,7 @@ CRITERION_RSI_RISING = "RSI 하락 중"
 CRITERION_VOLUME = "거래량 미감소"
 CRITERION_IMPULSE = "선행 상승 부족"
 CRITERION_BOUNCE = "반등 미확인"
+CRITERION_PULLBACK_DEPTH = "조정 과다"
 
 
 @dataclass
@@ -109,6 +113,18 @@ def evaluate_pullback(
     impulse_gain = float(latest_close / close.iloc[-1 - IMPULSE_LOOKBACK_DAYS] - 1)
     if impulse_gain < IMPULSE_MIN_GAIN:
         failed.append(CRITERION_IMPULSE)
+
+    # 조정 깊이 상한 — 직전 상승폭(같은 IMPULSE_LOOKBACK_DAYS 구간의 저→고)의 50%를
+    # 넘게 되돌리면 조정이 아니라 추세 하락으로 본다(매매의 기술). SMA20*0.95 하한은
+    # 이평선 대비 상대 위치일 뿐이라, 급등 후 급락한 종목이 SMA20까지 빠르게 내려오면
+    # 이 조건 없이는 걸러지지 않았다.
+    impulse_window = close.iloc[-IMPULSE_LOOKBACK_DAYS:]
+    impulse_low = impulse_window.min()
+    impulse_high = impulse_window.max()
+    if impulse_high > impulse_low:
+        retracement = (impulse_high - latest_close) / (impulse_high - impulse_low)
+        if retracement > MAX_PULLBACK_RETRACEMENT:
+            failed.append(CRITERION_PULLBACK_DEPTH)
 
     # 반등 확인 — 『매매의 기술』 50% 룰. 직전 하락폭(조정 시작 고가 H → 조정 저점 L)의
     # 절반을 되돌려야 진입("직전 매도자 전체를 손실로 만들 만큼 강한 매수세"), 거래량
