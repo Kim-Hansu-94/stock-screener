@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
-import { EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, assessEarnings } from '@/lib/fundamentals'
+import {
+  EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, ONE_TIME_GAIN_LABEL, ONE_TIME_GAIN_NOTE,
+  PROFIT_SOURCE_LABEL, assessEarnings,
+} from '@/lib/fundamentals'
 import { changeTextClass } from '@/lib/marketColors'
 import { StockChart } from '@/components/StockChart'
 import type { NewsArticle, OpportunityStockRow } from '@/lib/types'
@@ -302,6 +305,11 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
                   {earnings.years.prior} → {earnings.years.latest}
                 </span>
               )}
+              {earnings.oneTimeGainFlag && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {ONE_TIME_GAIN_LABEL}
+                </span>
+              )}
             </div>
             <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
               {earnings.revenueChange != null && (
@@ -315,7 +323,9 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
               )}
               {earnings.profitChange != null && (
                 <div className="flex gap-1">
-                  <dt className="text-muted-foreground">순이익</dt>
+                  <dt className="text-muted-foreground">
+                    {earnings.profitSource != null ? PROFIT_SOURCE_LABEL[earnings.profitSource] : '이익'}
+                  </dt>
                   <dd className={changeTextClass(earnings.profitChange)}>
                     {earnings.profitChange >= 0 ? '+' : ''}
                     {earnings.profitChange.toFixed(0)}%
@@ -338,6 +348,9 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
             <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
               {EARNINGS_NOTE[earnings.verdict]}
             </p>
+            {earnings.oneTimeGainFlag && (
+              <p className="mt-1 text-xs leading-relaxed text-amber-800">{ONE_TIME_GAIN_NOTE}</p>
+            )}
           </div>
         )}
         <div ref={sentinelRef} className="mt-4 min-h-80">

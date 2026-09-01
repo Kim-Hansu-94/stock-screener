@@ -233,13 +233,27 @@ lookback `5`)이어야 스크리닝 결과와 화면 표시가 안 어긋난다.
 (밸류에이션 조정)"를 가른다. 전년 대비 변화율 = `(latest-prior)/|prior|` (분모가
 음수여도 부호가 안 뒤집히게 절댓값).
 
+**이익 판정은 당기순이익이 아니라 영업이익 기준이다** (2026-09-01, 개선안 5번).
+친절한 주식책 + 한눈에 보는 실전 재무제표가 같은 지적을 한다 — 당기순이익은
+자산 매각 같은 일회성 항목을 포함해 "진짜 돈을 버는 능력"을 왜곡한다(한국전력
+2015년: 본사 부지 매각으로 영업이익 11.3조인데 당기순이익 13.4조, 이듬해
+7조원대로 급감). `primaryProfit()`이 `operating_income_latest/prior`가 둘 다
+있으면 그걸 쓰고, 없으면(구 데이터·수집 실패) `net_income_*`으로 대체한다 —
+어느 쪽을 썼는지는 `profitSource: 'operating' | 'net'`으로 남아 배지 라벨에
+그대로 쓰인다.
+
 | 판정 | 조건 |
 |---|---|
-| `loss` | 최신 회계연도 순이익 < 0 |
+| `loss` | 최신 회계연도 이익(영업이익 우선) < 0 |
 | `deteriorating` | 매출 ≤ -20%(`REVENUE_DROP`) **그리고** 이익 ≤ -30%(`PROFIT_DROP`) |
 | `resilient` | 매출 ≥ -5%(`REVENUE_FLAT`) **그리고** 이익 ≥ -10%(`PROFIT_FLAT`) |
 | `mixed` | 위 두 경우에 안 걸리는 나머지(방향이 엇갈리거나 애매) |
 | `unknown` | 데이터 없음 |
+
+**일회성 손익 경보** (`oneTimeGainFlag`): `|net_income_latest - operating_income_latest| /
+|operating_income_latest| > 0.3`(`ONE_TIME_GAIN_THRESHOLD`)이면 별도 배지("💡 일회성
+손익 비중 큼")를 위 판정과 별개로 함께 표시한다 — 영업이익 데이터가 없으면(비교
+기준이 없으므로) 경보를 내지 않는다.
 
 ## 장기 고점/하락 (frontend/lib/longTermContext.ts)
 
