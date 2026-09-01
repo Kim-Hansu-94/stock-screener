@@ -4,6 +4,7 @@ import pandas as pd
 from pipeline.src.screener import (
     CRITERION_BOUNCE,
     CRITERION_IMPULSE,
+    CRITERION_PULLBACK_DEPTH,
     CRITERION_RSI_RISING,
     CRITERION_VOLUME,
     evaluate_pullback,
@@ -211,3 +212,48 @@ def test_evaluate_returns_none_when_insufficient_history():
     close = pd.Series(100 + np.linspace(0, 10, 50))
     volume = pd.Series([1_000_000.0] * 50)
     assert evaluate_pullback(close, volume, close.copy(), close.copy(), close.copy()) is None
+
+
+def _spike_then_deep_pullback() -> Bars:
+    """60일 구간 안에서 급등(130→280) 후 저점(154)까지 급락, 이후 부분 회복.
+
+    최종 되돌림이 53.3%로 MAX_PULLBACK_RETRACEMENT(0.5)를 넘어 조정 과다에 걸린다.
+    급락 자체가 RSI·임팩트도 함께 흔들어(RSI 하락/선행 상승 부족) 이 조건만 단독으로
+    분리하긴 어렵다 — 세 조건이 같이 실패하는 걸 그대로 검증한다.
+    """
+    total_len, spike_start, spike_peak_pos = 100, 20, 50
+    peak_val, trough_pos, trough_val = 280.0, 60, 154.0
+    recov_end_val, final_close = 224.0, 212.8
+    final_tail = [
+        recov_end_val * 0.99, recov_end_val * 0.985, recov_end_val * 0.99,
+        recov_end_val * 0.995, final_close,
+    ]
+
+    close = np.zeros(total_len)
+    close[:spike_start] = np.linspace(100, 130, spike_start)
+    close[spike_start:spike_peak_pos] = np.linspace(130, peak_val, spike_peak_pos - spike_start)
+    close[spike_peak_pos:trough_pos] = np.linspace(peak_val, trough_val, trough_pos - spike_peak_pos)
+    recov_len = total_len - trough_pos - len(final_tail)
+    close[trough_pos:trough_pos + recov_len] = np.linspace(trough_val, recov_end_val, recov_len)
+    close[trough_pos + recov_len:] = final_tail
+
+    close = pd.Series(close)
+    volume = pd.Series([1_000_000.0] * (total_len - 5) + [600_000, 550_000, 500_000, 480_000, 1_000_000.0])
+    high = close + 1
+    low = close - 1
+    open_ = close.copy()
+    open_.iloc[-1] = close.iloc[-1] - 0.5
+    return close, volume, high, low, open_
+
+
+def test_fails_when_pullback_retraces_more_than_half_of_impulse():
+    close, volume, high, low, open_ = _spike_then_deep_pullback()
+    assert passes_pullback_filter(close, volume, high, low, open_) is False
+
+
+def test_evaluate_labels_pullback_depth_failure():
+    close, volume, high, low, open_ = _spike_then_deep_pullback()
+    ev = evaluate_pullback(close, volume, high, low, open_)
+    assert ev is not None
+    assert ev.passed is False
+    assert CRITERION_PULLBACK_DEPTH in ev.failed

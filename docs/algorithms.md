@@ -25,15 +25,18 @@ KR/US 공용. Python(`pipeline/src/indicators.py`)과 TS(`frontend/lib/calculati
 
 ## 눌림목 스크리닝 (pipeline/src/screener.py)
 
-`evaluate_pullback()`이 8개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
+`evaluate_pullback()`이 9개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
 전부 평가해 **미달 조건 목록**을 반환한다(통과/탈락 이분법이 아님 — 전원 미달인 날도
 "가장 근접한" 상위 후보를 보여주기 위해).
 
-`frontend/lib/screenerCriteria.ts`의 `STOCK_CRITERIA_COUNT`도 이 8과 반드시 같아야 한다.
-과거 한때 9로 잘못 박혀 있었는데("급락 차단"이라는, 실제로는 구현된 적 없는 9번째 조건이
-UI 안내 문구에만 있었음) — `StockCard.tsx`의 `totalCriteria - failed_criteria.length` 계산이
-분모를 그 값으로 쓰므로, 숫자가 실제 CRITERION_* 개수보다 크면 모든 종목이 그 차이만큼
-"공짜로 통과"한 것처럼 보인다(2026-08, 아베크롬비 9/9 표시를 계기로 발견).
+`frontend/lib/screenerCriteria.ts`의 `STOCK_CRITERIA_COUNT`도 이 9와 반드시 같아야 한다.
+**과거 한때 9로 잘못 박혀 있었던 적이 있다**("급락 차단"이라는, 실제로는 구현된 적 없는
+9번째 조건이 UI 안내 문구에만 있었음, 2026-08 아베크롬비 9/9 표시를 계기로 발견) —
+그때는 8이 맞는 값이었다. 지금의 9는 그 사고와는 무관하게, 2026-09-01 **조정 과다**
+조건(`CRITERION_PULLBACK_DEPTH`)을 실제로 추가하면서 늘어난 값이다. `StockCard.tsx`의
+`totalCriteria - failed_criteria.length` 계산이 분모를 이 값으로 쓰므로, 실제
+CRITERION_* 개수와 어긋나면 모든 종목이 그 차이만큼 "공짜로 통과"하거나 부당하게
+깎인 것처럼 보인다 — 조건을 추가/제거할 때마다 반드시 같이 맞출 것.
 
 | 조건 (failed_criteria 라벨) | 판정식 | 상수 |
 |---|---|---|
@@ -44,6 +47,7 @@ UI 안내 문구에만 있었음) — `StockCard.tsx`의 `totalCriteria - failed
 | `RSI 하락 중` | `RSI14[-1] > RSI14[-1-3]` | `RSI_DIRECTION_LOOKBACK=3` |
 | `거래량 미감소` | `volume_ratio(5일/20일) < 0.65` | `VOLUME_DECLINE_THRESHOLD=0.65` |
 | `선행 상승 부족` | 최근 60거래일 수익률 ≥ +15% | `IMPULSE_LOOKBACK_DAYS=60`, `IMPULSE_MIN_GAIN=0.15` |
+| `조정 과다` | 직전 상승폭(같은 60일 구간의 저→고) 대비 되돌림 `(high60-close)/(high60-low60) ≤ 0.5` | `MAX_PULLBACK_RETRACEMENT=0.5` (같은 `IMPULSE_LOOKBACK_DAYS` 구간 재사용) |
 | `반등 미확인` | 50% 룰(『매매의 기술』): `close ≥ L + 0.5*(H-L)` AND `volume[-1] > 최근 20일 평균` AND `close > open` — H/L은 당일을 뺀 최근 20일 고가/저가(조정 시작점/저점의 근사) | `BOUNCE_LOOKBACK=20`, `BOUNCE_VOLUME_WINDOW=20` |
 
 최소 데이터: `MIN_HISTORY_DAYS=85`봉 미만이면 평가 자체를 건너뜀(None, 랭킹 제외).

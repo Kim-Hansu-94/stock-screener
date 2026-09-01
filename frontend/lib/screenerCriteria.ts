@@ -3,8 +3,8 @@
  * pipeline/src/pipeline.py의 MARKET_BEAR_CRITERION과 동기 유지.
  */
 
-/** 종목 단위 조건 개수 (screener.py의 CRITERION_* 8개) */
-export const STOCK_CRITERIA_COUNT = 8
+/** 종목 단위 조건 개수 (screener.py의 CRITERION_* 9개) */
+export const STOCK_CRITERIA_COUNT = 9
 
 /**
  * 시장 단위 미달 조건. 하락장인 날은 pipeline.py가 이걸 모든 후보의
