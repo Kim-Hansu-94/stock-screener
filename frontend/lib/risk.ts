@@ -1,4 +1,14 @@
-export type PriceBar = { date: string; high: number; low: number; close: number }
+// open/volume은 선택 필드다. 손절·목표 계산에는 필요 없고 exitSignal의 대량거래 음봉
+// 판정에서만 쓰는데, 그 판정은 값이 없으면 조용히 건너뛴다(데이터 구멍을 신호로
+// 오인하지 않기 위해). 그래서 이 둘을 안 채우는 기존 호출부는 그대로 동작한다.
+export type PriceBar = {
+  date: string
+  high: number
+  low: number
+  close: number
+  open?: number
+  volume?: number
+}
 
 // Bounds a bar series to a point in time, so callers computing risk for a past
 // entry never leak in bars from after that date (which would mix the entry's
