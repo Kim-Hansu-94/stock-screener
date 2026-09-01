@@ -42,7 +42,7 @@ UI 안내 문구에만 있었음) — `StockCard.tsx`의 `totalCriteria - failed
 | `눌림 구간 밖` | `SMA20*(1-0.05) ≤ close ≤ SMA10` | `PULLBACK_LOWER_TOLERANCE=0.05` |
 | `RSI 범위 밖` | `40 ≤ RSI14 ≤ 60` | `RSI_LOW=40`, `RSI_HIGH=60` |
 | `RSI 하락 중` | `RSI14[-1] > RSI14[-1-3]` | `RSI_DIRECTION_LOOKBACK=3` |
-| `거래량 미감소` | `volume_ratio(5일/20일) < 0.85` | `VOLUME_DECLINE_THRESHOLD=0.85` |
+| `거래량 미감소` | `volume_ratio(5일/20일) < 0.65` | `VOLUME_DECLINE_THRESHOLD=0.65` |
 | `선행 상승 부족` | 최근 60거래일 수익률 ≥ +15% | `IMPULSE_LOOKBACK_DAYS=60`, `IMPULSE_MIN_GAIN=0.15` |
 | `반등 미확인` | 당일 종가 > 전일 고가 (하락 중 매수 방지) | — |
 
