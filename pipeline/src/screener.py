@@ -21,6 +21,8 @@ IMPULSE_LOOKBACK_DAYS = 60
 IMPULSE_MIN_GAIN = 0.15  # 선행 임팩트: 최근 60거래일 수익률 +15% 이상인 종목만
 PULLBACK_LOWER_TOLERANCE = 0.05  # sma20 대비 5%까지 하회 허용 — 대형주는 변동성이 낮아
 # 좁은 눌림목 구간(sma20~sma10)에 잘 걸리지 않아 하한을 sma20 아래로 넓힌다.
+BOUNCE_LOOKBACK = MID_TERM_WINDOW  # 조정 시작점(H)/조정 저점(L)을 재는 창 — 눌림구간과 같은 스케일
+BOUNCE_VOLUME_WINDOW = MID_TERM_WINDOW
 
 
 # 조건별 실패 라벨 — DB(failed_criteria text[])에 그대로 저장되어 프론트에 표시된다.
@@ -45,6 +47,8 @@ def evaluate_pullback(
     close: pd.Series,
     volume: pd.Series,
     high: pd.Series,
+    low: pd.Series,
+    open_: pd.Series,
     *,
     require_sma200: bool = False,
 ) -> PullbackEvaluation | None:
@@ -106,9 +110,17 @@ def evaluate_pullback(
     if impulse_gain < IMPULSE_MIN_GAIN:
         failed.append(CRITERION_IMPULSE)
 
-    # 반등 확인: 당일 종가가 전일 고가를 넘어야 진입 — 하락 중 매수(falling knife) 방지.
-    # 백테스트(KR 시총 상위 500, 2010~) 전 보유기간에서 유일하게 일관된 개선 조건.
-    if not (latest_close > high.iloc[-2]):
+    # 반등 확인 — 『매매의 기술』 50% 룰. 직전 하락폭(조정 시작 고가 H → 조정 저점 L)의
+    # 절반을 되돌려야 진입("직전 매도자 전체를 손실로 만들 만큼 강한 매수세"), 거래량
+    # 증가 + 양봉을 함께 요구한다(거래량은 느는데 음봉이면 오히려 매도 신호 — 매도 제2원칙).
+    # 이전 조건("종가 > 전일 고가")은 전일 봉 크기에 따라 난이도가 들쭉날쭉했다
+    # (도지면 너무 쉽고 장대음봉이면 사실상 불가능) — 조정 폭 대비 상대적인 이 기준으로 교체.
+    bounce_h = high.iloc[-1 - BOUNCE_LOOKBACK : -1].max()
+    bounce_l = low.iloc[-1 - BOUNCE_LOOKBACK : -1].min()
+    recovered_half = latest_close >= bounce_l + 0.5 * (bounce_h - bounce_l)
+    volume_rising = volume.iloc[-1] > volume.iloc[-1 - BOUNCE_VOLUME_WINDOW : -1].mean()
+    bullish = latest_close > open_.iloc[-1]
+    if not (recovered_half and volume_rising and bullish):
         failed.append(CRITERION_BOUNCE)
 
     return PullbackEvaluation(passed=not failed, failed=failed, impulse_gain=impulse_gain)
@@ -118,8 +130,10 @@ def passes_pullback_filter(
     close: pd.Series,
     volume: pd.Series,
     high: pd.Series,
+    low: pd.Series,
+    open_: pd.Series,
     *,
     require_sma200: bool = False,
 ) -> bool:
-    ev = evaluate_pullback(close, volume, high, require_sma200=require_sma200)
+    ev = evaluate_pullback(close, volume, high, low, open_, require_sma200=require_sma200)
     return ev is not None and ev.passed

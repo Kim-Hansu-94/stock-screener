@@ -98,7 +98,8 @@ def _screen_candidates(
         if hist.empty:
             continue
         ev = evaluate_pullback(
-            hist["Close"], hist["Volume"], hist["High"], require_sma200=require_sma200,
+            hist["Close"], hist["Volume"], hist["High"], hist["Low"], hist["Open"],
+            require_sma200=require_sma200,
         )
         if ev is None:
             continue
