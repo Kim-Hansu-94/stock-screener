@@ -66,12 +66,16 @@ const OPEN_POSITIONS: PaperPosition[] = [
   pos('open-1', {}),
   pos('open-2', { ticker: 'MU', market: 'US', name: '마이크론', source: 'opportunity',
     entry_price: 120, currentPrice: 104.4, returnPct: -13, peakDrawdownPct: -18.7, holdingDays: 12,
-    exitSignal: { date: '2026-08-04', price: 111.6, reasons: ['bear', 'trend'] },
+    exitSignal: { date: '2026-08-04', price: 111.6, reasons: ['breakdown'] },
     signalReturnPct: -7 }),
   pos('open-3', { ticker: '035720', name: '카카오', entry_price: 50000, currentPrice: 46000,
     returnPct: -8, peakDrawdownPct: -12.1, holdingDays: 30,
     exitSignal: { date: '2026-07-21', price: 45000, reasons: ['stop'] },
     signalReturnPct: -10 }),
+  pos('open-4', { ticker: '373220', name: 'LG에너지솔루션', entry_price: 400000,
+    currentPrice: 388000, returnPct: -3, peakDrawdownPct: -6.4, holdingDays: 8,
+    exitSignal: { date: '2026-08-12', price: 392000, reasons: ['distribution', 'trend'] },
+    signalReturnPct: -2 }),
 ]
 
 const CLOSED_POSITIONS: PaperPosition[] = [
@@ -82,7 +86,7 @@ const CLOSED_POSITIONS: PaperPosition[] = [
   pos('closed-2', { ticker: 'DLTR', market: 'US', name: '달러트리', source: 'opportunity',
     entry_price: 95, currentPrice: 88.35, returnPct: -7, exit_date: '2026-07-28', exit_price: 88.35,
     peakDrawdownPct: null, isOpen: false, holdingDays: 22,
-    exitSignal: { date: '2026-07-02', price: 91.2, reasons: ['trend'] }, signalReturnPct: -4 }),
+    exitSignal: { date: '2026-07-02', price: 91.2, reasons: ['breakdown'] }, signalReturnPct: -4 }),
 ]
 
 function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {

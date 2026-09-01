@@ -102,7 +102,7 @@ export async function getPaperTrades(): Promise<PaperPosition[]> {
 
     const [priceRows, context] = await Promise.all([
       fetchPriceRowsPaged<PriceBar & { ticker: string }>(
-        market, tickers, 'ticker, date, high, low, close', sinceStr,
+        market, tickers, 'ticker, date, open, high, low, close, volume', sinceStr,
       ),
       loadMarketContext(market, sinceStr),
     ])
@@ -110,7 +110,10 @@ export async function getPaperTrades(): Promise<PaperPosition[]> {
 
     for (const row of priceRows) {
       const key = `${market}:${row.ticker}`
-      const b = { date: row.date, high: row.high, low: row.low, close: row.close }
+      const b = {
+        date: row.date, open: row.open, high: row.high,
+        low: row.low, close: row.close, volume: row.volume,
+      }
       const bucket = barsByKey.get(key)
       if (bucket) bucket.push(b)
       else barsByKey.set(key, [b])
@@ -140,6 +143,7 @@ export async function getPaperTrades(): Promise<PaperPosition[]> {
       ? findExitSignal({
           futureBars: heldBars,
           trailingBars,
+          source: row.source,
           stop,
           target,
           sector: row.sector,
