@@ -44,7 +44,7 @@ UI 안내 문구에만 있었음) — `StockCard.tsx`의 `totalCriteria - failed
 | `RSI 하락 중` | `RSI14[-1] > RSI14[-1-3]` | `RSI_DIRECTION_LOOKBACK=3` |
 | `거래량 미감소` | `volume_ratio(5일/20일) < 0.65` | `VOLUME_DECLINE_THRESHOLD=0.65` |
 | `선행 상승 부족` | 최근 60거래일 수익률 ≥ +15% | `IMPULSE_LOOKBACK_DAYS=60`, `IMPULSE_MIN_GAIN=0.15` |
-| `반등 미확인` | 당일 종가 > 전일 고가 (하락 중 매수 방지) | — |
+| `반등 미확인` | 50% 룰(『매매의 기술』): `close ≥ L + 0.5*(H-L)` AND `volume[-1] > 최근 20일 평균` AND `close > open` — H/L은 당일을 뺀 최근 20일 고가/저가(조정 시작점/저점의 근사) | `BOUNCE_LOOKBACK=20`, `BOUNCE_VOLUME_WINDOW=20` |
 
 최소 데이터: `MIN_HISTORY_DAYS=85`봉 미만이면 평가 자체를 건너뜀(None, 랭킹 제외).
 
