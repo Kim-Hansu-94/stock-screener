@@ -8,6 +8,7 @@ import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '
 import {
   EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, ONE_TIME_GAIN_LABEL, ONE_TIME_GAIN_NOTE,
   PROFIT_SOURCE_LABEL, assessEarnings,
+  FINANCIAL_HEALTH_CLASS, FINANCIAL_HEALTH_LABEL, FINANCIAL_HEALTH_NOTE, assessFinancialHealth,
 } from '@/lib/fundamentals'
 import { changeTextClass } from '@/lib/marketColors'
 import { StockChart } from '@/components/StockChart'
@@ -173,6 +174,7 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
         : 'bg-muted text-muted-foreground'
   const grade = buyGrade(stock.score, stock.higherLows)
   const earnings = assessEarnings(stock.fundamentals)
+  const health = assessFinancialHealth(stock.fundamentals)
 
   const formatPrice = (price: number) =>
     stock.market === 'KR'
@@ -350,6 +352,39 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
             </p>
             {earnings.oneTimeGainFlag && (
               <p className="mt-1 text-xs leading-relaxed text-amber-800">{ONE_TIME_GAIN_NOTE}</p>
+            )}
+          </div>
+        )}
+
+        {health.verdict !== 'unknown' && (
+          <div className="mt-3 rounded-lg border border-border p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">재무건전성</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${FINANCIAL_HEALTH_CLASS[health.verdict]}`}>
+                {FINANCIAL_HEALTH_LABEL[health.verdict]}
+              </span>
+            </div>
+            <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
+              {health.currentRatio != null && (
+                <div className="flex gap-1">
+                  <dt className="text-muted-foreground">유동비율</dt>
+                  <dd>{health.currentRatio.toFixed(2)}</dd>
+                </div>
+              )}
+              {health.debtToEquity != null && (
+                <div className="flex gap-1">
+                  <dt className="text-muted-foreground">부채/자본</dt>
+                  <dd>{health.debtToEquity.toFixed(2)}</dd>
+                </div>
+              )}
+            </dl>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              {FINANCIAL_HEALTH_NOTE[health.verdict]}
+            </p>
+            {health.debtToEquity != null && (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                부채/자본은 업종별 편차가 커서(예: 제조업 4.0도 정상, 소프트웨어 0.0도 정상) 등급을 매기지 않습니다 — 참고용 숫자입니다.
+              </p>
             )}
           </div>
         )}

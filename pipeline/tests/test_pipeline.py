@@ -12,25 +12,36 @@ from pipeline.src import pipeline as pl
 LAST_BAR_DATE = date(2024, 1, 3)
 
 
-def _passing_history(n_up=195, total_gain=120, drop_pct=0.038) -> pd.DataFrame:
+def _passing_history(n_up=195, total_gain=120, drop_pct=0.05) -> pd.DataFrame:
     # screener.py's rsi_rising 조건(3일 전보다 RSI가 높아야 함)을 만족하려면 단순
     # 단조 하락 꼬리로는 안 되고, 하락 뒤에 최근 3일간 반등이 있어야 RSI가 다시
     # 올라간다. day1에 급락 후 day3~5에 완만히 반등하는 모양으로 구성한다.
-    # total_gain=120(60거래일 impulse 조건 +15% 충족)과 drop_pct=0.038(sma20<=close<=sma10
+    # total_gain=120(60거래일 impulse 조건 +15% 충족)과 drop_pct=0.05(sma20<=close<=sma10
     # 눌림목 구간에 정확히 걸치도록)은 실험적으로 맞춘 값이다.
+    #
+    # 반등 확인(50% 룰, 2026-09-01 적용)은 마지막 날이 직전 조정폭의 절반을 회복 +
+    # 거래량 증가 + 양봉이어야 한다 — day3~5 배율과 마지막 날 거래량·시가는 이 세
+    # 조건과 눌림구간·RSI 범위를 동시에 만족하도록 실험적으로 맞춘 값이다
+    # (조금만 더 회복하면 눌림구간·RSI를 벗어나고, 덜 회복하면 반등 조건에 못 미친다).
     base = 100 + np.linspace(0, total_gain, n_up)
     peak = base[-1]
     day1 = peak * (1 - drop_pct)
     day2 = day1
-    day3 = day2 * 1.002
-    day4 = day3 * 1.006
-    day5 = day4 * 1.008
+    day3 = day2 * 1.005
+    day4 = day3 * 1.01
+    day5 = day4 * 1.012
     pullback = [day1, day2, day3, day4, day5]
     close = list(base) + pullback
-    volume = [1_000_000.0] * n_up + [600_000, 550_000, 500_000, 480_000, 450_000]
+    # 마지막 날 거래량은 직전 20일 평균보다 높아야 한다(반등 확인 조건). 그 앞
+    # 4일은 우상향 구간(1,000,000) 대비 감소해야 한다(거래량 미감소 조건).
+    volume = [1_000_000.0] * n_up + [600_000, 550_000, 500_000, 480_000, 1_000_000.0]
     index = pd.date_range(end=LAST_BAR_DATE, periods=len(close))
+    open_ = list(close)
+    open_[-1] = close[-1] - 0.3  # 마지막 날 양봉(종가 > 시가) — 반등 확인 조건
+    high = list(close)
+    low = list(close)
     return pd.DataFrame({
-        "Open": close, "High": close, "Low": close, "Close": close, "Volume": volume,
+        "Open": open_, "High": high, "Low": low, "Close": close, "Volume": volume,
     }, index=index)
 
 

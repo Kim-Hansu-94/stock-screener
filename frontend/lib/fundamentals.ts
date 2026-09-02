@@ -135,3 +135,68 @@ export const PROFIT_SOURCE_LABEL: Record<'operating' | 'net', string> = {
 export const ONE_TIME_GAIN_LABEL = '💡 일회성 손익 비중 큼'
 export const ONE_TIME_GAIN_NOTE =
   '당기순이익이 영업이익과 크게 다릅니다. 자산 매각 등 일회성 항목이 실적을 부풀리거나 깎았을 수 있어, 위 판정은 영업이익 기준으로 봤습니다.'
+
+// ── 재무건전성 ──────────────────────────────────────────────────────────
+// 한눈에 보는 실전 재무제표: "단기적 관점에서 재무 건전성을 측정하는 가장 중요한
+// 지표는 유동성이다." 유동비율(유동자산÷유동부채)엔 책이 준 구체적 기준(2.0 이상
+// 양호)이 있어 verdict로 등급을 매긴다. 부채비율(부채총계÷자본총계)은 책 자신이
+// "업종별로 완전히 다르다"고 경고한 지표라(예: GM 4.0, 마이크로소프트 0.0 둘 다
+// 정상) verdict에 안 넣고 참고용 숫자로만 보여준다 — PER/PBR과 같은 취급이다.
+//
+// 2026-09-02 기준 KR(DART)만 데이터가 있다 — US(yfinance)는 대차대조표 조회에
+// API 호출이 하나 더 필요해 아직 안 채운다. US 종목은 자연히 'unknown'으로 뜬다.
+
+export type FinancialHealthVerdict = 'healthy' | 'weak' | 'fragile' | 'unknown'
+
+/** 유동비율이 이 이상이면 양호 (한눈에 보는 실전 재무제표: "일반 제조업체 기준 양호") */
+const CURRENT_RATIO_HEALTHY = 2.0
+/** 유동비율이 이 미만이면 취약 (책: "지급책임을 가까스로 이행"하는 경계선) */
+const CURRENT_RATIO_FRAGILE = 1.0
+
+export interface FinancialHealthAssessment {
+  verdict: FinancialHealthVerdict
+  /** 유동자산 ÷ 유동부채 */
+  currentRatio: number | null
+  /** 부채총계 ÷ 자본총계 — 업종별 편차가 커서 verdict에는 반영하지 않는 참고값 */
+  debtToEquity: number | null
+}
+
+export function assessFinancialHealth(row: FundamentalsRow | null | undefined): FinancialHealthAssessment {
+  if (!row) return { verdict: 'unknown', currentRatio: null, debtToEquity: null }
+
+  const { current_assets, current_liabilities, total_liabilities, total_equity } = row
+  const currentRatio =
+    current_assets !== null && current_liabilities !== null && current_liabilities !== 0
+      ? current_assets / current_liabilities
+      : null
+  const debtToEquity =
+    total_liabilities !== null && total_equity !== null && total_equity !== 0
+      ? total_liabilities / total_equity
+      : null
+
+  if (currentRatio === null) return { verdict: 'unknown', currentRatio, debtToEquity }
+  if (currentRatio >= CURRENT_RATIO_HEALTHY) return { verdict: 'healthy', currentRatio, debtToEquity }
+  if (currentRatio >= CURRENT_RATIO_FRAGILE) return { verdict: 'weak', currentRatio, debtToEquity }
+  return { verdict: 'fragile', currentRatio, debtToEquity }
+}
+
+export const FINANCIAL_HEALTH_LABEL: Record<FinancialHealthVerdict, string> = {
+  healthy: '유동성 양호',
+  weak: '유동성 보통',
+  fragile: '⚠️ 유동성 취약',
+  unknown: '재무 데이터 없음',
+}
+
+export const FINANCIAL_HEALTH_CLASS: Record<FinancialHealthVerdict, string> = {
+  healthy: 'bg-accent text-accent-foreground',
+  weak: 'bg-muted text-muted-foreground',
+  fragile: 'bg-destructive/10 text-destructive',
+  unknown: 'bg-muted text-muted-foreground/70',
+}
+
+export const FINANCIAL_HEALTH_NOTE: Record<FinancialHealthVerdict, string> = {
+  healthy: '유동자산이 유동부채의 2배 이상입니다. 단기 지급 능력에 여유가 있습니다.',
+  weak: '유동비율이 1~2배 사이입니다. 지급 책임은 가까스로 이행하는 수준이라 여유가 크지 않습니다.',
+  fragile: '유동비율이 1배 미만입니다. 유동부채가 유동자산보다 많아 단기 지급 능력에 위험 신호가 있습니다.',
+  unknown: '유동자산·유동부채 데이터를 아직 받지 못했습니다(현재 한국 종목만 제공). 판단에 참고하지 마세요.',
+}
