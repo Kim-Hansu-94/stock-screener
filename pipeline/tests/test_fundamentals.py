@@ -479,7 +479,8 @@ def test_extract_balance_sheet_succeeds_with_partial_fields(monkeypatch):
 
 
 def _patch_financial_health(monkeypatch, db, *, stale, extract, chunk=None, cap=None):
-    monkeypatch.setattr(fundamentals, "_stale_financial_health_tickers", lambda *a, **k: list(stale))
+    """stale: {ticker: 기존 updated_at} — _stale_financial_health_tickers의 반환 형태."""
+    monkeypatch.setattr(fundamentals, "_stale_financial_health_tickers", lambda *a, **k: dict(stale))
     monkeypatch.setattr(fundamentals, "_extract_balance_sheet", extract)
     if chunk is not None:
         monkeypatch.setattr(fundamentals, "SAVE_CHUNK", chunk)
@@ -488,12 +489,13 @@ def _patch_financial_health(monkeypatch, db, *, stale, extract, chunk=None, cap=
     return db
 
 
-def test_refresh_financial_health_saves_only_the_four_columns_and_a_dedicated_timestamp(monkeypatch):
-    """updated_at(실적용)은 페이로드에 없어야 한다 — 있으면 _stale_tickers가
-    실적도 최근에 갱신됐다고 착각해 진짜 실적 갱신을 건너뛴다."""
+def test_refresh_financial_health_saves_the_four_columns_and_echoes_back_updated_at(monkeypatch):
+    """updated_at(실적용)은 바꾸면 안 되므로 기존 값을 그대로 페이로드에 되돌려 써야
+    한다 — 완전히 빼면 Postgres upsert가 NOT NULL 제약으로 기존 행이 있어도 실패한다
+    (실제로 겪은 장애: 196개 전부 저장 실패, 'null value in column updated_at')."""
     db = _CountingDB()
     _patch_financial_health(
-        monkeypatch, db, stale=["AAPL"],
+        monkeypatch, db, stale={"AAPL": "2026-08-01"},
         extract=lambda _s: (
             {"current_assets": 1.0, "current_liabilities": 2.0,
              "total_liabilities": 3.0, "total_equity": 4.0},
@@ -505,17 +507,16 @@ def test_refresh_financial_health_saves_only_the_four_columns_and_a_dedicated_ti
 
     saved = [r for chunk in db.saves for r in chunk]
     assert saved == [{
-        "ticker": "AAPL", "market": "US",
+        "ticker": "AAPL", "market": "US", "updated_at": "2026-08-01",
         "financial_health_updated_at": TODAY.isoformat(),
         "current_assets": 1.0, "current_liabilities": 2.0,
         "total_liabilities": 3.0, "total_equity": 4.0,
     }]
-    assert "updated_at" not in saved[0]
 
 
 def test_refresh_financial_health_skips_failed_tickers(monkeypatch):
     db = _CountingDB()
-    tickers = ["OK", "BAD"]
+    tickers = {"OK": "2026-08-01", "BAD": "2026-08-01"}
     _patch_financial_health(
         monkeypatch, db, stale=tickers,
         extract=lambda s: (None, "no_balance_sheet") if s == "BAD" else (
@@ -525,7 +526,7 @@ def test_refresh_financial_health_skips_failed_tickers(monkeypatch):
         ),
     )
 
-    fundamentals.refresh_financial_health(db, tickers, TODAY)
+    fundamentals.refresh_financial_health(db, list(tickers), TODAY)
 
     saved = [r["ticker"] for chunk in db.saves for r in chunk]
     assert saved == ["OK"]
@@ -533,7 +534,7 @@ def test_refresh_financial_health_skips_failed_tickers(monkeypatch):
 
 def test_refresh_financial_health_logs_skip_reasons(monkeypatch, capsys):
     db = _CountingDB()
-    _patch_financial_health(monkeypatch, db, stale=[], extract=lambda _s: (None, "x"))
+    _patch_financial_health(monkeypatch, db, stale={}, extract=lambda _s: (None, "x"))
 
     fundamentals.refresh_financial_health(db, ["AAPL"], TODAY)
 
@@ -573,8 +574,8 @@ def test_stale_financial_health_tickers_excludes_tickers_without_an_existing_row
             return _FakeQuery(self._rows)
 
     existing_rows = [
-        {"ticker": "HAS_ROW_STALE", "financial_health_updated_at": None},
-        {"ticker": "HAS_ROW_FRESH", "financial_health_updated_at": TODAY.isoformat()},
+        {"ticker": "HAS_ROW_STALE", "updated_at": "2026-07-01", "financial_health_updated_at": None},
+        {"ticker": "HAS_ROW_FRESH", "updated_at": "2026-08-30", "financial_health_updated_at": TODAY.isoformat()},
     ]
     db = type("DB", (), {"client": _FakeTable(existing_rows)})()
 
@@ -582,4 +583,5 @@ def test_stale_financial_health_tickers_excludes_tickers_without_an_existing_row
         db, ["HAS_ROW_STALE", "HAS_ROW_FRESH", "NO_ROW_AT_ALL"], TODAY,
     )
 
-    assert pending == ["HAS_ROW_STALE"]
+    # 값(기존 updated_at)까지 정확히 돌려줘야 한다 — upsert 페이로드에 그대로 echo하는 데 쓰인다
+    assert pending == {"HAS_ROW_STALE": "2026-07-01"}
