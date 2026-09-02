@@ -29,6 +29,14 @@ _REPORT_CODE = "11011"  # 사업보고서(연간)
 _REVENUE_ACCOUNT = "매출액"
 _OPERATING_INCOME_ACCOUNT = "영업이익"
 _NET_INCOME_ACCOUNT = "당기순이익"
+# 재무건전성(유동비율·부채비율) — fnlttSinglAcnt가 이미 응답에 포함하는 대차대조표
+# "주요계정"이라 추가 API 호출 없이 그대로 뽑아 쓴다. 당기(thstrm)만 쓴다 — 손익
+# 항목과 달리 이 값들은 특정 시점의 재무 상태 스냅샷이라 "몇 년 전과 비교"가 아니라
+# "지금 얼마나 건전한가"를 보는 게 목적이다.
+_CURRENT_ASSETS_ACCOUNT = "유동자산"
+_CURRENT_LIABILITIES_ACCOUNT = "유동부채"
+_TOTAL_LIABILITIES_ACCOUNT = "부채총계"
+_TOTAL_EQUITY_ACCOUNT = "자본총계"
 # 금융지주·은행·증권 등은 주요계정에 "매출액" 대신 "영업수익"으로 잡힌다(DART의
 # 잘 알려진 관행 — 일반 기업의 손익계산서 구조를 그대로 강제하지 않기 때문).
 # 우선순위대로 시도: 못 찾으면 다음 이름으로. 실제 실행에서 no_key_accounts로
@@ -133,6 +141,11 @@ def _parse_year(rows: list[dict], bsns_year: int) -> dict | None:
     if revenue_row is None and profit_row is None:
         return None
 
+    current_assets_row = _pick_account(rows, _CURRENT_ASSETS_ACCOUNT)
+    current_liabilities_row = _pick_account(rows, _CURRENT_LIABILITIES_ACCOUNT)
+    total_liabilities_row = _pick_account(rows, _TOTAL_LIABILITIES_ACCOUNT)
+    total_equity_row = _pick_account(rows, _TOTAL_EQUITY_ACCOUNT)
+
     # 당기(thstrm) vs 전전기(bfefrmtrm) — 한 번의 조회로 2년 전과 비교해
     # Yahoo 경로("가능한 한 긴 구간의 변화를 본다")의 취지와 맞춘다.
     return {
@@ -148,6 +161,11 @@ def _parse_year(rows: list[dict], bsns_year: int) -> dict | None:
         "eps_prior": None,
         "per": None,
         "pbr": None,
+        # 재무건전성 — 당기 스냅샷만(추세가 아니라 "지금" 상태를 보는 지표라서).
+        "current_assets": _amount(current_assets_row, "thstrm_amount"),
+        "current_liabilities": _amount(current_liabilities_row, "thstrm_amount"),
+        "total_liabilities": _amount(total_liabilities_row, "thstrm_amount"),
+        "total_equity": _amount(total_equity_row, "thstrm_amount"),
     }
 
 

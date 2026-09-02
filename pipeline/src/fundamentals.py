@@ -55,6 +55,8 @@ _NULL_FUNDAMENTALS = {
     "operating_income_latest": None, "operating_income_prior": None,
     "net_income_latest": None, "net_income_prior": None,
     "eps_latest": None, "eps_prior": None, "per": None, "pbr": None,
+    "current_assets": None, "current_liabilities": None,
+    "total_liabilities": None, "total_equity": None,
 }
 
 # 최신 회계연도와 몇 년 전을 비교할지. 국장(dart_fundamentals._parse_year)이 당기 vs
@@ -168,6 +170,11 @@ def _extract(symbol: str) -> tuple[dict | None, str]:
         "eps_prior": at(_EPS_KEYS, prior_col),
         "per": float(per) if isinstance(per, (int, float)) else None,
         "pbr": float(pbr) if isinstance(pbr, (int, float)) else None,
+        # 재무건전성은 아직 KR(DART)만 수집한다 — 대차대조표 조회에 yfinance 호출이
+        # 하나 더 필요해(income_stmt와 별도) 종목당 요청이 늘고 레이트리밋 여유가
+        # 줄어든다. US는 우선 None으로 둔다.
+        "current_assets": None, "current_liabilities": None,
+        "total_liabilities": None, "total_equity": None,
     }
 
     # 국장(dart_fundamentals._parse_year)과 같은 최소 조건 — 매출·순이익 중 하나는

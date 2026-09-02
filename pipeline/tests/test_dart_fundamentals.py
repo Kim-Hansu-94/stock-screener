@@ -62,6 +62,10 @@ def test_parse_year_builds_two_year_comparison_from_thstrm_and_bfefrmtrm():
         "eps_prior": None,
         "per": None,
         "pbr": None,
+        "current_assets": None,
+        "current_liabilities": None,
+        "total_liabilities": None,
+        "total_equity": None,
     }
 
 
@@ -264,7 +268,7 @@ def test_parse_year_falls_back_to_net_income_loss_label_for_financial_companies(
     """
     rows = [
         _row("당기순이익(손실)", "CFS", "150", "100"),
-        _row("부채총계", "CFS", "9,999", "9,999"),  # 순이익·매출과 무관한 계정
+        _row("이자수익", "CFS", "9,999", "9,999"),  # 순이익·매출과 무관한 계정
     ]
     result = _parse_year(rows, 2025)
     assert result is not None
@@ -280,3 +284,38 @@ def test_parse_year_prefers_net_income_over_the_loss_label_fallback():
     ]
     result = _parse_year(rows, 2025)
     assert result["net_income_latest"] == 150.0
+
+
+# ── 재무건전성(유동비율·부채비율) 계정 추출 ──────────────────────────────
+# fnlttSinglAcnt 응답에 대차대조표 주요계정도 같이 들어 있어 추가 API 호출 없이
+# 뽑아 쓴다. 당기(thstrm_amount)만 쓴다 — 손익 항목과 달리 "지금 상태"가
+# 궁금한 지표라 2년 전 값은 저장하지 않는다.
+
+def test_parse_year_extracts_balance_sheet_accounts_for_financial_health():
+    rows = [
+        _row("매출액", "CFS", "1,000", "800"),
+        _row("당기순이익", "CFS", "150", "100"),
+        _row("유동자산", "CFS", "500", "400"),
+        _row("유동부채", "CFS", "200", "150"),
+        _row("부채총계", "CFS", "600", "550"),
+        _row("자본총계", "CFS", "900", "850"),
+    ]
+    result = _parse_year(rows, 2025)
+    assert result["current_assets"] == 500.0
+    assert result["current_liabilities"] == 200.0
+    assert result["total_liabilities"] == 600.0
+    assert result["total_equity"] == 900.0
+
+
+def test_parse_year_leaves_balance_sheet_fields_none_when_absent():
+    # 이 업종(주요계정에 대차대조표 항목이 없는 경우)은 손익만 있고 재무건전성은
+    # null로 남아야 한다 — 있는 척하면 안 된다.
+    rows = [
+        _row("매출액", "CFS", "1,000", "800"),
+        _row("당기순이익", "CFS", "150", "100"),
+    ]
+    result = _parse_year(rows, 2025)
+    assert result["current_assets"] is None
+    assert result["current_liabilities"] is None
+    assert result["total_liabilities"] is None
+    assert result["total_equity"] is None

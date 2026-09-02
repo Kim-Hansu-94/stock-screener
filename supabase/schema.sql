@@ -184,6 +184,13 @@ create table if not exists stock_fundamentals (
   eps_prior                numeric,
   per                      numeric,
   pbr                      numeric,
+  -- 재무건전성(유동비율·부채비율). 2026-09-02 기준 KR(DART)만 채운다 — US(yfinance)는
+  -- 대차대조표 조회에 API 호출이 하나 더 필요해 아직 안 함. 당기 스냅샷만 저장한다
+  -- (추세가 아니라 "지금" 상태를 보는 지표라서 _prior 짝이 없다).
+  current_assets           numeric,
+  current_liabilities      numeric,
+  total_liabilities        numeric,
+  total_equity             numeric,
   primary key (ticker, market)
 );
 

@@ -105,6 +105,11 @@ export interface FundamentalsRow {
   eps_prior: number | null
   per: number | null
   pbr: number | null
+  /** 재무건전성 — 2026-09-02 기준 KR만 채워진다(US는 당분간 null). 당기 스냅샷만 저장 */
+  current_assets: number | null
+  current_liabilities: number | null
+  total_liabilities: number | null
+  total_equity: number | null
 }
 
 /** 감시 종목(보유 종목) 상태 — pipeline/src/watchlist.py가 매 실행마다 갱신 */
