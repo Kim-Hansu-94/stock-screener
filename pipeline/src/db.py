@@ -160,6 +160,23 @@ class ScreenerDB:
         )
         return list({row["ticker"] for row in (result.data or [])})
 
+    def get_latest_regime_date(self, market: str) -> str | None:
+        """market_regime에 저장된 해당 시장의 최신 as_of 날짜(YYYY-MM-DD). 없으면 None.
+
+        아침 전체 실행이 KR을 다시 돌 필요가 있는지 판단하는 데 쓴다 — 저녁
+        KR 전용 실행이 이미 최신 종가를 저장해뒀다면 아침엔 건너뛴다.
+        """
+        result = (
+            self.client.table("market_regime")
+            .select("date")
+            .eq("market", market)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        return rows[0]["date"] if rows else None
+
     def save_pattern_matches(self, matches: list[dict], computed_at: str) -> None:
         if not matches:
             return
