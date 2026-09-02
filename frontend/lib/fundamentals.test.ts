@@ -155,4 +155,52 @@ describe('assessFinancialHealth', () => {
     }))
     expect(result.debtToEquity).toBeNull()
   })
+
+  // ── 업종별 유동비율 기준 (2026-09-02, 사용자 제안 + 웹 조사, 책 근거 아님) ──
+  // 소매업은 재고 회전이 빨라 원래 유동비율이 낮게 나온다 — 제조업 기준(2.0)을
+  // 그대로 적용하면 멀쩡한 소매 종목도 '취약'으로 오판정된다.
+
+  it('uses a lower healthy threshold for retail-like sectors so normal companies pass', () => {
+    // 1.2는 제조업 기준(2.0)으로는 weak지만, 소매업 기준(1.0)으로는 healthy
+    const result = assessFinancialHealth(
+      row({ current_assets: 120, current_liabilities: 100 }),
+      '소매',
+    )
+    expect(result.currentRatio).toBeCloseTo(1.2, 5)
+    expect(result.verdict).toBe('healthy')
+  })
+
+  it('uses a higher healthy threshold for cash-heavy sectors like healthcare/biotech', () => {
+    // 2.5는 제조업 기준으로는 healthy지만, 헬스케어 기준(3.0)으로는 weak
+    const result = assessFinancialHealth(
+      row({ current_assets: 250, current_liabilities: 100 }),
+      '바이오',
+    )
+    expect(result.currentRatio).toBeCloseTo(2.5, 5)
+    expect(result.verdict).toBe('weak')
+  })
+
+  it('falls back to the default (manufacturing) threshold for sectors without specific data', () => {
+    const result = assessFinancialHealth(
+      row({ current_assets: 250, current_liabilities: 100 }),
+      '반도체',
+    )
+    expect(result.currentRatio).toBeCloseTo(2.5, 5)
+    expect(result.verdict).toBe('healthy') // 기본 기준(2.0) 그대로
+  })
+
+  it('marks financial-sector stocks not_applicable regardless of the ratio', () => {
+    // 은행은 "짧게 빌려 길게 빌려주는" 구조라 유동비율 개념 자체가 안 맞는다.
+    const result = assessFinancialHealth(
+      row({ current_assets: 100, current_liabilities: 100000 }), // 극단적으로 낮은 비율이어도
+      '은행',
+    )
+    expect(result.verdict).toBe('not_applicable')
+    expect(result.currentRatio).toBeCloseTo(0.001, 5) // 숫자는 그대로 계산은 됨(등급만 안 매김)
+  })
+
+  it('treats an unspecified sector as the default threshold, not financial', () => {
+    const result = assessFinancialHealth(row({ current_assets: 150, current_liabilities: 100 }))
+    expect(result.verdict).not.toBe('not_applicable')
+  })
 })

@@ -1,4 +1,5 @@
 import type { FundamentalsRow } from './types'
+import { broadSector } from './sectorMap'
 
 // "주가가 빠질 때 실적도 같이 빠졌는가" — 가치 함정과 밸류에이션 조정을 가르는
 // 판정. 차트는 둘을 구분하지 못하므로, 점수와 별개로 이 신호를 함께 보여준다.
@@ -139,19 +140,50 @@ export const ONE_TIME_GAIN_NOTE =
 // ── 재무건전성 ──────────────────────────────────────────────────────────
 // 한눈에 보는 실전 재무제표: "단기적 관점에서 재무 건전성을 측정하는 가장 중요한
 // 지표는 유동성이다." 유동비율(유동자산÷유동부채)엔 책이 준 구체적 기준(2.0 이상
-// 양호)이 있어 verdict로 등급을 매긴다. 부채비율(부채총계÷자본총계)은 책 자신이
-// "업종별로 완전히 다르다"고 경고한 지표라(예: GM 4.0, 마이크로소프트 0.0 둘 다
-// 정상) verdict에 안 넣고 참고용 숫자로만 보여준다 — PER/PBR과 같은 취급이다.
+// 양호, "일반 제조업체 기준")이 있어 verdict로 등급을 매긴다. 부채비율(부채총계÷
+// 자본총계)은 책 자신이 "업종별로 완전히 다르다"고 경고한 지표라(예: GM 4.0,
+// 마이크로소프트 0.0 둘 다 정상) verdict에 안 넣고 참고용 숫자로만 보여준다 —
+// PER/PBR과 같은 취급이다.
 //
-// 2026-09-02 기준 KR(DART)만 데이터가 있다 — US(yfinance)는 대차대조표 조회에
-// API 호출이 하나 더 필요해 아직 안 채운다. US 종목은 자연히 'unknown'으로 뜬다.
+// 유동비율도 사실 업종별 편차가 있다 — 책이 준 2.0/1.0은 "일반 제조업체 기준"일
+// 뿐이라, 재고 회전이 빠른 소매업이나 현금을 쌓아두는 바이오·헬스케어에 그대로
+// 적용하면 오판정이 난다(2026-09-02, 사용자 제안 + 웹 조사, 책 근거 아님 — 여러
+// 재무비율 벤치마크 사이트 종합, 출처마다 수치가 갈려 신뢰도가 낮으므로 업종별로
+// "가장 낮은(=통과하기 쉬운) 쪽" 기준을 채택해 과도한 오탐(가짜 취약 판정)을
+// 줄이는 쪽으로 잡았다). 은행·금융업은 "짧게 빌려 길게 빌려주는" 사업 구조상
+// 유동비율 개념 자체가 안 맞는다는 게 여러 출처의 공통된 지적이라, 업종 자체를
+// 판정 대상에서 뺀다('not_applicable').
+//
+// KR(DART)은 매일, US(yfinance)는 21:00 KST 전용 워크플로(같은 30일 주기)로
+// 채운다 — 아직 안 채워진 종목은 자연히 'unknown'으로 뜬다.
 
-export type FinancialHealthVerdict = 'healthy' | 'weak' | 'fragile' | 'unknown'
+export type FinancialHealthVerdict = 'healthy' | 'weak' | 'fragile' | 'not_applicable' | 'unknown'
 
-/** 유동비율이 이 이상이면 양호 (한눈에 보는 실전 재무제표: "일반 제조업체 기준 양호") */
-const CURRENT_RATIO_HEALTHY = 2.0
-/** 유동비율이 이 미만이면 취약 (책: "지급책임을 가까스로 이행"하는 경계선) */
-const CURRENT_RATIO_FRAGILE = 1.0
+/** 유동비율 기준 기본값(제조업 등, 책 근거) */
+const DEFAULT_CURRENT_RATIO_THRESHOLDS = { healthy: 2.0, fragile: 1.0 }
+
+/**
+ * 업종별 유동비율 기준(웹 조사 기반, 책 근거 아님 — CLAUDE.md broadSector() 12개
+ * 대분류 중 데이터가 있는 것만). 출처마다 범위가 갈려 각 업종 범위의 가장 낮은
+ * 쪽을 healthy 기준으로 잡았다(=관대하게, 오탐 최소화). fragile은 그 절반 안팎.
+ * 목록에 없는 업종(기술·커뮤니케이션·필수소비재·부동산·에너지·기타)은
+ * 신뢰할 만한 수치를 못 찾아 기본값을 그대로 쓴다.
+ */
+const SECTOR_CURRENT_RATIO_THRESHOLDS: Partial<Record<string, { healthy: number; fragile: number }>> = {
+  헬스케어: { healthy: 3.0, fragile: 1.5 }, // 바이오 등 현금 보유가 많아 원래 높게 나옴
+  임의소비재: { healthy: 1.0, fragile: 0.6 }, // 소매업 — 재고 회전이 빨라 원래 낮게 나옴
+  유틸리티: { healthy: 1.0, fragile: 0.6 }, // 현금흐름이 안정적이라 낮아도 무리 없다는 시각
+  산업재: { healthy: 1.2, fragile: 0.8 }, // 제조업 중에서도 재고·매출채권 회전이 빠른 편
+  소재: { healthy: 1.5, fragile: 1.0 },
+}
+
+/** 유동비율 판정 자체가 무의미한 업종. 짧게 빌려 길게 빌려주는 구조라 "단기 지급 능력"이라는 전제가 안 맞는다. */
+const CURRENT_RATIO_NOT_APPLICABLE_SECTORS = new Set(['금융'])
+
+function currentRatioThresholds(sector: string | null | undefined) {
+  const broad = broadSector(sector)
+  return SECTOR_CURRENT_RATIO_THRESHOLDS[broad] ?? DEFAULT_CURRENT_RATIO_THRESHOLDS
+}
 
 export interface FinancialHealthAssessment {
   verdict: FinancialHealthVerdict
@@ -161,7 +193,10 @@ export interface FinancialHealthAssessment {
   debtToEquity: number | null
 }
 
-export function assessFinancialHealth(row: FundamentalsRow | null | undefined): FinancialHealthAssessment {
+export function assessFinancialHealth(
+  row: FundamentalsRow | null | undefined,
+  sector?: string | null,
+): FinancialHealthAssessment {
   if (!row) return { verdict: 'unknown', currentRatio: null, debtToEquity: null }
 
   const { current_assets, current_liabilities, total_liabilities, total_equity } = row
@@ -174,9 +209,14 @@ export function assessFinancialHealth(row: FundamentalsRow | null | undefined): 
       ? total_liabilities / total_equity
       : null
 
+  if (CURRENT_RATIO_NOT_APPLICABLE_SECTORS.has(broadSector(sector))) {
+    return { verdict: 'not_applicable', currentRatio, debtToEquity }
+  }
   if (currentRatio === null) return { verdict: 'unknown', currentRatio, debtToEquity }
-  if (currentRatio >= CURRENT_RATIO_HEALTHY) return { verdict: 'healthy', currentRatio, debtToEquity }
-  if (currentRatio >= CURRENT_RATIO_FRAGILE) return { verdict: 'weak', currentRatio, debtToEquity }
+
+  const { healthy, fragile } = currentRatioThresholds(sector)
+  if (currentRatio >= healthy) return { verdict: 'healthy', currentRatio, debtToEquity }
+  if (currentRatio >= fragile) return { verdict: 'weak', currentRatio, debtToEquity }
   return { verdict: 'fragile', currentRatio, debtToEquity }
 }
 
@@ -184,6 +224,7 @@ export const FINANCIAL_HEALTH_LABEL: Record<FinancialHealthVerdict, string> = {
   healthy: '유동성 양호',
   weak: '유동성 보통',
   fragile: '⚠️ 유동성 취약',
+  not_applicable: '업종 특성상 판단 곤란',
   unknown: '재무 데이터 없음',
 }
 
@@ -191,12 +232,15 @@ export const FINANCIAL_HEALTH_CLASS: Record<FinancialHealthVerdict, string> = {
   healthy: 'bg-accent text-accent-foreground',
   weak: 'bg-muted text-muted-foreground',
   fragile: 'bg-destructive/10 text-destructive',
+  not_applicable: 'bg-muted text-muted-foreground/70',
   unknown: 'bg-muted text-muted-foreground/70',
 }
 
 export const FINANCIAL_HEALTH_NOTE: Record<FinancialHealthVerdict, string> = {
-  healthy: '유동자산이 유동부채의 2배 이상입니다. 단기 지급 능력에 여유가 있습니다.',
-  weak: '유동비율이 1~2배 사이입니다. 지급 책임은 가까스로 이행하는 수준이라 여유가 크지 않습니다.',
-  fragile: '유동비율이 1배 미만입니다. 유동부채가 유동자산보다 많아 단기 지급 능력에 위험 신호가 있습니다.',
-  unknown: '유동자산·유동부채 데이터를 아직 받지 못했습니다(현재 한국 종목만 제공). 판단에 참고하지 마세요.',
+  healthy: '유동자산이 유동부채 대비 업종 기준 이상입니다. 단기 지급 능력에 여유가 있습니다.',
+  weak: '유동비율이 업종 기준의 취약선~양호선 사이입니다. 지급 책임은 가까스로 이행하는 수준이라 여유가 크지 않습니다.',
+  fragile: '유동비율이 업종 기준의 취약선 아래입니다. 유동부채가 유동자산보다 많아 단기 지급 능력에 위험 신호가 있습니다.',
+  not_applicable:
+    '은행·금융업은 "짧게 빌려 길게 빌려주는" 사업 구조라 유동비율로 단기 지급 능력을 재는 게 애초에 안 맞습니다. 판단에 참고하지 마세요.',
+  unknown: '유동자산·유동부채 데이터를 아직 받지 못했습니다. 판단에 참고하지 마세요.',
 }
