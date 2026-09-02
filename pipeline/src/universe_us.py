@@ -134,6 +134,19 @@ def _fetch_nasdaq100() -> pd.DataFrame:
     raise ValueError(f"{url} 에서 구성종목 테이블을 찾을 수 없음")
 
 
+# yfinance(Yahoo Finance)의 sector 값은 GICS 표준 이름과 4개가 다르다. S&P500(FDR)이
+# 채우는 sector는 GICS 표준 이름을 쓰고, frontend/lib/sectorMap.ts의 broadSector()도
+# GICS 표준 이름을 기준으로 매칭한다 — 이 매핑 없이 그대로 저장하면 같은 stock_universe.
+# sector 컬럼 안에 두 가지 이름 체계가 섞여, 이 네 업종의 NASDAQ100 전용 종목이
+# broadSector()에서 '기타'로 잘못 빠진다(업종별 유동비율 기준이 있는데도 못 받음).
+_YFINANCE_SECTOR_TO_GICS: dict[str, str] = {
+    "Consumer Cyclical": "Consumer Discretionary",
+    "Consumer Defensive": "Consumer Staples",
+    "Financial Services": "Financials",
+    "Basic Materials": "Materials",
+}
+
+
 def _backfill_missing_sectors(universe: pd.DataFrame) -> pd.DataFrame:
     """NASDAQ100 전용 종목(S&P500에 없어 sector가 비어 있는 소수)을 yfinance로 채운다.
 
@@ -163,6 +176,7 @@ def _backfill_missing_sectors(universe: pd.DataFrame) -> pd.DataFrame:
         except Exception:  # noqa: BLE001
             sector = None
         if sector:
+            sector = _YFINANCE_SECTOR_TO_GICS.get(sector, sector)
             universe.loc[universe["ticker"] == ticker, "sector"] = sector
             filled += 1
     print(f"    → {filled}/{len(missing_tickers)}개 보완", flush=True)

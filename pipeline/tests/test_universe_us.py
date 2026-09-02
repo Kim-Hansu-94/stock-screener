@@ -2,7 +2,7 @@ import pandas as pd
 import requests
 from unittest.mock import MagicMock, patch
 
-from pipeline.src.universe_us import _backfill_missing_sectors, get_us_universe
+from pipeline.src.universe_us import _backfill_missing_sectors, _YFINANCE_SECTOR_TO_GICS, get_us_universe
 
 FAKE_SP500 = pd.DataFrame({
     "Symbol": ["AAPL", "MSFT", "BRK.B", "BF.B", "BRKB"],
@@ -28,6 +28,7 @@ FAKE_NASDAQ100_HTML = """
 @patch("pipeline.src.universe_us.fdr.StockListing", return_value=FAKE_SP500)
 def test_combines_sp500_and_nasdaq100_without_duplicates(mock_listing, mock_get, mock_yf_ticker):
     mock_get.return_value.text = FAKE_NASDAQ100_HTML
+    # Consumer Cyclical은 yfinance식 이름 — GICS(Consumer Discretionary)로 정규화돼야 한다
     mock_yf_ticker.return_value.info = {"sector": "Consumer Cyclical"}
 
     result = get_us_universe().set_index("ticker")
@@ -37,8 +38,8 @@ def test_combines_sp500_and_nasdaq100_without_duplicates(mock_listing, mock_get,
     assert result.loc["MSFT", "index_membership"] == "S&P500"
     assert result.loc["PDD", "index_membership"] == "NASDAQ100"
     # PDD는 S&P500에 없어 원래 sector가 비어 있지만, NASDAQ100 전용 종목은
-    # yfinance로 보완된다(_backfill_missing_sectors).
-    assert result.loc["PDD", "sector"] == "Consumer Cyclical"
+    # yfinance로 보완된다(_backfill_missing_sectors) — GICS 이름으로 정규화된 값이어야 한다.
+    assert result.loc["PDD", "sector"] == "Consumer Discretionary"
     mock_yf_ticker.assert_called_once_with("PDD")
     # dot-separated class share tickers are normalized to Yahoo Finance hyphen format
     assert "BRK-B" in result.index
@@ -129,6 +130,23 @@ def test_backfill_only_targets_nasdaq100_only_tickers_with_missing_sector(mock_y
     assert result.loc["PDD", "sector"] == "Technology"
     assert pd.isna(result.loc["OTH", "sector"])  # NASDAQ100이 아니므로 손대지 않음
     mock_yf_ticker.assert_called_once_with("PDD")
+
+
+@patch("pipeline.src.universe_us.yf.Ticker")
+def test_backfill_normalizes_yfinance_sector_names_to_gics(mock_yf_ticker):
+    """yfinance는 GICS와 다른 이름을 쓰는 업종이 4개 있다(Consumer Cyclical/Defensive,
+    Financial Services, Basic Materials). S&P500(FDR)이 채우는 sector는 GICS 이름을
+    쓰고 broadSector()도 GICS 이름을 기준으로 매칭하므로, 정규화 없이 그대로 저장하면
+    같은 컬럼 안에 두 이름 체계가 섞여 이 업종의 NASDAQ100 전용 종목이 broadSector()
+    에서 '기타'로 잘못 빠진다.
+    """
+    for yfinance_name, gics_name in _YFINANCE_SECTOR_TO_GICS.items():
+        mock_yf_ticker.return_value.info = {"sector": yfinance_name}
+        universe = _universe([{"ticker": "PDD", "sector": None, "index_membership": "NASDAQ100"}])
+
+        result = _backfill_missing_sectors(universe).set_index("ticker")
+
+        assert result.loc["PDD", "sector"] == gics_name, f"{yfinance_name} → {gics_name} 정규화 실패"
 
 
 @patch("pipeline.src.universe_us.yf.Ticker")
