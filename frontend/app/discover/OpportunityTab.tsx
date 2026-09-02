@@ -174,7 +174,7 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
         : 'bg-muted text-muted-foreground'
   const grade = buyGrade(stock.score, stock.higherLows)
   const earnings = assessEarnings(stock.fundamentals)
-  const health = assessFinancialHealth(stock.fundamentals)
+  const health = assessFinancialHealth(stock.fundamentals, stock.sector)
 
   const formatPrice = (price: number) =>
     stock.market === 'KR'

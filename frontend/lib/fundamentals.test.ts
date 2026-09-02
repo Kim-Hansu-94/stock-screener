@@ -155,4 +155,53 @@ describe('assessFinancialHealth', () => {
     }))
     expect(result.debtToEquity).toBeNull()
   })
+
+  // ── 업종별 유동비율 기준 (2026-09-02, 사용자 제안 + 웹 조사, 책 근거 아님) ──
+  // 소매업은 재고 회전이 빨라 원래 유동비율이 낮게 나온다 — 제조업 기준(2.0)을
+  // 그대로 적용하면 멀쩡한 소매 종목도 '취약'으로 오판정된다.
+
+  it('uses a lower healthy threshold for retail-like sectors so normal companies pass', () => {
+    // 1.2는 제조업 책 기준(2.0)으로는 weak지만, 임의소비재(소매 포함) 기준(1.1)으로는 healthy
+    const result = assessFinancialHealth(
+      row({ current_assets: 120, current_liabilities: 100 }),
+      '소매',
+    )
+    expect(result.currentRatio).toBeCloseTo(1.2, 5)
+    expect(result.verdict).toBe('healthy')
+  })
+
+  it('uses a distinct threshold for the healthcare broad sector (pharma and hospitals mixed)', () => {
+    // 0.9는 제조업 책 기준(2.0)으로는 fragile이지만, 헬스케어 기준(healthy 1.2, fragile 0.7)으로는 weak
+    const result = assessFinancialHealth(
+      row({ current_assets: 90, current_liabilities: 100 }),
+      '바이오',
+    )
+    expect(result.currentRatio).toBeCloseTo(0.9, 5)
+    expect(result.verdict).toBe('weak')
+  })
+
+  it('falls back to the book default for sectors without specific CSIMarket data (e.g. 산업재)', () => {
+    // 산업재·부동산은 업종 전용 수치를 못 찾아 책의 원래 기준(2.0/1.0)을 그대로 쓴다
+    const result = assessFinancialHealth(
+      row({ current_assets: 250, current_liabilities: 100 }),
+      '건설',
+    )
+    expect(result.currentRatio).toBeCloseTo(2.5, 5)
+    expect(result.verdict).toBe('healthy') // 책 기본 기준(2.0) 그대로
+  })
+
+  it('marks financial-sector stocks not_applicable regardless of the ratio', () => {
+    // 은행은 "짧게 빌려 길게 빌려주는" 구조라 유동비율 개념 자체가 안 맞는다.
+    const result = assessFinancialHealth(
+      row({ current_assets: 100, current_liabilities: 100000 }), // 극단적으로 낮은 비율이어도
+      '은행',
+    )
+    expect(result.verdict).toBe('not_applicable')
+    expect(result.currentRatio).toBeCloseTo(0.001, 5) // 숫자는 그대로 계산은 됨(등급만 안 매김)
+  })
+
+  it('treats an unspecified sector as the default threshold, not financial', () => {
+    const result = assessFinancialHealth(row({ current_assets: 150, current_liabilities: 100 }))
+    expect(result.verdict).not.toBe('not_applicable')
+  })
 })

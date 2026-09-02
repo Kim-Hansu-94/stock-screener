@@ -13,6 +13,7 @@ import zipfile
 import FinanceDataReader as fdr
 import pandas as pd
 import requests
+import yfinance as yf
 
 VANGUARD_VTHR_BASE = (
     "https://investor.vanguard.com/investment-products/etfs/profile/api/VTHR/portfolio-holding/stock"
@@ -113,7 +114,8 @@ def _fetch_nasdaq100() -> pd.DataFrame:
 
     Wikipedia Nasdaq-100 페이지의 구성종목 표가 삭제되어(2026-07 확인)
     stockanalysis.com으로 대체. sector 정보는 없음 — S&P500과 겹치는 종목은
-    dedup 시 S&P500(FDR) 쪽 sector가 우선 채택되어 대부분 보존된다.
+    dedup 시 S&P500(FDR) 쪽 sector가 우선 채택되어 대부분 보존되고, S&P500에
+    없는 나머지(소수)는 _backfill_missing_sectors가 yfinance로 채운다.
     """
     url = "https://stockanalysis.com/list/nasdaq-100-stocks/"
     tables = _read_html(url)
@@ -130,6 +132,55 @@ def _fetch_nasdaq100() -> pd.DataFrame:
                 "index_membership": "NASDAQ100",
             })
     raise ValueError(f"{url} 에서 구성종목 테이블을 찾을 수 없음")
+
+
+# yfinance(Yahoo Finance)의 sector 값은 GICS 표준 이름과 4개가 다르다. S&P500(FDR)이
+# 채우는 sector는 GICS 표준 이름을 쓰고, frontend/lib/sectorMap.ts의 broadSector()도
+# GICS 표준 이름을 기준으로 매칭한다 — 이 매핑 없이 그대로 저장하면 같은 stock_universe.
+# sector 컬럼 안에 두 가지 이름 체계가 섞여, 이 네 업종의 NASDAQ100 전용 종목이
+# broadSector()에서 '기타'로 잘못 빠진다(업종별 유동비율 기준이 있는데도 못 받음).
+_YFINANCE_SECTOR_TO_GICS: dict[str, str] = {
+    "Consumer Cyclical": "Consumer Discretionary",
+    "Consumer Defensive": "Consumer Staples",
+    "Financial Services": "Financials",
+    "Basic Materials": "Materials",
+}
+
+
+def _backfill_missing_sectors(universe: pd.DataFrame) -> pd.DataFrame:
+    """NASDAQ100 전용 종목(S&P500에 없어 sector가 비어 있는 소수)을 yfinance로 채운다.
+
+    NASDAQ100 데이터 소스(stockanalysis.com)엔 sector 정보가 아예 없다.
+    S&P500과 겹치는 종목은 dedup 시 S&P500(FDR) 쪽 sector로 이미 채워지므로,
+    남는 건 NASDAQ100에만 속한 소수 종목뿐이다 — 개수가 적어(보통 10개 안팎)
+    종목당 요청 1회(yfinance .info)로 감당할 만하다. 다른 지수(S&P400/600 등)는
+    자체 소스에서 이미 sector를 받으므로 건드리지 않는다.
+
+    사업 분야별 유동비율 기준(assessFinancialHealth)이나 화면의 업종 필터가
+    이 sector 없이는 '미분류'로 빠져 정밀도를 못 받는다 — 실패해도(개별 티커
+    조회 실패) 파이프라인 전체를 막지 않고 그 종목만 '미분류'로 남긴다.
+    """
+    missing_mask = universe["sector"].isna() & (universe["index_membership"] == "NASDAQ100")
+    missing_tickers = universe.loc[missing_mask, "ticker"].tolist()
+    if not missing_tickers:
+        return universe
+
+    print(
+        f"  NASDAQ100 전용 종목 중 업종 정보 없음: {len(missing_tickers)}개 → yfinance로 보완",
+        flush=True,
+    )
+    filled = 0
+    for ticker in missing_tickers:
+        try:
+            sector = yf.Ticker(ticker).info.get("sector")
+        except Exception:  # noqa: BLE001
+            sector = None
+        if sector:
+            sector = _YFINANCE_SECTOR_TO_GICS.get(sector, sector)
+            universe.loc[universe["ticker"] == ticker, "sector"] = sector
+            filled += 1
+    print(f"    → {filled}/{len(missing_tickers)}개 보완", flush=True)
+    return universe
 
 
 def get_us_korean_names() -> dict[str, str]:
@@ -226,6 +277,8 @@ def get_us_universe() -> pd.DataFrame:
     # (S&P500 sector 정보 보존 + 스크리너 대상 라벨이 Russell3000보다 우선)
     universe = universe.drop_duplicates(subset="ticker", keep="first")
     print(f"  → 합산 유니버스: {len(universe)}개 (중복 제거 후)")
+
+    universe = _backfill_missing_sectors(universe)
 
     kr_names = get_us_korean_names()
     universe["name_kr"] = universe["ticker"].map(kr_names).fillna("")
