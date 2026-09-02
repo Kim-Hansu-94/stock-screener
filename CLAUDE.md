@@ -28,7 +28,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `main.py` | 파이프라인 전체 오케스트레이션 (엔트리포인트, `python -m src.main [--kr-only]`) |
 | `pipeline.py` | KR/US 스크리닝 실행 (`run_kr_pipeline` / `run_us_pipeline`), 눌림목 후보 선정 |
 | `screener.py` | 눌림목 조건 평가 (`evaluate_pullback`) — 8개 CRITERION_* 판정 |
-| `universe_kr.py` / `universe_us.py` | KOSPI / S&P1500+NASDAQ100+Russell3000 유니버스 수집 |
+| `universe_kr.py` / `universe_us.py` | KOSPI / S&P1500+NASDAQ100+Russell3000 유니버스 수집. `universe_us.py`의 NASDAQ100(stockanalysis.com)엔 업종 정보가 없어, S&P500에도 없는 NASDAQ100 전용 소수 종목은 `_backfill_missing_sectors`가 yfinance로 보완(실패해도 그 종목만 '미분류'로 남고 파이프라인은 계속) |
 | `prices_kr.py` | FinanceDataReader로 국장 일봉 조회 |
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |
 | `kis_auth.py` | 한국투자증권 OAuth 토큰 관리 (분당 1회 제한이라 디스크 캐싱) |
