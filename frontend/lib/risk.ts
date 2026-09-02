@@ -50,6 +50,7 @@ export type RiskReason =
   | 'insufficient_data' // fewer bars than the trend/range windows need
   | 'stop_above_entry' // structural stop landed at or above entry (no measurable risk)
   | 'no_upside' // 박스 상단에 이미 닿아 있어 위쪽 여유가 없음
+  | 'stop_too_far' // 변동성이 커서 구조적 손절이 진입가에서 너무 멀리 잡힘 (온투이노베이션 사례)
 
 // 어떤 틀로 계산했는지. 추세 종목과 횡보 종목은 손절·목표를 잡는 근거가 달라
 // 같은 공식을 쓰면 한쪽이 왜곡된다. 화면에서도 이 둘을 구분해 보여준다.
@@ -139,6 +140,15 @@ const MIN_REWARD_R = 1
 // 어떤 계산이든 넘지 않는 보상 상한 — 실제 저항이 없을 때 쓰는 2R 기준선도 이 안에 들어온다.
 const MAX_REWARD_R = 4
 
+// 손절이 진입가 대비 이 비율을 넘게 떨어지면 정상적인 단기 매매 규모가 아니다 — 표시하지
+// 않는다. 손익비(비율)만으로는 이걸 못 거른다: 진입가 대비 -3%/+4%(손익비 1.3)와
+// -25%/+28%(손익비 1.1)는 손익비 숫자로는 비슷해 보이지만 실제 위험 크기는 8배 차이다
+// (온투이노베이션 2026-08-26 사례 — ATR이 지나치게 큰 변동성 종목이 원인이었다).
+// trendFrame(추세/눌림목 컨셉)에만 적용한다 — rangeFrame(횡보·조정, 3년 고점 대비
+// 20~60% 빠진 종목을 사는 컨셉)은 박스 자체가 넓은 게 정상이라 이 상한을 적용하면
+// 안 된다.
+const MAX_STOP_DISTANCE_PCT = 0.15
+
 const NO_RISK = { stop: null, target: null, riskReward: null, wayResistance: null, targetBasis: null } as const
 
 /** 상승 추세 종목: 구조적 손절 + 실제 저항 기반 목표 */
@@ -156,6 +166,7 @@ function trendFrame(bars: PriceBar[], entry: number): RiskResult {
   if (rawStop >= entry) return { ...NO_RISK, reason: 'stop_above_entry', frame: 'trend' }
   const stop = rawStop
   const risk = entry - stop
+  if (risk / entry > MAX_STOP_DISTANCE_PCT) return { ...NO_RISK, reason: 'stop_too_far', frame: 'trend' }
 
   const extended = bars.slice(-RESISTANCE_LOOKBACK)
   const periodHigh = Math.max(...extended.map((p) => p.high))

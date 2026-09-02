@@ -6,6 +6,7 @@ from pipeline.src.screener import (
     CRITERION_IMPULSE,
     CRITERION_PULLBACK_DEPTH,
     CRITERION_RSI_RISING,
+    CRITERION_VOLATILITY,
     CRITERION_VOLUME,
     evaluate_pullback,
     passes_pullback_filter,
@@ -40,6 +41,7 @@ def _uptrend_with_recovering_pullback(
     gain: float = 100.0,
     recovery_frac: float = 0.55,
     final_open_gap: float = 0.5,
+    buf: float = 1.0,
 ) -> Bars:
     """Trough on day 2, then a genuine recovery into days 3-5.
 
@@ -47,6 +49,10 @@ def _uptrend_with_recovering_pullback(
     the 50% 룰 needs it >= 0.5 to confirm a bounce (see screener.BOUNCE_LOOKBACK).
     ``final_open_gap`` sets that day's open below its close (bullish) by default;
     pass a negative value to make it bearish for the "no bounce" tests.
+    ``buf`` is the uniform high/low spread around each day's close (default ±1) —
+    widening it raises ATR (CRITERION_VOLATILITY) without moving the close series,
+    so it isolates the volatility condition from every other one (the 50% 룰 bounce
+    threshold is buffer-invariant: it cancels out algebraically, see screener.py).
     """
     base = 100 + np.linspace(0, gain, N_UP_DAYS)
     peak = base[-1]
@@ -61,8 +67,8 @@ def _uptrend_with_recovering_pullback(
     ]
     close = pd.Series(list(base) + pullback_days)
     volume = pd.Series([1_000_000.0] * N_UP_DAYS + list(volume_pullback))
-    high = close + 1
-    low = close - 1
+    high = close + buf
+    low = close - buf
     open_ = close.copy()
     open_.iloc[-1] = close.iloc[-1] - final_open_gap
     return close, volume, high, low, open_
@@ -181,6 +187,40 @@ def test_evaluate_labels_volume_failure_only():
     assert ev is not None
     assert ev.passed is False
     assert ev.failed == [CRITERION_VOLUME]
+
+
+# ── 변동성 과다 (온투이노베이션 2026-08-26 사례로 발견) ──────────────────
+#
+# 눌림목 조건 8개(추세·눌림구간·RSI·거래량·임팩트·반등)는 전부 "가격이 어디 있는가"만
+# 볼 뿐, 그 종목이 하루에 얼마나 흔들리는지는 보지 않았다. 실제로 이 조건을 전부
+# 통과한 종목이 ATR이 지나치게 커서 손절이 진입가의 -24.9%까지 벌어진 채로 화면에
+# 뜬 적이 있다. 아래는 buf(고가/저가 스프레드)만 넓혀 ATR14/종가 비율을 10% 위로
+# 올린 것 — 종가는 그대로라 다른 조건에는 영향이 없다(50% 룰 반등 기준선은
+# 버퍼가 상쇄되어 buf에 무관하다).
+
+def test_fails_when_volatility_too_high():
+    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
+        drop_pct=0.10, volume_pullback=BOUNCE_VOLUME, buf=10.0,
+    )
+    assert passes_pullback_filter(close, volume, high, low, open_) is False
+
+
+def test_evaluate_labels_volatility_failure_only():
+    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
+        drop_pct=0.10, volume_pullback=BOUNCE_VOLUME, buf=10.0,
+    )
+    ev = evaluate_pullback(close, volume, high, low, open_)
+    assert ev is not None
+    assert ev.passed is False
+    assert ev.failed == [CRITERION_VOLATILITY]
+
+
+def test_passes_with_mild_volatility_under_threshold():
+    # buf=5는 여전히 10% 문턱 아래라 정상 통과해야 한다 (과도한 필터링이 아님을 확인)
+    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
+        drop_pct=0.10, volume_pullback=BOUNCE_VOLUME, buf=5.0,
+    )
+    assert passes_pullback_filter(close, volume, high, low, open_) is True
 
 
 def test_evaluate_labels_rsi_direction_and_bounce_failures():

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .indicators import is_trending_up, rsi, sma, volume_ratio
+from .indicators import atr, is_trending_up, rsi, sma, volume_ratio
 
 MIN_HISTORY_DAYS = 85
 LONG_TERM_WINDOW = 60
@@ -26,6 +26,13 @@ BOUNCE_VOLUME_WINDOW = MID_TERM_WINDOW
 MAX_PULLBACK_RETRACEMENT = 0.5  # 직전 상승폭(IMPULSE_LOOKBACK_DAYS 구간 저→고)의 50% 넘게
 # 되돌리면 조정이 아니라 추세 하락(매매의 기술) — SMA20*0.95 하한은 이평선 대비 상대
 # 위치일 뿐이라 "얼마나 깊게 빠졌나"를 직접 재지 못해 이 조건으로 보완한다.
+ATR_WINDOW = 14
+MAX_VOLATILITY_RATIO = 0.10  # ATR14/종가가 10% 넘으면 변동성 과다로 제외. 0.10인 이유:
+# frontend/lib/risk.ts의 MAX_STOP_DISTANCE_PCT(0.15)가 손절을 entry-1.5*ATR로 잡을 때
+# ATR/entry > 0.10이면 손절폭이 15%를 넘어 화면에 아예 안 뜬다 — 여기서 미리 걸러
+# "조건은 통과했는데 손절이 안 나오는" 종목을 후보 단계에서부터 줄인다(온투이노베이션
+# 2026-08-26 사례: RSI·거래량·눌림구간은 다 통과했지만 ATR이 지나치게 커서 손절이
+# 진입가의 -24.9%까지 벌어졌었다).
 
 
 # 조건별 실패 라벨 — DB(failed_criteria text[])에 그대로 저장되어 프론트에 표시된다.
@@ -38,6 +45,7 @@ CRITERION_VOLUME = "거래량 미감소"
 CRITERION_IMPULSE = "선행 상승 부족"
 CRITERION_BOUNCE = "반등 미확인"
 CRITERION_PULLBACK_DEPTH = "조정 과다"
+CRITERION_VOLATILITY = "변동성 과다"
 
 
 @dataclass
@@ -138,6 +146,14 @@ def evaluate_pullback(
     bullish = latest_close > open_.iloc[-1]
     if not (recovered_half and volume_rising and bullish):
         failed.append(CRITERION_BOUNCE)
+
+    # 변동성 과다 — ATR14/종가가 10%를 넘으면 제외. 다른 조건(추세·눌림구간·RSI·거래량·
+    # 임팩트·반등)은 전부 "가격 위치"만 볼 뿐 "이 종목이 하루에 얼마나 흔들리는가"는
+    # 안 본다. 변동성이 큰 종목일수록 오히려 임팩트·반등 조건은 쉽게 만족시키면서
+    # 정작 손절은 감당 못 할 만큼 멀어진다(온투이노베이션 사례).
+    latest_atr = atr(high, low, close, ATR_WINDOW).iloc[-1]
+    if pd.isna(latest_atr) or (latest_atr / latest_close) > MAX_VOLATILITY_RATIO:
+        failed.append(CRITERION_VOLATILITY)
 
     return PullbackEvaluation(passed=not failed, failed=failed, impulse_gain=impulse_gain)
 

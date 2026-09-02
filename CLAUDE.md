@@ -154,6 +154,10 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 ## 작업 시 주의할 동기화 지점
 
 - **눌림목 추세 게이트**: `pipeline/src/screener.py`(long_term_up) ↔ `frontend/lib/risk.ts`(trendStatus) — 동일 로직이어야 손익비 표시가 스크리닝 결과와 안 어긋남
+- **변동성 상한**: `screener.py`의 `MAX_VOLATILITY_RATIO`(0.10)는 `risk.ts`의
+  `MAX_STOP_DISTANCE_PCT`(0.15)에서 역산한 값(`entry-1.5*ATR` 손절이 15% 넘게
+  벌어지는 지점이 `ATR/entry=0.10`) — 둘 중 하나를 바꾸면 다른 쪽도 재계산해서 맞출 것
+  (2026-09-02, 온투이노베이션 사례로 추가)
 - **횡보·조정 채점**: `frontend/lib/opportunityScore.ts`(참조) ↔ `pipeline/src/watchlist.py` · `pipeline/src/opportunities.py`(실제 실행) — 상수 하나도 따로 안 놀아야 함
 - **조정폭 밴드**: `MIN_DRAWDOWN`/`MAX_DRAWDOWN` 원본은 `watchlist.py`, 밴드 판정 함수(`in_band_tickers`)는 `opportunities.py`. `fundamentals.py`는 이 함수를 `main.py`를 통해 그대로 재사용하므로(독립 재정의 없음) 어긋날 일은 없음
 - **하루 2회 실행 전제**: 파이프라인은 아침 전체(06:30 KST)와 저녁 KR 전용(16:30 KST)

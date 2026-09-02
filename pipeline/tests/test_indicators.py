@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from pipeline.src.indicators import sma, rsi, is_trending_up, volume_ratio
+from pipeline.src.indicators import atr, sma, rsi, is_trending_up, volume_ratio
 
 
 def test_sma_computes_rolling_mean():
@@ -49,3 +49,32 @@ def test_volume_ratio_above_one_when_recent_volume_higher():
     volume = pd.Series([100.0] * 20 + [150.0] * 5)
     result = volume_ratio(volume, recent_window=5, baseline_window=20)
     assert result == pytest.approx(1.5)
+
+
+def test_atr_averages_true_range_over_window():
+    # Constant close so true range == high-low every bar (no close-to-close gap).
+    close = pd.Series([100.0] * 20)
+    high = close + 2.0
+    low = close - 2.0
+    result = atr(high, low, close, window=14)
+    assert result.iloc[-1] == pytest.approx(4.0)
+
+
+def test_atr_picks_up_gap_when_wider_than_the_bar_range():
+    # A gap-up day: yesterday's close is far below today's low, so true range should
+    # be the gap distance, not the (narrow) high-low range.
+    close = pd.Series([100.0] * 13 + [130.0])
+    high = pd.Series([101.0] * 13 + [131.0])
+    low = pd.Series([99.0] * 13 + [129.0])
+    result = atr(high, low, close, window=14)
+    # 13 quiet bars with TR=2, plus the gap day with TR=|131-100|=31
+    expected = (2.0 * 13 + 31.0) / 14
+    assert result.iloc[-1] == pytest.approx(expected)
+
+
+def test_atr_is_nan_before_window_fills():
+    close = pd.Series([100.0] * 5)
+    high = close + 1
+    low = close - 1
+    result = atr(high, low, close, window=14)
+    assert pd.isna(result.iloc[-1])
