@@ -146,3 +146,30 @@ def test_accrue_long_monthly_failure_does_not_stop_the_pipeline(capsys):
     ScreenerDB(client).accrue_long_monthly()  # 예외가 새어 나오면 실패
 
     assert "월봉 적립" in capsys.readouterr().out
+
+
+# ── KR 신선도 조회 (아침 전체 실행이 저녁 --kr-only 결과와 중복 계산하지 않도록) ──
+
+def test_get_latest_regime_date_returns_latest_date_for_market():
+    client, tables = _client_with_per_table_mocks()
+    db = ScreenerDB(client)
+
+    query = tables["market_regime"].select.return_value.eq.return_value.order.return_value.limit.return_value
+    query.execute.return_value = MagicMock(data=[{"date": "2024-03-01"}])
+
+    assert db.get_latest_regime_date("KR") == "2024-03-01"
+    tables["market_regime"].select.assert_called_once_with("date")
+    tables["market_regime"].select.return_value.eq.assert_called_once_with("market", "KR")
+    tables["market_regime"].select.return_value.eq.return_value.order.assert_called_once_with(
+        "date", desc=True
+    )
+
+
+def test_get_latest_regime_date_returns_none_when_no_rows():
+    client, tables = _client_with_per_table_mocks()
+    db = ScreenerDB(client)
+
+    query = tables["market_regime"].select.return_value.eq.return_value.order.return_value.limit.return_value
+    query.execute.return_value = MagicMock(data=[])
+
+    assert db.get_latest_regime_date("KR") is None

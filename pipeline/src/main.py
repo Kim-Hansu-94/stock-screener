@@ -30,6 +30,14 @@ _SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded_tick
 _KR_SEED_FILE = Path(__file__).parent.parent / ".kr_opp_seeded"
 _KR_SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".kr_opp_seeded_tickers"
 _KR_OPP_LOOKBACK_DAYS = 1095  # 3년
+# 아침 전체 실행이 KR을 다시 돌지 판단하는 신선도 창(일). 06:30 KST는 한국장
+# 개장 전이라 이 시각의 KR as_of는 항상 "가장 최근 거래일 종가"이고, 이는
+# 전날 저녁(16:30 KST, --kr-only) 실행이 이미 저장한 값과 동일하다 — 그래서
+# 무조건 다시 돌리면 매일 스크리닝·기회 스냅샷·감시 종목 평가 전체가 통째로
+# 중복 계산된다. 3일을 쓰는 이유는 평일 하루 간격(1일)뿐 아니라 금요일 저녁
+# → 월요일 아침 주말 간격(3일)까지 "이미 최신"으로 인식하기 위해서다. 저녁
+# 실행이 실패해 오래 밀렸다면 이 창을 넘어가 자연히 다시 돈다(안전망 유지).
+_KR_FRESH_WINDOW_DAYS = 3
 # 횡보·조정 스크리너 대상 미국 지수 (frontend discover/page.tsx와 동일)
 US_OPP_INDEXES = ("NASDAQ100", "S&P500")
 
@@ -196,6 +204,23 @@ def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days:
     return rows
 
 
+def _kr_pipeline_already_fresh(db: ScreenerDB, today: date) -> bool:
+    """저녁 --kr-only 실행이 이미 오늘 아침이 계산할 것과 같은 as_of를 저장해뒀는가.
+
+    market_regime의 KR 최신 date가 _KR_FRESH_WINDOW_DAYS 안이면 True — 아침
+    실행의 KR as_of는 항상 "직전 거래일 종가"이므로(개장 전) 그 값과 같다고
+    본다. 조회 자체가 실패하면(첫 실행, 네트워크 문제 등) 안전하게 False로
+    떨어져 평소처럼 KR을 다시 돈다.
+    """
+    try:
+        latest = db.get_latest_regime_date("KR")
+        if not latest:
+            return False
+        return (today - date.fromisoformat(latest)).days <= _KR_FRESH_WINDOW_DAYS
+    except Exception:
+        return False
+
+
 def main() -> None:
     # --kr-only: 한국장 마감(15:30 KST) 이후 저녁 실행 전용 모드.
     # 정규 06:30 KST 실행은 한국장 개장 전이라 KR 데이터가 항상 전날치로 밀린다.
@@ -208,94 +233,100 @@ def main() -> None:
     today = _today_kst()
     db = ScreenerDB.from_env()
 
-    kr_result = run_kr_pipeline(today)
-    db.save_pipeline_result(_to_db_result(kr_result, today))
+    if kr_only or not _kr_pipeline_already_fresh(db, today):
+        kr_result = run_kr_pipeline(today)
+        db.save_pipeline_result(_to_db_result(kr_result, today))
 
-    # 최근 추천 종목 중 오늘 스크리너를 통과하지 못한 종목의 가격 보완
-    # (통과하지 못하면 당일 종가가 stock_price_history에 누락되어 +1~+3일 수익률 계산 불가)
-    _supplement_kr_price_history(db, kr_result, today)
+        # 최근 추천 종목 중 오늘 스크리너를 통과하지 못한 종목의 가격 보완
+        # (통과하지 못하면 당일 종가가 stock_price_history에 누락되어 +1~+3일 수익률 계산 불가)
+        _supplement_kr_price_history(db, kr_result, today)
 
-    # KOSPI 기회 종목 히스토리 (미래먹거리 횡보·조정 스크리너용)
-    # .kr_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단 — US 패턴과 동일
-    print("KR 기회 종목 히스토리 수집 중...", flush=True)
-    # 종목발굴 탭은 장기 보유를 전제로 하므로 눌림목과 같은 시총 하한(3,000억)을 건다.
-    # 시총이 그 아래인 종목은 변동성·유동성이 커서 이 탭의 목적에 맞지 않는다.
-    # 시총 미확인(NaN)도 비교가 False라 자연히 빠진다 — 모르는 종목을 넣는 것보다 안전하다.
-    kr_opp_mask = (kr_result.universe_df["index_membership"] == "KOSPI") & (
-        kr_result.universe_df["market_cap"] >= KR_MIN_MARKET_CAP
-    )
-    kr_opp_tickers = kr_result.universe_df.loc[kr_opp_mask, "ticker"].tolist()
-
-    if _KR_SEED_FILE.exists():
-        kr_seed_date = date.fromisoformat(_KR_SEED_FILE.read_text().strip())
-        kr_incremental_days = max((today - kr_seed_date).days + 7, 14)
-        kr_seeded_tickers = (
-            set(json.loads(_KR_SEEDED_TICKERS_FILE.read_text()))
-            if _KR_SEEDED_TICKERS_FILE.exists()
-            else set()
+        # KOSPI 기회 종목 히스토리 (미래먹거리 횡보·조정 스크리너용)
+        # .kr_opp_seeded 파일(actions/cache로 유지)로 증분 여부 판단 — US 패턴과 동일
+        print("KR 기회 종목 히스토리 수집 중...", flush=True)
+        # 종목발굴 탭은 장기 보유를 전제로 하므로 눌림목과 같은 시총 하한(3,000억)을 건다.
+        # 시총이 그 아래인 종목은 변동성·유동성이 커서 이 탭의 목적에 맞지 않는다.
+        # 시총 미확인(NaN)도 비교가 False라 자연히 빠진다 — 모르는 종목을 넣는 것보다 안전하다.
+        kr_opp_mask = (kr_result.universe_df["index_membership"] == "KOSPI") & (
+            kr_result.universe_df["market_cap"] >= KR_MIN_MARKET_CAP
         )
-        kr_new_tickers = [t for t in kr_opp_tickers if t not in kr_seeded_tickers]
-        kr_existing_tickers = [t for t in kr_opp_tickers if t in kr_seeded_tickers]
+        kr_opp_tickers = kr_result.universe_df.loc[kr_opp_mask, "ticker"].tolist()
 
-        kr_opp_rows: list[dict] = []
-        if kr_new_tickers:
-            print(f"  신규/미시드 {len(kr_new_tickers)}개 3년 전체 다운로드...", flush=True)
-            kr_opp_rows.extend(
-                _collect_kr_opportunity_rows(kr_new_tickers, today, _KR_OPP_LOOKBACK_DAYS)
+        if _KR_SEED_FILE.exists():
+            kr_seed_date = date.fromisoformat(_KR_SEED_FILE.read_text().strip())
+            kr_incremental_days = max((today - kr_seed_date).days + 7, 14)
+            kr_seeded_tickers = (
+                set(json.loads(_KR_SEEDED_TICKERS_FILE.read_text()))
+                if _KR_SEEDED_TICKERS_FILE.exists()
+                else set()
             )
-        if kr_existing_tickers:
-            print(f"  기존 {len(kr_existing_tickers)}개 증분 ({kr_incremental_days}일)...", flush=True)
-            incremental = _collect_kr_opportunity_rows(
-                kr_existing_tickers, today, kr_incremental_days
-            )
-            # 액면분할 등으로 과거가가 소급 조정된 종목은 증분만 덮어쓰면 DB 안에
-            # 가짜 급락이 남는다. 겹치는 날짜의 종가로 감지해 전체를 다시 받는다.
-            readjusted = detect_adjusted(db, "KR", incremental)
-            report("KR", readjusted)
-            if readjusted:
-                incremental = [r for r in incremental if r["ticker"] not in set(readjusted)]
-                incremental.extend(
-                    _collect_kr_opportunity_rows(readjusted, today, _KR_OPP_LOOKBACK_DAYS)
+            kr_new_tickers = [t for t in kr_opp_tickers if t not in kr_seeded_tickers]
+            kr_existing_tickers = [t for t in kr_opp_tickers if t in kr_seeded_tickers]
+
+            kr_opp_rows: list[dict] = []
+            if kr_new_tickers:
+                print(f"  신규/미시드 {len(kr_new_tickers)}개 3년 전체 다운로드...", flush=True)
+                kr_opp_rows.extend(
+                    _collect_kr_opportunity_rows(kr_new_tickers, today, _KR_OPP_LOOKBACK_DAYS)
                 )
-            kr_opp_rows.extend(incremental)
+            if kr_existing_tickers:
+                print(f"  기존 {len(kr_existing_tickers)}개 증분 ({kr_incremental_days}일)...", flush=True)
+                incremental = _collect_kr_opportunity_rows(
+                    kr_existing_tickers, today, kr_incremental_days
+                )
+                # 액면분할 등으로 과거가가 소급 조정된 종목은 증분만 덮어쓰면 DB 안에
+                # 가짜 급락이 남는다. 겹치는 날짜의 종가로 감지해 전체를 다시 받는다.
+                readjusted = detect_adjusted(db, "KR", incremental)
+                report("KR", readjusted)
+                if readjusted:
+                    incremental = [r for r in incremental if r["ticker"] not in set(readjusted)]
+                    incremental.extend(
+                        _collect_kr_opportunity_rows(readjusted, today, _KR_OPP_LOOKBACK_DAYS)
+                    )
+                kr_opp_rows.extend(incremental)
+        else:
+            print("  최초 실행: 3년 전체 다운로드", flush=True)
+            kr_opp_rows = _collect_kr_opportunity_rows(kr_opp_tickers, today, _KR_OPP_LOOKBACK_DAYS)
+
+        if kr_opp_rows:
+            db.save_price_history(kr_opp_rows)
+        print(f"  → {len(kr_opp_rows)}행 저장", flush=True)
+        _KR_SEED_FILE.write_text(today.isoformat())
+        _KR_SEEDED_TICKERS_FILE.write_text(json.dumps(kr_opp_tickers))
+
+        # 장기(10년) 월봉 — 미시드 종목만 1회 수집하므로 정상 운영 중엔 비용이 거의 없다
+        seed_long_monthly(db, "KR", kr_opp_tickers, today)
+
+        # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
+        # 코스피 전체(942개 안팎)가 아니라 밴드 안 종목으로만 대상을 좁힌다.
+        kr_in_band = list(in_band_tickers(db, "KR", kr_opp_tickers, today))
+        # 우선주 폴백용 이름 매핑은 밴드가 아니라 전체 유니버스에서 만든다 — 우선주의
+        # 보통주가 밴드 밖(조정폭 20~60%를 안 벗어난) 종목일 수도 있어서다. 조회
+        # 대상 자체는 여전히 밴드 안으로 좁혀져 있으니(kr_in_band), 이 매핑을 넓게
+        # 잡는다고 실적 수집량이 늘지는 않는다.
+        kr_ticker_to_name = dict(zip(
+            kr_result.universe_df["ticker"], kr_result.universe_df["name"], strict=False,
+        ))
+        kr_name_to_ticker = {name: ticker for ticker, name in kr_ticker_to_name.items() if name}
+        refresh_fundamentals(
+            db, "KR", kr_in_band, today,
+            ticker_to_name=kr_ticker_to_name, name_to_ticker=kr_name_to_ticker,
+        )
+
+        # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장.
+        # 위 kr_opp_tickers와 같은 집합을 써서 "일봉은 받았는데 스냅샷엔 없는" 어긋남을 막는다.
+        kr_opp_ticker_set = set(kr_opp_tickers)
+        kr_universe_rows = [r for r in _to_db_result(kr_result, today).universe_metadata
+                            if r["ticker"] in kr_opp_ticker_set]
+        refresh_opportunity_snapshot(db, "KR", kr_universe_rows, today)
+
+        # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
+        run_watchlist(db, today)
     else:
-        print("  최초 실행: 3년 전체 다운로드", flush=True)
-        kr_opp_rows = _collect_kr_opportunity_rows(kr_opp_tickers, today, _KR_OPP_LOOKBACK_DAYS)
-
-    if kr_opp_rows:
-        db.save_price_history(kr_opp_rows)
-    print(f"  → {len(kr_opp_rows)}행 저장", flush=True)
-    _KR_SEED_FILE.write_text(today.isoformat())
-    _KR_SEEDED_TICKERS_FILE.write_text(json.dumps(kr_opp_tickers))
-
-    # 장기(10년) 월봉 — 미시드 종목만 1회 수집하므로 정상 운영 중엔 비용이 거의 없다
-    seed_long_monthly(db, "KR", kr_opp_tickers, today)
-
-    # 실적 요약 — stock_fundamentals는 조정폭 밴드 후보 카드에서만 읽히므로,
-    # 코스피 전체(942개 안팎)가 아니라 밴드 안 종목으로만 대상을 좁힌다.
-    kr_in_band = list(in_band_tickers(db, "KR", kr_opp_tickers, today))
-    # 우선주 폴백용 이름 매핑은 밴드가 아니라 전체 유니버스에서 만든다 — 우선주의
-    # 보통주가 밴드 밖(조정폭 20~60%를 안 벗어난) 종목일 수도 있어서다. 조회
-    # 대상 자체는 여전히 밴드 안으로 좁혀져 있으니(kr_in_band), 이 매핑을 넓게
-    # 잡는다고 실적 수집량이 늘지는 않는다.
-    kr_ticker_to_name = dict(zip(
-        kr_result.universe_df["ticker"], kr_result.universe_df["name"], strict=False,
-    ))
-    kr_name_to_ticker = {name: ticker for ticker, name in kr_ticker_to_name.items() if name}
-    refresh_fundamentals(
-        db, "KR", kr_in_band, today,
-        ticker_to_name=kr_ticker_to_name, name_to_ticker=kr_name_to_ticker,
-    )
-
-    # 횡보·조정 후보 사전 계산 — 화면이 요청마다 재계산하지 않도록 미리 저장.
-    # 위 kr_opp_tickers와 같은 집합을 써서 "일봉은 받았는데 스냅샷엔 없는" 어긋남을 막는다.
-    kr_opp_ticker_set = set(kr_opp_tickers)
-    kr_universe_rows = [r for r in _to_db_result(kr_result, today).universe_metadata
-                        if r["ticker"] in kr_opp_ticker_set]
-    refresh_opportunity_snapshot(db, "KR", kr_universe_rows, today)
-
-    # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
-    run_watchlist(db, today)
+        print(
+            "KR 데이터가 이미 최신(저녁 KR 전용 실행이 저장) — 아침 KR 파이프라인 재실행 생략",
+            flush=True,
+        )
 
     if kr_only:
         # 월봉 사전 집계 MV를 갱신해 방금 저장한 KR 당일 데이터가 화면(월봉 차트·
