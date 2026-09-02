@@ -1,0 +1,71 @@
+name: US Financial Health
+
+on:
+  schedule:
+    # ⚠️ 백업용. 본 트리거는 Supabase pg_cron이 매일 21:00 KST(12:00 UTC)에
+    # workflow_dispatch로 쏜다 (supabase/pg_cron_us_financial_health_trigger.sql
+    # 참고 — pipeline.yml/pg_cron_pipeline_trigger.sql과 같은 이유).
+    - cron: '0 13 * * 1-5'  # 백업: 22:00 KST (월~금)
+  workflow_dispatch:
+
+jobs:
+  precheck:
+    # schedule 이벤트(백업 경로)일 때만 검사: 최근 18시간 내 성공했거나 지금
+    # 돌고 있는 실행이 있으면 pg_cron이 이미 처리한 것이므로 건너뛴다.
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          recent=$(gh run list -R "${{ github.repository }}" -w us_financial_health.yml \
+            --limit 20 --json databaseId,createdAt,status,conclusion \
+            --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)
+                       | select(.createdAt > (now - 18*3600 | todate))
+                       | select(.conclusion == \"success\" or .status == \"in_progress\" or .status == \"queued\")
+                  ] | length")
+          if [ "$recent" -gt 0 ]; then
+            echo "최근 18시간 내 성공/진행 중 실행 ${recent}건 → 백업 schedule 중복 실행 생략"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  run:
+    needs: precheck
+    if: needs.precheck.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+
+      - name: Run US financial health collection
+        working-directory: pipeline
+        run: python -m src.us_financial_health_main

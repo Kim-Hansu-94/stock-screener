@@ -38,7 +38,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록). `in_band_tickers()`(조정폭 20~60% 판정)는 `fundamentals.py`도 대상 종목을 좁히는 데 재사용 |
 | `watchlist.py` | 감시 종목(보유 종목) 평가 → `watchlist_status`. **채점 로직은 `frontend/lib/opportunityScore.ts`의 포팅본 — 상수 바꿀 때 반드시 같이 수정** |
 | `fundamentals.py` | 실적(매출·이익) 수집 → `stock_fundamentals`. `main.py`가 유니버스 전체가 아니라 `in_band_tickers()`로 좁힌 조정폭 밴드 종목만 넘김(밴드 밖은 화면에 안 뜨므로). 30일 주기 + 실행당 상한. KR은 `dart_fundamentals.py`, US는 yfinance로 분기 |
-| `dart_fundamentals.py` | DART(전자공시) Open API로 국내 종목 실적 수집. `DART_API_KEY` 시크릿 필요 — 미설정이면 KR 실적 수집을 통째로 건너뜀(로그만 남기고 계속 진행). 우선주는 DART corpCode.xml에 자기 종목코드가 없어 이름에서 "우"/"N우B" 접미사를 떼어 보통주 corp_code로 대신 조회함(재무제표는 법인 단위라 회계적으로 문제없음) — 이름 매핑은 `main.py`가 KR 유니버스 전체에서 만들어 넘김. 손익 계정과 같은 API 응답(`fnlttSinglAcnt.json`)에 대차대조표 주요계정도 들어 있어, 재무건전성(유동자산·유동부채·부채총계·자본총계)도 추가 호출 없이 같이 뽑는다(2026-09-02, US는 아직 미수집) |
+| `dart_fundamentals.py` | DART(전자공시) Open API로 국내 종목 실적 수집. `DART_API_KEY` 시크릿 필요 — 미설정이면 KR 실적 수집을 통째로 건너뜀(로그만 남기고 계속 진행). 우선주는 DART corpCode.xml에 자기 종목코드가 없어 이름에서 "우"/"N우B" 접미사를 떼어 보통주 corp_code로 대신 조회함(재무제표는 법인 단위라 회계적으로 문제없음) — 이름 매핑은 `main.py`가 KR 유니버스 전체에서 만들어 넘김. 손익 계정과 같은 API 응답(`fnlttSinglAcnt.json`)에 대차대조표 주요계정도 들어 있어, 재무건전성(유동자산·유동부채·부채총계·자본총계)도 추가 호출 없이 같이 뽑는다(2026-09-02) |
+| `us_financial_health_main.py` | US 종목 재무건전성(대차대조표) 전용 수집 — 실적(`fundamentals.py`의 income_stmt)과 별도 낮은 빈도(21:00 KST, 같은 30일 주기)로 독립 실행. yfinance는 대차대조표가 손익계산서와 별도 호출이라 종목당 요청이 두 배가 되므로 매일 도는 본 파이프라인에 얹지 않음. 유니버스는 재수집하지 않고 그날 아침 본 파이프라인이 저장해 둔 `stock_universe`를 그대로 읽는다(`ScreenerDB.get_universe_tickers`). `stock_fundamentals.financial_health_updated_at`으로 실적용 `updated_at`과 신선도를 분리 추적 — 같은 컬럼을 쓰면 재무건전성만 갱신해도 "실적도 최근 갱신됐다"고 착각해 진짜 실적 갱신을 건너뛰게 된다. 별도 워크플로(`.github/workflows/us_financial_health.yml`) + 별도 pg_cron(`supabase/pg_cron_us_financial_health_trigger.sql`, 매일 21:00 KST) |
 | `long_history.py` | 10년 월봉 수집 → `stock_long_monthly`. 과거 확정 구간이라 미시드 종목만 1회 |
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
 | `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (오늘의 추천 탭) |
@@ -56,7 +57,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `stock_universe` | main.py | 종목명·섹터·시총 매핑 |
 | `stock_long_monthly` | long_history.py (10년 시드) + `accrue_long_monthly()`(매 실행, 확정 월봉 적립) | 10년 고점, 장기 하락 경고, **3년 고점의 600일 이전 구간** |
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
-| `stock_fundamentals` | fundamentals.py | 실적 동반 하락 판정 + 재무건전성(유동비율·부채비율, KR만) |
+| `stock_fundamentals` | fundamentals.py(실적) + us_financial_health_main.py(US 재무건전성) | 실적 동반 하락 판정 + 재무건전성(유동비율·부채비율, KR·US) |
 | `watchlist_status` | watchlist.py | 눌림목 종목 탭 감시 종목 카드 |
 | `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
@@ -174,6 +175,10 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   절대 타지 않는다 — 그게 최신 KR 데이터를 실제로 만드는 쪽이라 스킵하면 영영
   갱신이 안 된다. 저녁 실행이 실패해 오래 밀리면 창을 넘어가 아침이 안전망으로
   다시 돈다
+- **하루 3번째 실행(US 재무건전성)**: 위 두 번(아침 06:30·저녁 16:30)과 별개로
+  21:00 KST에 US 재무건전성만 도는 세 번째 실행이 있다(`us_financial_health_main.py`,
+  `.github/workflows/us_financial_health.yml`). 본 파이프라인(`main.py`)과
+  완전히 분리된 워크플로·pg_cron 트리거라 `main.py`의 스케줄 로직과는 무관하다
 - **성적 집계의 판정 기간**: `scorecard.ts`의 `MAX_HOLD_BARS`(60거래일)를 지나면 강제 청산으로
   결론을 낸다. 이 값을 줄이면 아직 살아 있는 트레이드를 죽은 걸로 세고, 늘리면 판정 대기(pending)만
   쌓여 표본이 안 모인다. 손절은 1R로 가깝고 목표는 보통 2R 이상이라 손절이 훨씬 빨리 걸리므로,

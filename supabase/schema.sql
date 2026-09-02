@@ -184,13 +184,19 @@ create table if not exists stock_fundamentals (
   eps_prior                numeric,
   per                      numeric,
   pbr                      numeric,
-  -- 재무건전성(유동비율·부채비율). 2026-09-02 기준 KR(DART)만 채운다 — US(yfinance)는
-  -- 대차대조표 조회에 API 호출이 하나 더 필요해 아직 안 함. 당기 스냅샷만 저장한다
-  -- (추세가 아니라 "지금" 상태를 보는 지표라서 _prior 짝이 없다).
+  -- 재무건전성(유동비율·부채비율). KR(DART)은 실적과 같은 API 응답에 들어 있어
+  -- fundamentals.py가 매일 같이 채운다. US(yfinance)는 대차대조표 조회가
+  -- income_stmt와 별도 호출이라, us_financial_health_main.py(21:00 KST 전용
+  -- 워크플로)가 낮은 빈도로 독립 수집한다. 당기 스냅샷만 저장한다(추세가 아니라
+  -- "지금" 상태를 보는 지표라서 _prior 짝이 없다).
   current_assets           numeric,
   current_liabilities      numeric,
   total_liabilities        numeric,
   total_equity             numeric,
+  -- US 재무건전성 전용 갱신 시각. updated_at(실적)과 분리한 이유: 재무건전성만
+  -- 갱신했을 때 updated_at까지 같이 찍으면 fundamentals.py의 _stale_tickers가
+  -- "실적도 최근에 갱신됐다"고 착각해 진짜 실적 갱신을 건너뛴다.
+  financial_health_updated_at date,
   primary key (ticker, market)
 );
 

@@ -165,6 +165,32 @@ def test_get_latest_regime_date_returns_latest_date_for_market():
     )
 
 
+# ── stock_universe에서 티커만 뽑기 (US 재무건전성 전용 워크플로가 재사용) ──────
+
+def test_get_universe_tickers_filters_by_index_and_market_cap():
+    client, tables = _client_with_per_table_mocks()
+    db = ScreenerDB(client)
+
+    query = (
+        tables["stock_universe"].select.return_value.eq.return_value
+        .in_.return_value.gte.return_value.range.return_value
+    )
+    query.execute.return_value = MagicMock(data=[{"ticker": "AAPL"}, {"ticker": "MSFT"}])
+
+    result = db.get_universe_tickers("US", ["NASDAQ100", "S&P500"], 2e9)
+
+    assert result == ["AAPL", "MSFT"]
+    tables["stock_universe"].select.assert_called_once_with("ticker")
+    tables["stock_universe"].select.return_value.eq.assert_called_once_with("market", "US")
+    tables["stock_universe"].select.return_value.eq.return_value.in_.assert_called_once_with(
+        "index_membership", ["NASDAQ100", "S&P500"]
+    )
+    (
+        tables["stock_universe"].select.return_value.eq.return_value
+        .in_.return_value.gte.assert_called_once_with("market_cap", 2e9)
+    )
+
+
 def test_get_latest_regime_date_returns_none_when_no_rows():
     client, tables = _client_with_per_table_mocks()
     db = ScreenerDB(client)
