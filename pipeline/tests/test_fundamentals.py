@@ -401,3 +401,185 @@ def test_logs_why_it_skipped_when_there_are_no_target_tickers(monkeypatch, capsy
     out = capsys.readouterr().out
     assert "US 실적 수집 생략" in out
     assert "대상 종목 없음" in out
+
+
+# ── US 재무건전성(대차대조표) — 실적과 별도 낮은 빈도 수집 ──────────────────
+# income_stmt(실적)와 balance_sheet(재무건전성)는 yfinance에서 별도 호출이라
+# refresh_financial_health()가 독립된 함수·독립된 워크플로(21:00 KST)로 수집한다.
+
+def _balance_sheet(rows: dict[str, list[float]], years: list[int]) -> pd.DataFrame:
+    return pd.DataFrame(
+        list(rows.values()),
+        index=list(rows.keys()),
+        columns=[pd.Timestamp(f"{y}-12-31") for y in years],
+    )
+
+
+class _FakeYfBalanceSheetTicker:
+    def __init__(self, bs):
+        self._bs = bs
+
+    @property
+    def balance_sheet(self):
+        if isinstance(self._bs, Exception):
+            raise self._bs
+        return self._bs
+
+
+def _patch_yf_bs(monkeypatch, bs):
+    monkeypatch.setattr(fundamentals.yf, "Ticker", lambda _s: _FakeYfBalanceSheetTicker(bs))
+
+
+def test_extract_balance_sheet_reports_ok_with_usable_data(monkeypatch):
+    _patch_yf_bs(monkeypatch, _balance_sheet({
+        "Current Assets": [100.0], "Current Liabilities": [40.0],
+        "Total Liabilities Net Minority Interest": [60.0], "Stockholders Equity": [80.0],
+    }, [2025]))
+
+    data, reason = fundamentals._extract_balance_sheet("AAPL")
+
+    assert reason == "ok"
+    assert data == {
+        "current_assets": 100.0, "current_liabilities": 40.0,
+        "total_liabilities": 60.0, "total_equity": 80.0,
+    }
+
+
+def test_extract_balance_sheet_reports_no_balance_sheet_when_empty(monkeypatch):
+    _patch_yf_bs(monkeypatch, pd.DataFrame())
+    data, reason = fundamentals._extract_balance_sheet("AAPL")
+    assert data is None
+    assert reason == "no_balance_sheet"
+
+
+def test_extract_balance_sheet_reports_the_exception_type_when_yahoo_throws(monkeypatch):
+    _patch_yf_bs(monkeypatch, RuntimeError("rate limited"))
+    data, reason = fundamentals._extract_balance_sheet("AAPL")
+    assert data is None
+    assert reason == "balance_sheet_error_RuntimeError"
+
+
+def test_extract_balance_sheet_reports_missing_row_names_when_none_of_the_four_match(monkeypatch):
+    _patch_yf_bs(monkeypatch, _balance_sheet({"Totally New Row": [1.0]}, [2025]))
+    data, reason = fundamentals._extract_balance_sheet("AAPL")
+    assert data is None
+    assert "no_key_rows" in reason
+    assert "Totally New Row" in reason
+
+
+def test_extract_balance_sheet_succeeds_with_partial_fields(monkeypatch):
+    """네 항목 중 일부만 있어도(예: 유동자산·유동부채만) 나머지는 null로 성공 처리한다."""
+    _patch_yf_bs(monkeypatch, _balance_sheet(
+        {"Current Assets": [100.0], "Current Liabilities": [40.0]}, [2025],
+    ))
+    data, reason = fundamentals._extract_balance_sheet("AAPL")
+    assert reason == "ok"
+    assert data["current_assets"] == 100.0
+    assert data["total_liabilities"] is None
+
+
+def _patch_financial_health(monkeypatch, db, *, stale, extract, chunk=None, cap=None):
+    monkeypatch.setattr(fundamentals, "_stale_financial_health_tickers", lambda *a, **k: list(stale))
+    monkeypatch.setattr(fundamentals, "_extract_balance_sheet", extract)
+    if chunk is not None:
+        monkeypatch.setattr(fundamentals, "SAVE_CHUNK", chunk)
+    if cap is not None:
+        monkeypatch.setattr(fundamentals, "MAX_PER_RUN", cap)
+    return db
+
+
+def test_refresh_financial_health_saves_only_the_four_columns_and_a_dedicated_timestamp(monkeypatch):
+    """updated_at(실적용)은 페이로드에 없어야 한다 — 있으면 _stale_tickers가
+    실적도 최근에 갱신됐다고 착각해 진짜 실적 갱신을 건너뛴다."""
+    db = _CountingDB()
+    _patch_financial_health(
+        monkeypatch, db, stale=["AAPL"],
+        extract=lambda _s: (
+            {"current_assets": 1.0, "current_liabilities": 2.0,
+             "total_liabilities": 3.0, "total_equity": 4.0},
+            "ok",
+        ),
+    )
+
+    fundamentals.refresh_financial_health(db, ["AAPL"], TODAY)
+
+    saved = [r for chunk in db.saves for r in chunk]
+    assert saved == [{
+        "ticker": "AAPL", "market": "US",
+        "financial_health_updated_at": TODAY.isoformat(),
+        "current_assets": 1.0, "current_liabilities": 2.0,
+        "total_liabilities": 3.0, "total_equity": 4.0,
+    }]
+    assert "updated_at" not in saved[0]
+
+
+def test_refresh_financial_health_skips_failed_tickers(monkeypatch):
+    db = _CountingDB()
+    tickers = ["OK", "BAD"]
+    _patch_financial_health(
+        monkeypatch, db, stale=tickers,
+        extract=lambda s: (None, "no_balance_sheet") if s == "BAD" else (
+            {"current_assets": 1.0, "current_liabilities": None,
+             "total_liabilities": None, "total_equity": None},
+            "ok",
+        ),
+    )
+
+    fundamentals.refresh_financial_health(db, tickers, TODAY)
+
+    saved = [r["ticker"] for chunk in db.saves for r in chunk]
+    assert saved == ["OK"]
+
+
+def test_refresh_financial_health_logs_skip_reasons(monkeypatch, capsys):
+    db = _CountingDB()
+    _patch_financial_health(monkeypatch, db, stale=[], extract=lambda _s: (None, "x"))
+
+    fundamentals.refresh_financial_health(db, ["AAPL"], TODAY)
+
+    out = capsys.readouterr().out
+    assert "US 재무건전성 수집 생략" in out
+    assert db.saves == []
+
+    fundamentals.refresh_financial_health(db, [], TODAY)
+    out = capsys.readouterr().out
+    assert "대상 종목 없음" in out
+
+
+def test_stale_financial_health_tickers_excludes_tickers_without_an_existing_row():
+    """실적 행 자체가 없는 티커는 대상에서 뺀다 — 대차대조표만 있는 반쪽 행을
+    만들지 않기 위해서다."""
+    class _FakeQuery:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def select(self, *_a, **_k):
+            return self
+
+        def eq(self, *_a, **_k):
+            return self
+
+        def range(self, *_a, **_k):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": self._rows})()
+
+    class _FakeTable:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def table(self, _name):
+            return _FakeQuery(self._rows)
+
+    existing_rows = [
+        {"ticker": "HAS_ROW_STALE", "financial_health_updated_at": None},
+        {"ticker": "HAS_ROW_FRESH", "financial_health_updated_at": TODAY.isoformat()},
+    ]
+    db = type("DB", (), {"client": _FakeTable(existing_rows)})()
+
+    pending = fundamentals._stale_financial_health_tickers(
+        db, ["HAS_ROW_STALE", "HAS_ROW_FRESH", "NO_ROW_AT_ALL"], TODAY,
+    )
+
+    assert pending == ["HAS_ROW_STALE"]

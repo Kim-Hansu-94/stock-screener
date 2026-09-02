@@ -265,18 +265,20 @@ lookback `5`)이어야 스크리닝 결과와 화면 표시가 안 어긋난다.
 ### 재무건전성 (`assessFinancialHealth`, 2026-09-02 추가)
 
 실적 판정과 별개의 정보성 배지. 한눈에 보는 실전 재무제표: "단기적 관점에서 재무
-건전성을 측정하는 가장 중요한 지표는 유동성이다." **2026-09-02 기준 KR만 데이터가
-있다** — `current_assets`/`current_liabilities`/`total_liabilities`/`total_equity`는
-DART가 이미 응답하는 대차대조표 주요계정을 그대로 뽑은 것(추가 API 호출 없음, US는
-yfinance 대차대조표 호출이 하나 더 필요해 아직 미수집). 당기 스냅샷만 저장(`_prior`
-짝 없음 — 추세가 아니라 "지금" 상태를 보는 지표라서).
+건전성을 측정하는 가장 중요한 지표는 유동성이다." `current_assets`/`current_liabilities`/
+`total_liabilities`/`total_equity`는 KR(DART)이 이미 응답하는 대차대조표 주요계정을
+그대로 뽑은 것(추가 API 호출 없음). US(yfinance)는 대차대조표 조회가 손익계산서와
+별도 호출이라 본 파이프라인에 얹지 않고, `us_financial_health_main.py`가 21:00 KST
+전용 워크플로에서 같은 30일 주기로 독립 수집한다(2026-09-02 추가) — 신선도는
+`financial_health_updated_at`으로 실적용 `updated_at`과 분리 추적한다. 당기 스냅샷만
+저장(`_prior` 짝 없음 — 추세가 아니라 "지금" 상태를 보는 지표라서).
 
 | 판정 | 조건 | 근거 |
 |---|---|---|
 | `healthy` | 유동비율(`current_assets/current_liabilities`) ≥ 2.0(`CURRENT_RATIO_HEALTHY`) | "일반 제조업체 기준 양호" |
 | `weak` | 1.0 ≤ 유동비율 < 2.0 | 책의 "가까스로 지급책임 이행"(1.0) 경계 위 |
 | `fragile` | 유동비율 < 1.0(`CURRENT_RATIO_FRAGILE`) | 유동부채가 유동자산보다 많음 |
-| `unknown` | 데이터 없음(현재 US 전체 + KR 일부) | — |
+| `unknown` | 데이터 없음(아직 수집 전이거나 밴드 밖 종목) | — |
 
 **부채비율(`debtToEquity = total_liabilities/total_equity`)은 verdict에 안 들어간다** —
 책이 자기 예시 표에서 GM 4.0·마이크로소프트 0.0를 나란히 "둘 다 정상"으로 들며

@@ -74,6 +74,19 @@ _OPERATING_KEYS = ["Operating Income", "OperatingIncome", "Total Operating Incom
 _NET_INCOME_KEYS = ["Net Income", "NetIncome", "Net Income Common Stockholders"]
 _EPS_KEYS = ["Diluted EPS", "Basic EPS"]
 
+# US 재무건전성(대차대조표) 행 이름 — income_stmt와 별도 호출(ticker.balance_sheet)이라
+# refresh_financial_health()가 독립된 낮은 빈도로 수집한다. 당기 스냅샷만 필요하므로
+# _prior 짝이 없다(KR의 dart_fundamentals._parse_year와 동일한 설계).
+_BS_CURRENT_ASSETS_KEYS = ["Current Assets", "CurrentAssets"]
+_BS_CURRENT_LIABILITIES_KEYS = ["Current Liabilities", "CurrentLiabilities"]
+_BS_TOTAL_LIABILITIES_KEYS = [
+    "Total Liabilities Net Minority Interest", "TotalLiabilitiesNetMinorityInterest", "Total Liab",
+]
+_BS_TOTAL_EQUITY_KEYS = [
+    "Stockholders Equity", "StockholdersEquity",
+    "Total Equity Gross Minority Interest", "Common Stock Equity",
+]
+
 
 def _yahoo_symbol(ticker: str, market: str) -> str:
     # KR 기회 종목 유니버스는 KOSPI만이라 .KS로 충분하다.
@@ -170,11 +183,10 @@ def _extract(symbol: str) -> tuple[dict | None, str]:
         "eps_prior": at(_EPS_KEYS, prior_col),
         "per": float(per) if isinstance(per, (int, float)) else None,
         "pbr": float(pbr) if isinstance(pbr, (int, float)) else None,
-        # 재무건전성은 아직 KR(DART)만 수집한다 — 대차대조표 조회에 yfinance 호출이
-        # 하나 더 필요해(income_stmt와 별도) 종목당 요청이 늘고 레이트리밋 여유가
-        # 줄어든다. US는 우선 None으로 둔다.
-        "current_assets": None, "current_liabilities": None,
-        "total_liabilities": None, "total_equity": None,
+        # 재무건전성(current_assets 등 4개) 필드는 여기 안 넣는다 — refresh_financial_health()가
+        # 별도 낮은 빈도 실행에서 채우고, upsert 페이로드에 없는 컬럼은 건드리지 않는 동작에
+        # 기대어 보존된다. 여기 넣으면(값이 None이라도) 30일마다 도는 실적 갱신이 그 사이
+        # refresh_financial_health가 채워둔 값을 도로 null로 덮어써 버린다.
     }
 
     # 국장(dart_fundamentals._parse_year)과 같은 최소 조건 — 매출·순이익 중 하나는
@@ -199,6 +211,143 @@ def _extract(symbol: str) -> tuple[dict | None, str]:
         return None, f"no_key_rows:{detail}"
 
     return result, "ok"
+
+
+def _extract_balance_sheet(symbol: str) -> tuple[dict | None, str]:
+    """대차대조표에서 당기 유동자산·유동부채·부채총계·자본총계 스냅샷만 뽑는다.
+
+    KR(DART)은 손익계산서와 대차대조표가 같은 API 응답(fnlttSinglAcnt.json)에
+    같이 들어 있어 추가 호출이 없었다. US(yfinance)는 ticker.balance_sheet가
+    ticker.income_stmt와 별도 요청이라 종목당 호출이 두 배가 된다 — 그래서 매일
+    도는 실적(income_stmt) 수집에 얹지 않고 refresh_financial_health()가 독립된
+    낮은 빈도(21:00 KST 전용 워크플로)로 따로 수집한다.
+    """
+    ticker = yf.Ticker(symbol)
+    try:
+        bs = ticker.balance_sheet
+    except Exception as exc:  # noqa: BLE001
+        return None, f"balance_sheet_error_{type(exc).__name__}"
+    if bs is None or bs.empty or len(bs.columns) == 0:
+        return None, "no_balance_sheet"
+
+    latest_col = bs.columns[0]
+    result = {
+        "current_assets": _pick(bs, _BS_CURRENT_ASSETS_KEYS, latest_col),
+        "current_liabilities": _pick(bs, _BS_CURRENT_LIABILITIES_KEYS, latest_col),
+        "total_liabilities": _pick(bs, _BS_TOTAL_LIABILITIES_KEYS, latest_col),
+        "total_equity": _pick(bs, _BS_TOTAL_EQUITY_KEYS, latest_col),
+    }
+    if all(v is None for v in result.values()):
+        seen = sorted(str(i) for i in bs.index)[:6]
+        detail = ";rows=" + ",".join(seen) if seen else ""
+        return None, f"no_key_rows{detail}"
+
+    return result, "ok"
+
+
+def _stale_financial_health_tickers(db: ScreenerDB, tickers: list[str], today: date) -> list[str]:
+    """실적 행이 이미 있고, 재무건전성이 없거나 오래된 US 티커만 대상으로 좁힌다.
+
+    실적(income_stmt) 자체가 아직 없는 티커(stock_fundamentals 행 자체가 없음)는
+    대상에서 뺀다 — 대차대조표만 있고 손익계산서가 없는 반쪽 행을 만들지 않기
+    위해서다. 다음 날 아침 실적 수집이 행을 만들면 그다음 저녁 이 함수가 자연히
+    집어 올린다.
+    """
+    cutoff = (today - timedelta(days=MAX_AGE_DAYS)).isoformat()
+    existing: set[str] = set()
+    fresh: set[str] = set()
+    page = 1000
+    start = 0
+    while True:
+        result = (
+            db.client.table("stock_fundamentals")
+            .select("ticker, financial_health_updated_at")
+            .eq("market", "US")
+            .range(start, start + page - 1)
+            .execute()
+        )
+        rows = result.data or []
+        for row in rows:
+            existing.add(row["ticker"])
+            fh = row.get("financial_health_updated_at")
+            if fh and fh >= cutoff:
+                fresh.add(row["ticker"])
+        if len(rows) < page:
+            break
+        start += page
+    return [t for t in tickers if t in existing and t not in fresh]
+
+
+def refresh_financial_health(db: ScreenerDB, tickers: list[str], today: date) -> None:
+    """US 종목의 재무건전성(유동자산·유동부채·부채총계·자본총계)만 독립적으로 갱신한다.
+
+    실적(income_stmt)과 별도의 낮은 빈도 실행(21:00 KST 전용 워크플로,
+    us_financial_health_main.py)에서만 호출된다. upsert 페이로드에 없는 컬럼은
+    건드리지 않으므로(그날 실적 수집이 이미 채워둔 revenue_latest 등) 이 4개
+    컬럼 + financial_health_updated_at만 갱신되고 실적 필드는 그대로 보존된다.
+    같은 이유로 updated_at은 페이로드에 넣지 않는다 — 넣으면 fundamentals.py의
+    _stale_tickers가 "실적도 최근에 갱신됐다"고 착각해 진짜 실적 갱신을 건너뛴다.
+    """
+    if not tickers:
+        print("US 재무건전성 수집 생략: 대상 종목 없음", flush=True)
+        return
+    try:
+        pending = _stale_financial_health_tickers(db, tickers, today)
+    except Exception as exc:  # noqa: BLE001
+        print(f"US 재무건전성 대상 조회 실패: {exc}", flush=True)
+        return
+    if not pending:
+        print(
+            f"US 재무건전성 수집 생략: 대상 {len(tickers)}개가 모두 최근 "
+            f"{MAX_AGE_DAYS}일 내 갱신됐거나 실적 행이 아직 없음",
+            flush=True,
+        )
+        return
+
+    batch = pending[:MAX_PER_RUN]
+    print(f"US 재무건전성 수집 ({len(batch)}/{len(pending)}개 대상)...", flush=True)
+
+    pending_rows: list[dict] = []
+    saved = 0
+    failed = 0
+    failure_reasons: dict[str, int] = {}
+
+    def flush() -> None:
+        nonlocal pending_rows, saved
+        if not pending_rows:
+            return
+        try:
+            db.save_fundamentals(pending_rows)
+            saved += len(pending_rows)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  재무건전성 저장 실패 ({len(pending_rows)}개): {exc}", flush=True)
+        pending_rows = []
+
+    for n, ticker in enumerate(batch, 1):
+        try:
+            data, reason = _extract_balance_sheet(_yahoo_symbol(ticker, "US"))
+        except Exception as exc:  # noqa: BLE001
+            data, reason = None, f"exception_{type(exc).__name__}"
+        if data is None:
+            failed += 1
+            bucket = reason.split(";")[0]
+            failure_reasons[bucket] = failure_reasons.get(bucket, 0) + 1
+        else:
+            pending_rows.append({
+                "ticker": ticker, "market": "US",
+                "financial_health_updated_at": today.isoformat(),
+                **data,
+            })
+        if n % SAVE_CHUNK == 0:
+            flush()
+            print(f"  진행 {n}/{len(batch)} (저장 {saved} · 실패 {failed})", flush=True)
+
+    flush()
+    reason_summary = ", ".join(
+        f"{k}={v}" for k, v in sorted(failure_reasons.items(), key=lambda kv: -kv[1])
+    )
+    suffix = f": {reason_summary}" if reason_summary else ""
+    print(f"  → {saved}개 저장 (실패 {failed}개{suffix})", flush=True)
 
 
 def _stale_tickers(db: ScreenerDB, market: str, tickers: list[str], today: date) -> list[str]:

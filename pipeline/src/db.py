@@ -160,6 +160,35 @@ class ScreenerDB:
         )
         return list({row["ticker"] for row in (result.data or [])})
 
+    def get_universe_tickers(
+        self, market: str, index_memberships: list[str], min_market_cap: float,
+    ) -> list[str]:
+        """stock_universe에서 이미 저장된 유니버스로 티커 목록을 뽑는다.
+
+        US 재무건전성 전용 워크플로(us_financial_health_main.py, 21:00 KST)가
+        무거운 유니버스 재수집(universe_us.py) 없이, 그날 아침 본 파이프라인이
+        이미 저장해 둔 stock_universe를 그대로 재사용하는 데 쓴다.
+        """
+        tickers: list[str] = []
+        page = 1000
+        start = 0
+        while True:
+            result = (
+                self.client.table("stock_universe")
+                .select("ticker")
+                .eq("market", market)
+                .in_("index_membership", index_memberships)
+                .gte("market_cap", min_market_cap)
+                .range(start, start + page - 1)
+                .execute()
+            )
+            rows = result.data or []
+            tickers.extend(r["ticker"] for r in rows)
+            if len(rows) < page:
+                break
+            start += page
+        return tickers
+
     def get_latest_regime_date(self, market: str) -> str | None:
         """market_regime에 저장된 해당 시장의 최신 as_of 날짜(YYYY-MM-DD). 없으면 None.
 
