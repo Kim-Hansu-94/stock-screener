@@ -147,10 +147,7 @@ export const ONE_TIME_GAIN_NOTE =
 //
 // 유동비율도 사실 업종별 편차가 있다 — 책이 준 2.0/1.0은 "일반 제조업체 기준"일
 // 뿐이라, 재고 회전이 빠른 소매업이나 현금을 쌓아두는 바이오·헬스케어에 그대로
-// 적용하면 오판정이 난다(2026-09-02, 사용자 제안 + 웹 조사, 책 근거 아님 — 여러
-// 재무비율 벤치마크 사이트 종합, 출처마다 수치가 갈려 신뢰도가 낮으므로 업종별로
-// "가장 낮은(=통과하기 쉬운) 쪽" 기준을 채택해 과도한 오탐(가짜 취약 판정)을
-// 줄이는 쪽으로 잡았다). 은행·금융업은 "짧게 빌려 길게 빌려주는" 사업 구조상
+// 적용하면 오판정이 난다. 은행·금융업은 "짧게 빌려 길게 빌려주는" 사업 구조상
 // 유동비율 개념 자체가 안 맞는다는 게 여러 출처의 공통된 지적이라, 업종 자체를
 // 판정 대상에서 뺀다('not_applicable').
 //
@@ -159,22 +156,42 @@ export const ONE_TIME_GAIN_NOTE =
 
 export type FinancialHealthVerdict = 'healthy' | 'weak' | 'fragile' | 'not_applicable' | 'unknown'
 
-/** 유동비율 기준 기본값(제조업 등, 책 근거) */
-const DEFAULT_CURRENT_RATIO_THRESHOLDS = { healthy: 2.0, fragile: 1.0 }
-
 /**
- * 업종별 유동비율 기준(웹 조사 기반, 책 근거 아님 — CLAUDE.md broadSector() 12개
- * 대분류 중 데이터가 있는 것만). 출처마다 범위가 갈려 각 업종 범위의 가장 낮은
- * 쪽을 healthy 기준으로 잡았다(=관대하게, 오탐 최소화). fragile은 그 절반 안팎.
- * 목록에 없는 업종(기술·커뮤니케이션·필수소비재·부동산·에너지·기타)은
- * 신뢰할 만한 수치를 못 찾아 기본값을 그대로 쓴다.
+ * 업종별 유동비율 기준(2026-09-02, 사용자 제안 + 웹 조사, 책 근거 아님).
+ *
+ * CSIMarket의 GICS 섹터/업종별 "현재 유동성"(current assets ÷ near-term
+ * obligations = 유동비율과 동일) 실측 평균을 우리 broadSector() 12개 대분류에
+ * 매칭했다. 처음엔 일반 재무비율 블로그의 "업종 typical range"를 썼는데,
+ * "임의소비재=소매"처럼 broadSector 대분류보다 훨씬 좁은 카테고리를 억지로
+ * 매칭한 것이었다(예: 임의소비재엔 소매 외 자동차·의류·레저도 다 들어간다) —
+ * CSIMarket은 실제 GICS 섹터 단위 평균이라 broadSector()와 1:1로 더 가깝다.
+ *
+ * healthy 임계값은 그 섹터 평균의 약 85%, fragile은 약 50%로 잡았다 — 평균을
+ * 그대로 healthy 기준으로 쓰면 그 섹터의 절반(평균 이하인 회사들)이 전부
+ * "healthy 미달"이 되어 사용자가 요청한 "관대하게" 방향과 안 맞는다.
+ *
+ * 업종 전용 수치를 못 찾은 산업재·부동산과, 아예 분류가 안 되는 기타/미분류는
+ * CSIMarket 데이터로 뒷받침 못 하므로 책의 원래 기준(2.0/1.0, "일반 제조업체
+ * 기준")을 그대로 기본값으로 둔다 — 근거 없이 임의로 낮추기보다는 책이 실제로
+ * 준 숫자를 쓰는 쪽이 안전하다.
  */
+const DEFAULT_CURRENT_RATIO_THRESHOLDS = { healthy: 2.0, fragile: 1.0 } // 책 원래 기준
+
 const SECTOR_CURRENT_RATIO_THRESHOLDS: Partial<Record<string, { healthy: number; fragile: number }>> = {
-  헬스케어: { healthy: 3.0, fragile: 1.5 }, // 바이오 등 현금 보유가 많아 원래 높게 나옴
-  임의소비재: { healthy: 1.0, fragile: 0.6 }, // 소매업 — 재고 회전이 빨라 원래 낮게 나옴
-  유틸리티: { healthy: 1.0, fragile: 0.6 }, // 현금흐름이 안정적이라 낮아도 무리 없다는 시각
-  산업재: { healthy: 1.2, fragile: 0.8 }, // 제조업 중에서도 재고·매출채권 회전이 빠른 편
-  소재: { healthy: 1.5, fragile: 1.0 },
+  기술: { healthy: 1.4, fragile: 0.8 }, // Technology 섹터 평균 1.65x
+  임의소비재: { healthy: 1.1, fragile: 0.65 }, // Consumer Discretionary 섹터 평균 1.32x
+  필수소비재: { healthy: 1.0, fragile: 0.6 }, // Consumer Staples 섹터 평균 1.18x
+  커뮤니케이션: { healthy: 0.7, fragile: 0.4 }, // Communications Services 업종 평균 0.8x
+  // 헬스케어 대분류엔 바이오·제약(현금 보유 많아 훨씬 높게 나옴)과 병원·의료기관
+  // (마진이 낮아 훨씬 낮게 나옴)이 섞여 있다. 후자(Healthcare Facilities 평균
+  // 1.4x)를 기준으로 삼아 안전하게(=관대하게) 잡았다 — 전자 기준을 쓰면 병원·
+  // 의료기관 계열이 죄다 취약으로 오판정된다.
+  헬스케어: { healthy: 1.2, fragile: 0.7 },
+  유틸리티: { healthy: 0.7, fragile: 0.4 }, // Electric Utilities 업종 평균 0.85x
+  에너지: { healthy: 1.1, fragile: 0.6 }, // Oil & Gas Production 업종 평균 1.29x
+  // Metal Mining 업종 평균 2.47x — 소재 대분류 중 광업 쪽이라 다른 화학·소재
+  // 업종보다 높게 나올 수 있어 보수적으로(=관대한 쪽으로) 낮춰 잡았다.
+  소재: { healthy: 2.0, fragile: 1.0 },
 }
 
 /** 유동비율 판정 자체가 무의미한 업종. 짧게 빌려 길게 빌려주는 구조라 "단기 지급 능력"이라는 전제가 안 맞는다. */
