@@ -183,6 +183,50 @@ describe('신고가 코앞 2R 기본값', () => {
   })
 })
 
+describe('절대 손절폭 상한 (온투이노베이션 2026-08-26 사례)', () => {
+  it('변동성이 지나치게 커서 손절이 진입가의 15%를 넘게 떨어지면 표시하지 않는다', () => {
+    // 60봉 조용한 우상향(트렌드 게이트 통과) 뒤, 마지막 20봉을 진입가 대비 상하 15%씩
+    // 흔드는 변동성 극심 구간으로 바꾼다 — 온투이노베이션처럼 ATR이 지나치게 커서
+    // 구조적 손절(entry - 1.5*ATR)이 진입가에서 한참 멀어지는 상황을 재현한다.
+    const bars: PriceBar[] = []
+    let close = 100
+    for (let i = 0; i < 60; i++) {
+      close += 1
+      bars.push({ date: dayLabel(i), high: close + 0.5, low: close - 0.5, close })
+    }
+    for (let i = 0; i < 20; i++) {
+      bars.push({ date: dayLabel(60 + i), high: 200 * 1.15, low: 200 * 0.85, close: 200 })
+    }
+    const entry = bars.at(-1)!.close
+
+    const result = computeStopTarget(bars, entry)
+
+    expect(result.reason).toBe('stop_too_far')
+    expect(result.frame).toBe('trend')
+    expect(result.stop).toBeNull()
+    expect(result.riskReward).toBeNull()
+  })
+
+  it('평범한 변동성이면 15% 상한에 안 걸리고 정상적으로 손익비가 나온다', () => {
+    const bars: PriceBar[] = []
+    let close = 100
+    for (let i = 0; i < 60; i++) {
+      close += 1
+      bars.push({ date: dayLabel(i), high: close + 0.5, low: close - 0.5, close })
+    }
+    for (let i = 0; i < 20; i++) {
+      bars.push({ date: dayLabel(60 + i), high: 200 * 1.03, low: 200 * 0.97, close: 200 })
+    }
+    const entry = bars.at(-1)!.close
+
+    const result = computeStopTarget(bars, entry)
+
+    expect(result.reason).toBe('ok')
+    expect(result.stop).not.toBeNull()
+    expect((entry - result.stop!) / entry).toBeLessThan(0.15)
+  })
+})
+
 describe('박스 기준 손익비', () => {
   it('추세가 없는 종목도 박스 상단을 목표로 손익비를 낸다', () => {
     // 60일선 아래에서 횡보 — 예전에는 손익비가 아예 안 나왔다

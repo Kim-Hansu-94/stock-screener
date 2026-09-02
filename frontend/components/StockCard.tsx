@@ -53,6 +53,7 @@ const RISK_REASON_LABEL: Record<Exclude<RiskReason, 'ok'>, string> = {
   insufficient_data: '데이터 부족',
   stop_above_entry: '손절 산출 불가',
   no_upside: '박스 상단 도달',
+  stop_too_far: '변동성 과다 (손절폭 15%↑)',
 }
 
 // 상수는 lib/screenerCriteria.ts 한 곳에서만 정의한다(성적 집계도 같은 값을 쓴다).

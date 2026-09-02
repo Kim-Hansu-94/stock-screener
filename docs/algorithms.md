@@ -25,15 +25,16 @@ KR/US 공용. Python(`pipeline/src/indicators.py`)과 TS(`frontend/lib/calculati
 
 ## 눌림목 스크리닝 (pipeline/src/screener.py)
 
-`evaluate_pullback()`이 9개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
+`evaluate_pullback()`이 10개(KR/US는 SMA200 게이트 포함 시 사실상 동일 조건)를
 전부 평가해 **미달 조건 목록**을 반환한다(통과/탈락 이분법이 아님 — 전원 미달인 날도
 "가장 근접한" 상위 후보를 보여주기 위해).
 
-`frontend/lib/screenerCriteria.ts`의 `STOCK_CRITERIA_COUNT`도 이 9와 반드시 같아야 한다.
+`frontend/lib/screenerCriteria.ts`의 `STOCK_CRITERIA_COUNT`도 이 10과 반드시 같아야 한다.
 **과거 한때 9로 잘못 박혀 있었던 적이 있다**("급락 차단"이라는, 실제로는 구현된 적 없는
 9번째 조건이 UI 안내 문구에만 있었음, 2026-08 아베크롬비 9/9 표시를 계기로 발견) —
-그때는 8이 맞는 값이었다. 지금의 9는 그 사고와는 무관하게, 2026-09-01 **조정 과다**
-조건(`CRITERION_PULLBACK_DEPTH`)을 실제로 추가하면서 늘어난 값이다. `StockCard.tsx`의
+그때는 8이 맞는 값이었다. 그 사고와는 무관하게, 2026-09-01 **조정 과다**
+조건(`CRITERION_PULLBACK_DEPTH`)으로 8→9, 같은 날 **변동성 과다**
+조건(`CRITERION_VOLATILITY`)으로 9→10이 됐다. `StockCard.tsx`의
 `totalCriteria - failed_criteria.length` 계산이 분모를 이 값으로 쓰므로, 실제
 CRITERION_* 개수와 어긋나면 모든 종목이 그 차이만큼 "공짜로 통과"하거나 부당하게
 깎인 것처럼 보인다 — 조건을 추가/제거할 때마다 반드시 같이 맞출 것.
@@ -49,6 +50,7 @@ CRITERION_* 개수와 어긋나면 모든 종목이 그 차이만큼 "공짜로 
 | `선행 상승 부족` | 최근 60거래일 수익률 ≥ +15% | `IMPULSE_LOOKBACK_DAYS=60`, `IMPULSE_MIN_GAIN=0.15` |
 | `조정 과다` | 직전 상승폭(같은 60일 구간의 저→고) 대비 되돌림 `(high60-close)/(high60-low60) ≤ 0.5` | `MAX_PULLBACK_RETRACEMENT=0.5` (같은 `IMPULSE_LOOKBACK_DAYS` 구간 재사용) |
 | `반등 미확인` | 50% 룰(『매매의 기술』): `close ≥ L + 0.5*(H-L)` AND `volume[-1] > 최근 20일 평균` AND `close > open` — H/L은 당일을 뺀 최근 20일 고가/저가(조정 시작점/저점의 근사) | `BOUNCE_LOOKBACK=20`, `BOUNCE_VOLUME_WINDOW=20` |
+| `변동성 과다` | `ATR14/close > 0.10` (2026-09-02, 온투이노베이션 사례로 발견 — 나머지 조건은 전부 "가격 위치"만 볼 뿐 변동성을 안 봐서, ATR이 지나치게 큰 종목도 통과해 손절이 진입가의 -24.9%까지 벌어진 채로 화면에 뜬 적이 있다) | `ATR_WINDOW=14`, `MAX_VOLATILITY_RATIO=0.10` — `risk.ts`의 `MAX_STOP_DISTANCE_PCT=0.15`에서 역산한 값(`stop=entry-1.5*ATR`이 15% 넘게 벌어지는 지점이 `ATR/entry=0.10`) |
 
 최소 데이터: `MIN_HISTORY_DAYS=85`봉 미만이면 평가 자체를 건너뜀(None, 랭킹 제외).
 
@@ -94,6 +96,11 @@ lookback `5`)이어야 스크리닝 결과와 화면 표시가 안 어긋난다.
 1. 손절: `max(swingLow - 0.5*ATR, entry - 1.5*ATR)` — 최근 20봉 기준.
    `STOP_BUFFER_ATR_MULT=0.5`(스윙 저점 그대로 두면 손절 사냥 당함), `1.5*ATR`.
    손절 ≥ 진입가면 `stop_above_entry`로 계산 포기.
+   손절폭이 진입가의 `MAX_STOP_DISTANCE_PCT=0.15`(15%)를 넘으면 `stop_too_far`로 계산
+   포기(2026-09-02, 온투이노베이션 사례 — 손익비 자체는 비율이라 -3%/+4%(1.3x)와
+   -25%/+28%(1.1x)가 비슷해 보이지만 실제 위험 크기는 8배 차이다). trendFrame에만
+   적용 — rangeFrame(횡보·조정, 3년 고점 대비 20~60% 빠진 종목)은 박스 자체가
+   넓은 게 정상이라 이 상한을 적용하지 않는다.
 2. 목표(`targetBasis`로 근거를 구분해서 화면에 표시):
    - **`resistance`**: 최근 90봉(`RESISTANCE_LOOKBACK`) 안의 피벗 고점(좌우 3봉,
      `PIVOT_WINDOW`, prominence ≥ 3%) 중 보상이 `MIN_REWARD_R=1`R 이상인 것 중 최솟값.

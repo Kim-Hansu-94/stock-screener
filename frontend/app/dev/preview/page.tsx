@@ -148,6 +148,22 @@ function resistanceTargetHistory(ticker: string): PriceHistoryRow[] {
   return historyFrom(ticker, points)
 }
 
+function volatileHistory(ticker: string): PriceHistoryRow[] {
+  // 온투이노베이션 2026-08-26 사례 재현: 60봉 조용한 우상향 뒤 변동성이 극심해져
+  // ATR 기반 손절이 진입가에서 15% 넘게 멀어진다 — stop_too_far로 계산을 포기해야
+  // 정상이다(값이 없는 상태가 에러처럼 안 보이게 하는 게 핵심이라 이 케이스를 둔다).
+  const points: { close: number; high: number; low: number }[] = []
+  let close = 100
+  for (let i = 0; i < 60; i++) {
+    close += 1
+    points.push({ close, high: close + 0.5, low: close - 0.5 })
+  }
+  for (let i = 0; i < 20; i++) {
+    points.push({ close: 200, high: 200 * 1.15, low: 200 * 0.85 })
+  }
+  return historyFrom(ticker, points)
+}
+
 function screened(over: Partial<ScreenedStockRow>): ScreenedStockRow {
   return {
     date: '2026-08-19', market: 'KR', ticker: '000000', name: 'Sample', name_kr: '샘플종목',
@@ -158,6 +174,7 @@ function screened(over: Partial<ScreenedStockRow>): ScreenedStockRow {
 
 const DEFAULT_2R_HISTORY = default2rHistory('DEFAULT2R')
 const RESISTANCE_HISTORY = resistanceTargetHistory('RESIST')
+const VOLATILE_HISTORY = volatileHistory('VOLATILE')
 
 const STOCK_CARDS: { stock: ScreenedStockRow; history: PriceHistoryRow[]; label: string }[] = [
   {
@@ -169,6 +186,11 @@ const STOCK_CARDS: { stock: ScreenedStockRow; history: PriceHistoryRow[]; label:
     label: '위에 실제 저항 있음 → 그 가격이 목표가 (대조군)',
     stock: screened({ ticker: 'RESIST', name: '샘플(저항 존재)', close: RESISTANCE_HISTORY.at(-1)!.close }),
     history: RESISTANCE_HISTORY,
+  },
+  {
+    label: '변동성 과다 → 손절 산출 포기 (stop_too_far, 온투이노베이션 사례)',
+    stock: screened({ ticker: 'VOLATILE', name: '샘플(변동성 과다)', close: VOLATILE_HISTORY.at(-1)!.close }),
+    history: VOLATILE_HISTORY,
   },
 ]
 

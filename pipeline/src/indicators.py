@@ -40,3 +40,16 @@ def volume_ratio(volume: pd.Series, recent_window: int = 5, baseline_window: int
     recent_avg = volume.iloc[-recent_window:].mean()
     baseline_avg = volume.iloc[-(recent_window + baseline_window):-recent_window].mean()
     return float(recent_avg / baseline_avg)
+
+
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    """Average True Range — simple mean of true range, matching frontend risk.ts computeATR
+    (not Wilder-smoothed) so screener.py's volatility gate and the site's stop/target
+    calculation agree on what "large ATR" means."""
+    prev_close = close.shift(1)
+    true_range = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    return true_range.rolling(window=window).mean()
