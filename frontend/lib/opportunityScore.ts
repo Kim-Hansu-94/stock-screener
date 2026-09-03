@@ -43,7 +43,12 @@ const YEAR_WINDOW = 252
 const RECENT_LOW_WINDOW = 20
 const BOX_WINDOW = 60
 const MAX_BOX_RANGE = 0.3
-const EXHAUSTION_CAP_DAYS = 120
+// 120일(6개월)이던 걸 60일로 줄였다 — 저점 이후 "더 오래 기다릴수록" 계속 점수를
+// 얹어주는 구간이 넓으면, 막 저점을 다지기 시작한(그래서 아직 덜 오른) 종목보다
+// 몇 달째 조용한(이미 어느 정도 오른) 종목이 구조적으로 항상 높은 점수를 받는다.
+// 2개월만 조용해도 매도 소진은 이미 만점으로 보고, 그 이후 "지금 막 방향을 트는지"는
+// 아래 정배열·거래량트리거 보너스가 가리게 한다.
+const EXHAUSTION_CAP_DAYS = 60
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x))
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
@@ -119,19 +124,22 @@ export function scoreOpportunity(bars: DailyBar[]): OpportunitySignals | null {
     0.25 * (higherLows ? 1 : 0) +
     0.2 * volumeDryScore
 
-  // 보너스 — 이평 정배열: 종가 > SMA5 > SMA20 > SMA60 (+0.10)
+  // 보너스 — 이평 정배열: 종가 > SMA5 > SMA20 > SMA60 (+0.15)
+  // "지금 막 방향을 트는" 낌새를 직접 보는 두 보너스(정배열·거래량트리거)를
+  // 0.10 → 0.15로 올렸다 — exhaustionScore 위주로는 "오래 조용했던 종목"과
+  // "막 돌아서는 종목"이 구분되지 않아, 실제 전환 신호에 더 무게를 싣는다.
   const closes = bars.map((b) => b.close)
   const lastClose = closes[closes.length - 1]
   const sma5 = sma(closes, 5)
   const sma20 = sma(closes, 20)
   const sma60 = sma(closes, 60)
   const alignedMAs = lastClose > sma5 && sma5 > sma20 && sma20 > sma60
-  if (alignedMAs) score += 0.1
+  if (alignedMAs) score += 0.15
 
-  // 보너스 — 거래량 트리거: 당일 거래량 ≥ 90일 평균 2배 (+0.10)
+  // 보너스 — 거래량 트리거: 당일 거래량 ≥ 90일 평균 2배 (+0.15)
   const volumeTrigger =
     volumes[volumes.length - 1] >= 2 * mean(volumes.slice(-90))
-  if (volumeTrigger) score += 0.1
+  if (volumeTrigger) score += 0.15
 
   return {
     score: Math.min(1, score),

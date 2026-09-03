@@ -27,7 +27,12 @@ YEAR_WINDOW = 252
 RECENT_LOW_WINDOW = 20
 BOX_WINDOW = 60
 MAX_BOX_RANGE = 0.3
-EXHAUSTION_CAP_DAYS = 120
+# 120일(6개월)→60일. 저점 이후 "더 오래 기다릴수록" 계속 점수를 얹어주는 구간이
+# 넓으면, 막 저점을 다지기 시작한(그래서 아직 덜 오른) 종목보다 몇 달째 조용한
+# (이미 어느 정도 오른) 종목이 구조적으로 항상 높은 점수를 받는다. 2개월만
+# 조용해도 매도 소진은 만점으로 보고, "지금 막 방향을 트는지"는 아래 정배열·
+# 거래량트리거 보너스가 가리게 한다(frontend/lib/opportunityScore.ts와 동일).
+EXHAUSTION_CAP_DAYS = 60
 # 횡보·조정 탭 진입 조건 (frontend/app/discover/page.tsx MIN/MAX_DRAWDOWN)
 MIN_DRAWDOWN = 20.0
 MAX_DRAWDOWN = 60.0
@@ -152,11 +157,11 @@ def evaluate_watch(bars: list[dict]) -> dict:
     sma60 = _mean(closes[-60:])
     aligned_mas = last_close > sma5 > sma20 > sma60
     if aligned_mas:
-        score += 0.1
+        score += 0.15
 
     volume_trigger = volumes[-1] >= 2 * _mean(volumes[-90:])
     if volume_trigger:
-        score += 0.1
+        score += 0.15
 
     status.update({
         "qualified": True,
