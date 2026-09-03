@@ -121,6 +121,17 @@ class ScreenerDB:
         if rows:
             _batch_upsert(self.client, "realestate_monthly", rows)
 
+    def replace_realestate_media(self, rows: list[dict]) -> None:
+        """뉴스·유튜브 링크를 통째로 갈아끼운다 — 날짜별 이력을 안 쌓는 "오늘의
+        스냅샷"이라(어제 뉴스를 보여줄 이유가 없다) upsert가 아니라 전체 삭제 후
+        재삽입이다. rows가 비어 있으면(양쪽 API 다 실패) 지우지 않는다 — 일시적
+        오류로 화면이 통째로 비는 것보다 어제 것이라도 남아 있는 게 낫다.
+        """
+        if not rows:
+            return
+        self.client.table("realestate_media").delete().neq("id", 0).execute()
+        _batch_upsert(self.client, "realestate_media", rows)
+
     def save_fundamentals(self, rows: list[dict]) -> None:
         if rows:
             _batch_upsert(self.client, "stock_fundamentals", rows)

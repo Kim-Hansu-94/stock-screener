@@ -2,7 +2,7 @@
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'
-import type { RealestateMonthlyRow } from '../types'
+import type { RealestateMediaRow, RealestateMonthlyRow } from '../types'
 
 // 한 줄 리터럴로 둔다 — 문자열을 런타임에 이어붙이면(`+`) supabase-js가 select()의
 // 컬럼 목록에서 반환 타입을 추론하지 못해 GenericStringError로 무너진다.
@@ -35,4 +35,26 @@ export async function getRealestateMonthly(): Promise<RealestateMonthlyRow[]> {
     if (!data || data.length < PAGE) break
   }
   return rows
+}
+
+const MEDIA_COLUMNS = 'media_type, title, url, source, thumbnail_url, published_at'
+// 100건이면 뉴스 20 + 유튜브 12(realestate_media_main.py 상한)를 넉넉히 담는다 —
+// 페이지네이션할 만큼 커질 이유가 없다.
+const MEDIA_LIMIT = 100
+
+/** 부동산 뉴스·유튜브 링크(홈 상단). 매일 갱신되므로 다른 부동산 데이터(hours)보다
+ * 짧게 캐싱한다 — 어제 뉴스가 한 시간 넘게 남아 있으면 "업데이트 안 됨"으로 보인다. */
+export async function getRealestateMedia(): Promise<RealestateMediaRow[]> {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag(SCREENER_CACHE_TAG)
+  const supabase = createServerSupabaseClient()
+
+  const { data, error } = await supabase
+    .from('realestate_media')
+    .select(MEDIA_COLUMNS)
+    .order('published_at', { ascending: false })
+    .limit(MEDIA_LIMIT)
+  if (error) return []
+  return (data ?? []) as RealestateMediaRow[]
 }

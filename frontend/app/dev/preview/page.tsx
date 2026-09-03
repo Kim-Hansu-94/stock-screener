@@ -6,11 +6,12 @@ import { WatchlistCard } from '@/components/WatchlistCard'
 import { StockCard } from '@/components/StockCard'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
+import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { computeStopTarget } from '@/lib/risk'
-import type { AreaBand, PriceHistoryRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow } from '@/lib/types'
+import type { AreaBand, PriceHistoryRow, RealestateMediaRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow } from '@/lib/types'
 
 /**
  * 픽스처로 화면을 그려보는 개발용 미리보기.
@@ -227,6 +228,33 @@ const RE_DETAIL_BAND_ROWS: RealestateMonthlyRow[] = [
   reRow({ area_band: '60~85', month: '2026-06-01', price_avg: 228000, deal_count: 24 }),
 ]
 
+const RE_MEDIA_ROWS: RealestateMediaRow[] = [
+  {
+    media_type: 'news',
+    title: '서울 아파트값 상승세 둔화… 거래량은 여전히 활발',
+    url: 'https://example.com/news/1',
+    source: 'hankyung.com',
+    thumbnail_url: null,
+    published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    media_type: 'news',
+    title: '전세가율 60% 넘어선 수도권 단지 늘어',
+    url: 'https://example.com/news/2',
+    source: 'mk.co.kr',
+    thumbnail_url: null,
+    published_at: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    media_type: 'video',
+    title: '지금 부동산 시장, 이렇게 흘러갑니다',
+    url: 'https://example.com/video/1',
+    source: '부동산 채널',
+    thumbnail_url: 'https://placehold.co/320x180?text=Video',
+    published_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+  },
+]
+
 function detailByBand(rows: RealestateMonthlyRow[]): Record<AreaBand, DetailMonthRow[]> {
   const byBand = {} as Record<AreaBand, DetailMonthRow[]>
   for (const band of AREA_BANDS) byBand[band] = withMomChange(rows.filter((r) => r.area_band === band))
@@ -306,6 +334,19 @@ export default function PreviewPage() {
         <h2 className="text-base font-semibold text-foreground">내 매매장 — 청산 완료</h2>
         <PaperTradeSummary closed={CLOSED_POSITIONS} />
         <PaperTradeTable items={CLOSED_POSITIONS} showSell={false} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-muted-foreground">부동산 뉴스·영상 — 데이터 있음</h2>
+        <RealestateMediaSection media={RE_MEDIA_ROWS} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-muted-foreground">부동산 뉴스·영상 — 미수집(섹션 자체가 숨겨져야 함)</h2>
+        <div className="rounded-md border border-dashed border-border p-4 text-xs text-muted-foreground">
+          {'<RealestateMediaSection media={[]} />'} → null (아래에 카드가 안 보이면 정상)
+        </div>
+        <RealestateMediaSection media={[]} />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">

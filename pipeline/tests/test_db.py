@@ -128,6 +128,26 @@ def test_replace_opportunity_snapshot_does_nothing_when_empty():
     assert "opportunity_snapshot" not in tables
 
 
+# ── 부동산 뉴스·유튜브 (오늘의 스냅샷, 날짜별 이력 없음) ──────────────────
+
+def test_replace_realestate_media_clears_the_table_first():
+    client, tables = _client_with_per_table_mocks()
+    db = ScreenerDB(client)
+
+    db.replace_realestate_media([{"media_type": "news", "title": "제목", "url": "https://x"}])
+
+    assert tables["realestate_media"].delete.return_value.neq.call_args_list[0].args == ("id", 0)
+    assert tables["realestate_media"].upsert.called
+
+
+def test_replace_realestate_media_does_nothing_when_empty():
+    """양쪽 API가 다 실패해 빈 목록이면 지우지 않는다 — 일시적 오류로 화면이
+    통째로 비는 것보다 어제 것이라도 남아 있는 게 낫다."""
+    client, tables = _client_with_per_table_mocks()
+    ScreenerDB(client).replace_realestate_media([])
+    assert "realestate_media" not in tables
+
+
 # ── 월봉 적립 (일봉 600일 보관 전제) ──────────────────────────────────────
 # 일봉이 보관 구간 밖으로 밀려나기 전에 월봉으로 남겨두는 호출이라, 조용히
 # 빠지면 3년 고점이 몇 달 뒤에야 어긋난 채로 발견된다.

@@ -268,5 +268,16 @@ export interface RealestateMonthlyRow {
   gap_avg: number | null
 }
 
+/** realestate_media 한 행 — 부동산 뉴스·유튜브 링크(홈 상단). 날짜별 이력 없이
+ * 매일 통째로 갈아끼우는 "오늘의 스냅샷"이다. */
+export interface RealestateMediaRow {
+  media_type: 'news' | 'video'
+  title: string
+  url: string
+  source: string | null
+  thumbnail_url: string | null
+  published_at: string | null
+}
+
 
 
