@@ -8,6 +8,13 @@
 두 API 다 키가 선택적이다: 하나만 등록돼 있으면 그 소스만 채우고, 둘 다 없으면
 호출부(realestate_media_main.py)가 명확히 실패로 끝낸다(조용히 초록불로 끝나면
 "다 됐다"로 착각하기 쉽다 — realestate.py의 MOLIT_API_KEY 처리와 같은 이유).
+
+뉴스 검색은 2026-09 기준 구 개발자센터(openapi.naver.com)의 신규 발급이 막혀
+NAVER API HUB(네이버클라우드플랫폼이 중개 운영)로 이관됐다 — 엔드포인트와 인증
+헤더 이름만 바뀌었을 뿐(X-Naver-Client-Id/Secret → X-NCP-APIGW-API-KEY-ID/KEY),
+요청 파라미터·응답 스키마는 기존과 동일하다. Client ID/Secret은 HUB 콘솔에서
+"애플리케이션 등록" 후 "API 키 발급"으로 받는다 — 계정 전체의 IAM
+Access Key/Secret Key(ncp_iam_...)와는 다른 값이니 혼동하지 말 것.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ import re
 
 import requests
 
-_NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
+_NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 _YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 _TIMEOUT = 15
 
@@ -35,7 +42,7 @@ def _strip_tags(text: str) -> str:
 
 
 def fetch_news(query: str = "부동산", display: int = NEWS_DISPLAY) -> tuple[list[dict], str]:
-    """네이버 뉴스검색 API. 반환은 (행 목록, 실패 사유) — 사유는 성공 시 "ok"."""
+    """네이버 뉴스검색 API(NAVER API HUB). 반환은 (행 목록, 실패 사유) — 사유는 성공 시 "ok"."""
     client_id = os.environ.get("NAVER_CLIENT_ID")
     client_secret = os.environ.get("NAVER_CLIENT_SECRET")
     if not client_id or not client_secret:
@@ -46,8 +53,8 @@ def fetch_news(query: str = "부동산", display: int = NEWS_DISPLAY) -> tuple[l
             _NAVER_NEWS_URL,
             params={"query": query, "display": display, "sort": "date"},
             headers={
-                "X-Naver-Client-Id": client_id,
-                "X-Naver-Client-Secret": client_secret,
+                "X-NCP-APIGW-API-KEY-ID": client_id,
+                "X-NCP-APIGW-API-KEY": client_secret,
             },
             timeout=_TIMEOUT,
         )

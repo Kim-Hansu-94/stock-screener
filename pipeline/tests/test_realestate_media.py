@@ -98,6 +98,41 @@ def test_fetch_news_drops_items_without_a_usable_url(monkeypatch):
     assert reason == "ok"
 
 
+def test_fetch_news_calls_naver_api_hub_with_the_ncp_headers(monkeypatch):
+    """구 개발자센터(openapi.naver.com)는 신규 발급이 막혀 NAVER API HUB로
+    이관됐다 — 엔드포인트와 인증 헤더 이름이 X-Naver-Client-Id/Secret에서
+    X-NCP-APIGW-API-KEY-ID/KEY로 바뀌었다. 옛 이름으로 되돌아가면 401로
+    조용히 실패하므로(요청 자체는 나가서 http_error가 아니라 응답 처리
+    단계에서 걸림) 여기서 고정해 둔다."""
+    monkeypatch.setenv("NAVER_CLIENT_ID", "id")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "secret")
+
+    calls = []
+
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"items": []}
+
+    def _get(url, params=None, headers=None, timeout=None):
+        calls.append({"url": url, "headers": headers})
+        return Resp()
+
+    monkeypatch.setattr(realestate_media.requests, "get", _get)
+
+    realestate_media.fetch_news()
+
+    assert calls[0]["url"] == "https://naverapihub.apigw.ntruss.com/search/v1/news"
+    assert calls[0]["headers"] == {
+        "X-NCP-APIGW-API-KEY-ID": "id",
+        "X-NCP-APIGW-API-KEY": "secret",
+    }
+
+
 def test_fetch_news_reports_http_errors(monkeypatch):
     monkeypatch.setenv("NAVER_CLIENT_ID", "id")
     monkeypatch.setenv("NAVER_CLIENT_SECRET", "secret")

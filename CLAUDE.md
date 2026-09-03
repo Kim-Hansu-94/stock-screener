@@ -230,9 +230,15 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   (스킵되면 `KR 실적 수집 생략: DART_API_KEY 미설정` 한 줄만 남는다)
 - `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`, `YOUTUBE_API_KEY` 시크릿 미등록 (2026-09-03
   기능 추가 시점 기준) — `realestate_media.yml`이 둘 다 없으면 에러로 멈춘다(하나만
-  없으면 그 소스만 건너뛰고 나머지는 정상 수집). 네이버 개발자센터
-  (developers.naver.com)에서 애플리케이션 등록 후 "검색" API(뉴스) 사용 설정하면
-  Client ID/Secret이 나온다(무료, 하루 25,000건 한도). YouTube Data API v3 키는
-  Google Cloud Console에서 발급(무료 할당량 있음, search.list 호출당 100 유닛 소모
-  — 일일 기본 할당량 10,000유닛 기준 하루 100회 정도). 둘 다
+  없으면 그 소스만 건너뛰고 나머지는 정상 수집). **네이버 뉴스검색은 2026-09
+  기준 구 개발자센터(developers.naver.com) 신규 발급이 막히고 NAVER API HUB로
+  이관됐다** — 네이버클라우드플랫폼(ncloud.com) 콘솔에서 "NAVER API HUB" →
+  "애플리케이션 등록" → "API 키 발급"으로 Client ID/Secret을 받는다(계정 전체의
+  IAM Access Key/Secret Key `ncp_iam_...`와는 다른 값이니 혼동 주의 — 그건 이
+  API 호출에 안 쓰인다). 엔드포인트는 `https://naverapihub.apigw.ntruss.com/search/v1/news`,
+  인증은 `X-NCP-APIGW-API-KEY-ID`/`X-NCP-APIGW-API-KEY` 헤더(요청 파라미터·응답
+  스키마는 구 API와 동일, 하루 25,000건 한도도 동일 — `realestate_media.py` 참고).
+  YouTube Data API v3 키는 Google Cloud Console에서 발급(무료 할당량 있음,
+  search.list 호출당 100 유닛 소모 — 일일 기본 할당량 10,000유닛 기준 하루 100회
+  정도). 둘 다
   Settings → Secrets and variables → Actions에 등록하면 다음 실행부터 채워진다.
