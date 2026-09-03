@@ -69,7 +69,7 @@ className={`relative shrink-0 rounded-full px-3 py-1.5 text-sm whitespace-nowrap
 - `LinkPendingSpinner`를 pill 안에 넣을 때는 **반드시 `absolute` 배치**로 폭 계산에서 뺄 것
   (아래 "스피너" 절 참고) — 안 그러면 텍스트가 중앙에서 왼쪽으로 밀린다.
 
-> ⚠️ 현재 `app/discover/DiscoverTabs.tsx`(횡보·조정/오늘의 추천/패턴검색 서브탭)는 밑줄
+> ⚠️ 현재 `app/discover/DiscoverTabs.tsx`(횡보·조정/저점 매집 후보/패턴검색 서브탭)는 밑줄
 > 스타일(`border-b-2`)의 예전 탭 UI를 아직 쓴다 — 상단 네비와 스타일이 다르다는 걸
 > 인지하고 작업할 것. 통일이 필요하면 사용자에게 먼저 확인.
 
@@ -147,7 +147,7 @@ SUPABASE_URL="https://dummy.supabase.co" SUPABASE_SERVICE_KEY="dummy" npx next d
 ```
 /           부동산 동향 (홈)
 /pullback   눌림목 종목 (구 홈)
-/discover   종목 발굴 → 서브탭 순서: 횡보·조정 종목(기본) → 오늘의 추천 → 패턴 검색
+/discover   종목 발굴 → 서브탭 순서: 횡보·조정 종목(기본) → 저점 매집 후보 → 패턴 검색
 /positions  보유 종목 점검
 /history    스크리너 성적
 ```

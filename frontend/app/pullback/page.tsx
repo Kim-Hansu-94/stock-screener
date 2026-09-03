@@ -11,6 +11,7 @@ import {
   getPriceHistoryByTicker,
   getScreenedStocks,
   getWatchlistStatus,
+  getWatchlistTickers,
 } from '@/lib/queries/screener'
 import { getUniverseNameMap } from '@/lib/queries/universe'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
@@ -134,8 +135,8 @@ function SectionSkeleton() {
 // 컴포넌트 + 각자의 Suspense로 나눠, 끝난 순서대로 스트리밍되게 한다.
 async function WatchlistSection() {
   await connection()
-  const watchlist = await getWatchlistStatus()
-  return <WatchlistCard rows={watchlist} />
+  const [watchlist, tickers] = await Promise.all([getWatchlistStatus(), getWatchlistTickers()])
+  return <WatchlistCard rows={watchlist} tickers={tickers} />
 }
 
 async function MarketSection({ market, label, universe }: { market: Market; label: string; universe: string }) {
