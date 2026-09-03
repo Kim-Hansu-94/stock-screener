@@ -245,48 +245,58 @@ def _extract_balance_sheet(symbol: str) -> tuple[dict | None, str]:
     return result, "ok"
 
 
-def _stale_financial_health_tickers(db: ScreenerDB, tickers: list[str], today: date) -> list[str]:
+def _stale_financial_health_tickers(db: ScreenerDB, tickers: list[str], today: date) -> dict[str, str]:
     """실적 행이 이미 있고, 재무건전성이 없거나 오래된 US 티커만 대상으로 좁힌다.
 
     실적(income_stmt) 자체가 아직 없는 티커(stock_fundamentals 행 자체가 없음)는
     대상에서 뺀다 — 대차대조표만 있고 손익계산서가 없는 반쪽 행을 만들지 않기
     위해서다. 다음 날 아침 실적 수집이 행을 만들면 그다음 저녁 이 함수가 자연히
     집어 올린다.
+
+    반환은 {ticker: 기존 updated_at}. 값(기존 updated_at)까지 돌려주는 이유는
+    refresh_financial_health()가 upsert 페이로드를 만들 때 그대로 되돌려 써야
+    해서다 — updated_at은 `not null`인데 기본값이 없어서, 페이로드에서 통째로
+    빼면 Postgres가 ON CONFLICT DO UPDATE로 갈지 판단하기 "전에" 후보 INSERT
+    행부터 만들다가 이 제약을 걸어 행이 이미 있어도 전부 실패한다(실제로 겪은
+    장애 — upsert 페이로드에 없는 컬럼이 "안 건드려짐"이 보장되는 건 그 컬럼이
+    nullable이거나 기본값이 있을 때뿐이다).
     """
     cutoff = (today - timedelta(days=MAX_AGE_DAYS)).isoformat()
-    existing: set[str] = set()
+    existing: dict[str, str] = {}
     fresh: set[str] = set()
     page = 1000
     start = 0
     while True:
         result = (
             db.client.table("stock_fundamentals")
-            .select("ticker, financial_health_updated_at")
+            .select("ticker, updated_at, financial_health_updated_at")
             .eq("market", "US")
             .range(start, start + page - 1)
             .execute()
         )
         rows = result.data or []
         for row in rows:
-            existing.add(row["ticker"])
+            existing[row["ticker"]] = row["updated_at"]
             fh = row.get("financial_health_updated_at")
             if fh and fh >= cutoff:
                 fresh.add(row["ticker"])
         if len(rows) < page:
             break
         start += page
-    return [t for t in tickers if t in existing and t not in fresh]
+    return {t: existing[t] for t in tickers if t in existing and t not in fresh}
 
 
 def refresh_financial_health(db: ScreenerDB, tickers: list[str], today: date) -> None:
     """US 종목의 재무건전성(유동자산·유동부채·부채총계·자본총계)만 독립적으로 갱신한다.
 
     실적(income_stmt)과 별도의 낮은 빈도 실행(21:00 KST 전용 워크플로,
-    us_financial_health_main.py)에서만 호출된다. upsert 페이로드에 없는 컬럼은
-    건드리지 않으므로(그날 실적 수집이 이미 채워둔 revenue_latest 등) 이 4개
-    컬럼 + financial_health_updated_at만 갱신되고 실적 필드는 그대로 보존된다.
-    같은 이유로 updated_at은 페이로드에 넣지 않는다 — 넣으면 fundamentals.py의
-    _stale_tickers가 "실적도 최근에 갱신됐다"고 착각해 진짜 실적 갱신을 건너뛴다.
+    us_financial_health_main.py)에서만 호출된다. updated_at은 그날 실적 수집이
+    이미 채워둔 기존 값을 그대로 되돌려 쓴다 — 그 값을 바꾸면 fundamentals.py의
+    _stale_tickers가 "실적도 최근에 갱신됐다"고 착각해 진짜 실적 갱신을
+    건너뛴다. (페이로드에서 아예 빼면 될 것 같지만 안 된다 — updated_at이
+    `not null`이고 기본값이 없어서, Postgres가 ON CONFLICT DO UPDATE로 갈지
+    보기도 전에 후보 INSERT 행을 만들다가 이 제약에 걸려 기존 행이 있어도
+    전부 저장 실패한다.)
     """
     if not tickers:
         print("US 재무건전성 수집 생략: 대상 종목 없음", flush=True)
@@ -304,7 +314,7 @@ def refresh_financial_health(db: ScreenerDB, tickers: list[str], today: date) ->
         )
         return
 
-    batch = pending[:MAX_PER_RUN]
+    batch = list(pending.items())[:MAX_PER_RUN]
     print(f"US 재무건전성 수집 ({len(batch)}/{len(pending)}개 대상)...", flush=True)
 
     pending_rows: list[dict] = []
@@ -323,7 +333,7 @@ def refresh_financial_health(db: ScreenerDB, tickers: list[str], today: date) ->
             print(f"  재무건전성 저장 실패 ({len(pending_rows)}개): {exc}", flush=True)
         pending_rows = []
 
-    for n, ticker in enumerate(batch, 1):
+    for n, (ticker, existing_updated_at) in enumerate(batch, 1):
         try:
             data, reason = _extract_balance_sheet(_yahoo_symbol(ticker, "US"))
         except Exception as exc:  # noqa: BLE001
@@ -334,7 +344,7 @@ def refresh_financial_health(db: ScreenerDB, tickers: list[str], today: date) ->
             failure_reasons[bucket] = failure_reasons.get(bucket, 0) + 1
         else:
             pending_rows.append({
-                "ticker": ticker, "market": "US",
+                "ticker": ticker, "market": "US", "updated_at": existing_updated_at,
                 "financial_health_updated_at": today.isoformat(),
                 **data,
             })
