@@ -1,4 +1,4 @@
-// 종목발굴 탭(app/discover) — 오늘의 추천 · 횡보·조정 · 실적 판정용 쿼리.
+// 종목발굴 탭(app/discover) — 저점 매집 후보(구 "오늘의 추천") · 횡보·조정 · 실적 판정용 쿼리.
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'

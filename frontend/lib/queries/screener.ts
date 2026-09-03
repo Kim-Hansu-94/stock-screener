@@ -2,7 +2,7 @@
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'
-import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow, WatchlistStatusRow } from '../types'
+import type { LeadingSectorRow, Market, MarketRegimeRow, PriceHistoryRow, ScreenedStockRow, WatchlistStatusRow, WatchlistTickerRow } from '../types'
 
 // 감시 종목(보유 종목) 상태. 테이블 미생성(CREATE TABLE 미실행) 상태에서도
 // 홈 화면이 깨지지 않도록 실패 시 빈 배열을 반환한다.
@@ -17,6 +17,21 @@ export async function getWatchlistStatus(): Promise<WatchlistStatusRow[]> {
     .order('ticker', { ascending: true })
   if (error) return []
   return (data ?? []) as WatchlistStatusRow[]
+}
+
+// 사이트에서 직접 추가한 감시 종목 원본(/api/watchlist). watchlist_status와 합쳐
+// "방금 추가해서 아직 파이프라인 평가 전"인 종목도 카드에 보여주는 데 쓴다.
+export async function getWatchlistTickers(): Promise<WatchlistTickerRow[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('watchlist_tickers')
+    .select('*')
+    .order('added_at', { ascending: false })
+  if (error) return []
+  return (data ?? []) as WatchlistTickerRow[]
 }
 
 export async function getLatestRegime(market: Market): Promise<MarketRegimeRow | null> {

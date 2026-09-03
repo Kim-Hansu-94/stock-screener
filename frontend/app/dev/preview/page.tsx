@@ -11,7 +11,7 @@ import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { computeStopTarget } from '@/lib/risk'
-import type { AreaBand, PriceHistoryRow, RealestateMediaRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow } from '@/lib/types'
+import type { AreaBand, PriceHistoryRow, RealestateMediaRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
 
 /**
  * 픽스처로 화면을 그려보는 개발용 미리보기.
@@ -101,10 +101,20 @@ function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
 }
 
 // 감시 종목 카드는 뉴스를 상시로 붙여 두므로, 로딩/빈 목록도 여기서 눈으로 볼 것.
+// 사이트에서 추가한 종목(watchlist_tickers) 3개 중 IONQ만 아직 평가 전(status 없음),
+// 005380은 status만 있고 tickers엔 없는 경우(코드에 박힌 기본 종목 → 삭제 버튼 없음)를
+// 함께 둬서 세 갈래(통과/미달/평가대기)와 삭제 가능 여부를 한 화면에서 확인한다.
 const WATCHLIST: WatchlistStatusRow[] = [
   watch({}),
   watch({ ticker: '005930', name: '삼성전자', qualified: false, score: null,
     reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
+  watch({ ticker: '005380', market: 'KR', name: '현대차' }),
+]
+
+const WATCHLIST_TICKERS: WatchlistTickerRow[] = [
+  { market: 'KR', ticker: '000660', name: 'SK하이닉스', added_at: '2026-07-01T00:00:00Z' },
+  { market: 'KR', ticker: '005930', name: '삼성전자', added_at: '2026-08-10T00:00:00Z' },
+  { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z' },
 ]
 
 // 손익비 카드용 일봉 픽스처 — lib/risk.test.ts의 두 시나리오를 그대로 재현한다.
@@ -293,7 +303,7 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">감시 종목 카드 (뉴스는 실제 API 호출)</h2>
-        <WatchlistCard rows={WATCHLIST} />
+        <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} />
       </section>
 
       <section className="space-y-3">

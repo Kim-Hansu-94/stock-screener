@@ -13,7 +13,9 @@ from datetime import date, timedelta
 
 from .db import ScreenerDB
 
-# (ticker, market, 표시명). 종목 추가는 여기에 한 줄 추가하면 끝.
+# (ticker, market, 표시명). 코드에 박혀 있는 기본 감시 종목 — 배포 없이 늘리고
+# 싶으면 홈 화면 "감시 종목" 카드에서 직접 추가한다(watchlist_tickers 테이블,
+# /api/watchlist). run_watchlist가 이 상수와 그 테이블을 합쳐서 평가한다.
 WATCHLIST: list[tuple[str, str, str]] = [
     ("000660", "KR", "SK하이닉스"),
 ]
@@ -211,10 +213,20 @@ def _fetch_bars(db: ScreenerDB, ticker: str, market: str, today: date) -> list[d
 
 
 def run_watchlist(db: ScreenerDB, today: date) -> None:
-    if not WATCHLIST:
+    # 코드의 기본 목록 + 사이트에서 직접 추가한 목록을 합친다. 같은 (market, ticker)면
+    # 사이트 쪽 이름으로 덮어써 최신 표기를 따른다.
+    combined: dict[tuple[str, str], tuple[str, str, str]] = {
+        (market, ticker): (ticker, market, name) for ticker, market, name in WATCHLIST
+    }
+    for ticker, market, name in db.get_watchlist_tickers():
+        combined[(market, ticker)] = (ticker, market, name)
+
+    db.prune_watchlist_status(list(combined.keys()))
+
+    if not combined:
         return
     print("감시 종목 평가 중...", flush=True)
-    for ticker, market, name in WATCHLIST:
+    for ticker, market, name in combined.values():
         try:
             bars = _fetch_bars(db, ticker, market, today)
             status = evaluate_watch(bars)

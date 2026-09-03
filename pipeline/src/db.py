@@ -263,3 +263,32 @@ class ScreenerDB:
         ]
         self.client.table("recommendation_history").insert(rows).execute()
         print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)
+
+    def get_watchlist_tickers(self) -> list[tuple[str, str, str]]:
+        """사용자가 사이트(/api/watchlist)에서 직접 추가한 감시 종목.
+
+        테이블이 아직 없으면(마이그레이션 전) 빈 목록을 돌려주고 파이프라인은
+        watchlist.py의 기본 WATCHLIST 상수만으로 계속 진행한다.
+        """
+        try:
+            result = self.client.table("watchlist_tickers").select("ticker, market, name").execute()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [watchlist] watchlist_tickers 조회 실패(마이그레이션 전일 수 있음): {exc}", flush=True)
+            return []
+        return [(r["ticker"], r["market"], r["name"]) for r in (result.data or [])]
+
+    def prune_watchlist_status(self, keep: list[tuple[str, str]]) -> None:
+        """더 이상 감시하지 않는 종목(사이트에서 삭제됨)의 watchlist_status 잔재를 지운다.
+
+        upsert만으로는 이번 실행에서 빠진 종목의 지난 평가 결과가 화면에 유령처럼
+        남는다 — db.py 상단 _replace_day와 같은 이유.
+        """
+        try:
+            existing = self.client.table("watchlist_status").select("ticker, market").execute()
+        except Exception:  # noqa: BLE001
+            return
+        keep_set = set(keep)
+        for row in existing.data or []:
+            if (row["market"], row["ticker"]) not in keep_set:
+                self.client.table("watchlist_status") \
+                    .delete().eq("market", row["market"]).eq("ticker", row["ticker"]).execute()

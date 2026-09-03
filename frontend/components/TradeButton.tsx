@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
+import { askPin, clearPin } from '@/lib/pinClient'
 
 /**
  * 매수/매도 버튼.
@@ -11,8 +12,6 @@ import { useState, useTransition } from 'react'
  *
  * PIN은 처음 한 번만 묻고 localStorage에 둔다. 틀리면(401) 저장한 값을 지우고 다시 묻는다.
  */
-
-const PIN_KEY = 'treasure-map-trade-pin'
 
 async function callTrades(
   method: 'POST' | 'PATCH',
@@ -27,15 +26,6 @@ async function callTrades(
   if (res.ok) return { ok: true }
   const data = (await res.json().catch(() => ({}))) as { error?: string }
   return { ok: false, status: res.status, error: data.error ?? '요청에 실패했습니다.' }
-}
-
-function askPin(): string | null {
-  const saved = localStorage.getItem(PIN_KEY)
-  if (saved) return saved
-  const entered = window.prompt('매매 기록을 바꾸려면 PIN을 입력하세요.')
-  if (!entered) return null
-  localStorage.setItem(PIN_KEY, entered)
-  return entered
 }
 
 function useTradeAction(method: 'POST' | 'PATCH', body: unknown) {
@@ -55,7 +45,7 @@ function useTradeAction(method: 'POST' | 'PATCH', body: unknown) {
 
     if (!result.ok) {
       // PIN이 틀렸으면 저장본을 버려야 다음 시도에서 다시 물어본다.
-      if (result.status === 401) localStorage.removeItem(PIN_KEY)
+      if (result.status === 401) clearPin()
       setError(result.error)
       return
     }

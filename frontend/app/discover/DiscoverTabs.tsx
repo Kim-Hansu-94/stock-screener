@@ -10,7 +10,7 @@ type Tab = 'report' | 'search' | 'opportunity'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'opportunity', label: '횡보 조정 종목' },
-  { id: 'report', label: '오늘의 추천' },
+  { id: 'report', label: '저점 매집 후보' },
   { id: 'search', label: '패턴 검색' },
 ]
 
@@ -58,8 +58,9 @@ export function DiscoverTabs({
       {tab === 'report' && (
         <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-foreground">오늘의 추천 종목</h2>
+            <h2 className="text-base font-semibold text-foreground">저점 매집 후보</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
+              단기 매매가 아니라, 지금부터 저점에서 수량을 모아가며 몇 년 뒤 몇 배 상승을 노리는 장기 후보를 찾는 탭입니다.
               Gold Standard 5종목(QBTS · RGTI · AEVA · JOBY · FCEL)의 바닥 패턴과 싱크로율이 가장 높은 상위 20종목을 매일 자동 스캔합니다.
             </p>
             <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">

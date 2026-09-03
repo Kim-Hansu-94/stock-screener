@@ -112,6 +112,15 @@ export interface FundamentalsRow {
   total_equity: number | null
 }
 
+/** 사이트에서 직접 추가한 감시 종목 원본(/api/watchlist) — watchlist_status와 합쳐
+ *  "추가했지만 아직 파이프라인이 평가 전"인 종목도 카드에 보여주는 데 쓴다. */
+export interface WatchlistTickerRow {
+  market: Market
+  ticker: string
+  name: string
+  added_at: string
+}
+
 /** 감시 종목(보유 종목) 상태 — pipeline/src/watchlist.py가 매 실행마다 갱신 */
 export interface WatchlistStatusRow {
   ticker: string

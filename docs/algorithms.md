@@ -329,7 +329,7 @@ fragile은 약 50%로 잡았다(평균 자체를 healthy 기준으로 쓰면 그
 `longTermDeclining`: 3년 고점(`high3y`)이 장기 고점의 `80%`(`LONG_DECLINE_RATIO`) 미만
 → 3년 창 안에서는 안 보이는 여러 해에 걸친 하락이 있었다는 뜻.
 
-## 오늘의 추천 — Gold Standard 패턴 매칭 (pipeline/src/pattern_discovery.py)
+## 저점 매집 후보 (구 "오늘의 추천") — Gold Standard 패턴 매칭 (pipeline/src/pattern_discovery.py)
 
 룰 기반 복합 스코어(유사도 검색이 아니라 "Gold Standard 바닥 특성에 얼마나 맞는가").
 
@@ -349,7 +349,7 @@ fragile은 약 50%로 잡았다(평균 자체를 healthy 기준으로 쓰면 그
 `MIN_SCORE=0.40` 미만 드롭, 상위 `TOP_N=20`만 저장.
 **주의**: 이 스코어러의 SMA/ATR 정의는 watchlist.py·opportunityScore.ts와 **기간이 다르다**
 (SMA5/10/20, ATR10/50) — 횡보·조정 채점(SMA5/20/60, ATR20/60)과 섞어 생각하지 말 것.
-서로 다른 화면(오늘의 추천 vs 횡보·조정)의 서로 다른 알고리즘이다.
+서로 다른 화면(저점 매집 후보 vs 횡보·조정)의 서로 다른 알고리즘이다.
 
 ## 동기화 지점 요약 (같이 안 고치면 화면이 갈라지는 것들)
 
