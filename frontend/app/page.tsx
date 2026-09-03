@@ -1,9 +1,10 @@
 import { Suspense } from 'react'
 import { LoadingFallback } from '@/components/LoadingFallback'
-import { getRealestateMonthly } from '@/lib/queries/realestate'
+import { getRealestateMedia, getRealestateMonthly } from '@/lib/queries/realestate'
 import { AREA_BANDS, regionOverview, regionRows, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
+import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import type { AreaBand } from '@/lib/types'
 
 async function RealestateContent({
@@ -21,10 +22,13 @@ async function RealestateContent({
   const rows = await getRealestateMonthly()
 
   if (!regionCode) {
+    // 뉴스·영상은 지역과 무관한 전국 단위라 개요 화면에만 보여준다(상세 화면엔 없음).
+    const media = await getRealestateMedia()
     const overview = regionOverview(rows)
     const hasPricedRegion = overview.some((r) => r.latest.price_avg != null)
     return (
       <div className="space-y-5">
+        <RealestateMediaSection media={media} />
         {hasPricedRegion && (
           <section className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
             <h2 className="mb-4 text-base font-bold text-foreground">지역별 매매가 지도</h2>

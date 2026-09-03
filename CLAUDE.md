@@ -45,6 +45,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (오늘의 추천 탭) |
 | `db.py` | Supabase 클라이언트 래퍼 (`ScreenerDB`), 모든 `save_*`/`upsert` 메서드 |
 | `realestate.py` / `realestate_main.py` / `lawd_codes.py` | 부동산 실거래 동향 (국토부 Open API). **주식 파이프라인과 분리된 별도 워크플로**(`.github/workflows/realestate.yml`, 주 1회) — 실거래는 신고 기한이 30일이라 매일 볼 이유가 없고, 여기가 실패했다고 주식 스크리닝이 죽으면 안 된다. `MOLIT_API_KEY` 필요 (미설정이면 조용히 건너뜀) |
+| `realestate_media.py` / `realestate_media_main.py` | 부동산 관련 뉴스(네이버 뉴스검색 API)·유튜브(YouTube Data API) 링크 수집 — 홈 상단 노출용. **또 다른 별도 워크플로**(`.github/workflows/realestate_media.yml`, 매일 1회) — 실거래(주 1회)·주식 파이프라인과 모두 독립. 날짜별 이력을 안 쌓고 매 실행마다 테이블을 통째로 갈아끼우는 "오늘의 스냅샷"이다(어제 뉴스를 보여줄 이유가 없다). `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`, `YOUTUBE_API_KEY` 필요 — 하나만 없으면 그 소스만 건너뛰고, 둘 다 없으면 실행 자체가 에러로 멈춘다(안 그러면 초록불로 끝나 "다 됐다"로 보임) |
 
 ## supabase/schema.sql — 테이블별 용도
 
@@ -60,6 +61,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `stock_fundamentals` | fundamentals.py(실적) + us_financial_health_main.py(US 재무건전성) | 실적 동반 하락 판정 + 재무건전성(유동비율·부채비율, KR·US) |
 | `watchlist_status` | watchlist.py | 눌림목 종목 탭 감시 종목 카드 |
 | `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
+| `realestate_media` | realestate_media_main.py (매일 1회, 매 실행마다 전체 갈아끼움) | 부동산 동향 탭 홈 상단 뉴스·영상 (`supabase/realestate_media.sql`로 생성) |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (오늘의 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
@@ -89,7 +91,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `queries/opportunities.ts` | 종목발굴 탭 쿼리 — 오늘의 추천·횡보/조정·실적 |
 | `queries/performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 쿼리 |
 | `queries/trades.ts` | 가상 매매장(`paper_trades`) 조회 — 보유/청산 포지션(매도 신호 포함), 열린 티커 집합 |
-| `queries/realestate.ts` | 부동산 탭(`app/page.tsx`, 홈) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다 |
+| `queries/realestate.ts` | 부동산 탭(`app/page.tsx`, 홈) 쿼리 — `realestate_monthly` 전체를 한 번에 받아 개요·상세를 둘 다 파생시킨다. `getRealestateMedia`(뉴스·영상)는 매일 갱신되는 데이터라 나머지(`cacheLife('hours')`)보다 짧게(`'minutes'`) 캐싱 |
 | `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비, 매매가 내림차순)·지역 상세(월별+전월대비)·지도 색상(`priceMapColor`, 매매가 → 단일색조 연속 스케일) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
 | `data/capital-sigungu.json` | 수도권 77개 시군구 SVG 지도 좌표(사전 계산). 통계청 SGIS(2018, 공공누리 1유형) 경계를 `southkorea/southkorea-maps`에서 받아 LAWD_CD로 매핑하고 d3-geo로 투영해 만들었다(재현 스크립트는 저장 안 함 — 경계 자체가 거의 안 바뀌어 일회성). 옹진군은 원양 도서 때문에 투영 기준(fitSize)에서 뺐다 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
@@ -117,13 +119,13 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `getMonthlyPriceHistory` | `opportunities.ts` | 오늘의 추천 (`api/daily-report`) |
 | `getScorecardTrades` / `getScreenedStockPerformance` / `getExitSignals` / `getPullbackScreenerWithRisk` / `getRegimesInRange` | `performance.ts` | 스크리너 성적(`history`)·포지션(`positions`) 페이지 |
 | `fetchUsdKrwRate` / `fetchPriceRowsPaged` | `shared.ts` | 미장 원화 환산 · 가격 이력 페이지네이션 (여러 곳에서 공용) |
-| `getRealestateMonthly` | `queries/realestate.ts` | 부동산 동향 (`app/page.tsx`, 홈) |
+| `getRealestateMonthly` / `getRealestateMedia` | `queries/realestate.ts` | 부동산 동향 (`app/page.tsx`, 홈) — 후자는 홈 상단 뉴스·영상 |
 
 ## frontend/app/ — 페이지별 역할
 
 | 경로 | 내용 |
 |---|---|
-| `page.tsx` | **홈(`/`)** — 부동산 동향. 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx`. 탭 순서 개편(2026-08)으로 구 `realestate/`가 루트로, 구 홈은 `pullback/`로 이동 |
+| `page.tsx` | **홈(`/`)** — 부동산 동향. 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx`. 지역 목록(개요) 화면 최상단에는 `RealestateMediaSection.tsx`(관련 뉴스·유튜브, 지역과 무관한 전국 단위라 지역 상세 화면엔 없음). 탭 순서 개편(2026-08)으로 구 `realestate/`가 루트로, 구 홈은 `pullback/`로 이동 |
 | `pullback/` | 눌림목 종목 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 (구 홈, 경로 `/pullback`) |
 | `discover/` | 종목발굴 — 횡보·조정(사전계산) / 오늘의 추천(패턴유사도) / 패턴검색 3탭(이 순서로 노출, 기본 선택 탭도 횡보·조정). `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `OpportunityTab.tsx` / `DailyReport.tsx` / `SimilaritySearch.tsx`로 분리 |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
@@ -138,7 +140,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 
 `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
 `WatchlistCard.tsx`(감시 카드) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
-(스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx`
+(스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
+`RealestateMediaSection.tsx`(부동산 홈 상단 뉴스·영상, 데이터 없으면 섹션째 숨김)
 
 ## 디자인 시스템 (토스증권 문법)
 
@@ -225,3 +228,17 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 - ~~`DART_API_KEY` 시크릿 미등록~~ — **2026-09-01 등록 완료**, KR 실적 수집 정상 동작 중
   (`dart_fundamentals.py`). 실행 로그에서 `KR 실적 수집 (N/N개 대상)... → M개 저장`으로 확인 가능
   (스킵되면 `KR 실적 수집 생략: DART_API_KEY 미설정` 한 줄만 남는다)
+- `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`, `YOUTUBE_API_KEY` 시크릿 미등록 (2026-09-03
+  기능 추가 시점 기준) — `realestate_media.yml`이 둘 다 없으면 에러로 멈춘다(하나만
+  없으면 그 소스만 건너뛰고 나머지는 정상 수집). **네이버 뉴스검색은 2026-09
+  기준 구 개발자센터(developers.naver.com) 신규 발급이 막히고 NAVER API HUB로
+  이관됐다** — 네이버클라우드플랫폼(ncloud.com) 콘솔에서 "NAVER API HUB" →
+  "애플리케이션 등록" → "API 키 발급"으로 Client ID/Secret을 받는다(계정 전체의
+  IAM Access Key/Secret Key `ncp_iam_...`와는 다른 값이니 혼동 주의 — 그건 이
+  API 호출에 안 쓰인다). 엔드포인트는 `https://naverapihub.apigw.ntruss.com/search/v1/news`,
+  인증은 `X-NCP-APIGW-API-KEY-ID`/`X-NCP-APIGW-API-KEY` 헤더(요청 파라미터·응답
+  스키마는 구 API와 동일, 하루 25,000건 한도도 동일 — `realestate_media.py` 참고).
+  YouTube Data API v3 키는 Google Cloud Console에서 발급(무료 할당량 있음,
+  search.list 호출당 100 유닛 소모 — 일일 기본 할당량 10,000유닛 기준 하루 100회
+  정도). 둘 다
+  Settings → Secrets and variables → Actions에 등록하면 다음 실행부터 채워진다.

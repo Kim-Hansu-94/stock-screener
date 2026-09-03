@@ -1,0 +1,60 @@
+name: Real Estate Media Collector
+
+# 부동산 실거래 수집(realestate.yml, 주 1회)·주식 파이프라인과 모두 분리해서
+# 매일 돈다. 뉴스·유튜브는 신선도가 생명이라 매일 갱신해야 하지만, 이 수집이
+# 실패했다고 다른 파이프라인까지 죽으면 안 된다.
+on:
+  schedule:
+    # 매일 22:20 UTC (07:20 KST) — 주식 파이프라인(아침 21:30 UTC)과 겹치지
+    # 않는 시각으로 잡았다.
+    - cron: '20 22 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+          echo "NAVER_CLIENT_ID=${{ secrets.NAVER_CLIENT_ID }}" >> pipeline/.env
+          echo "NAVER_CLIENT_SECRET=${{ secrets.NAVER_CLIENT_SECRET }}" >> pipeline/.env
+          echo "YOUTUBE_API_KEY=${{ secrets.YOUTUBE_API_KEY }}" >> pipeline/.env
+
+      - name: Collect
+        working-directory: pipeline
+        run: python -m src.realestate_media_main
+
+      - name: Revalidate frontend cache
+        env:
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+        run: |
+          if [ -z "$REVALIDATE_URL" ]; then
+            echo "::warning::REVALIDATE_URL 시크릿 미설정 → 캐시 즉시 무효화 생략 (최대 1시간 내 자동 갱신)"
+            exit 0
+          fi
+          curl -fsS -X POST "$REVALIDATE_URL" \
+            -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+            && echo "프론트 캐시 무효화 완료" \
+            || echo "::warning::캐시 무효화 호출 실패 → cacheLife에 따라 최대 1시간 내 자동 갱신"
