@@ -1,3 +1,6 @@
+'use client'
+
+import { useState } from 'react'
 import type { Market, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
@@ -41,6 +44,18 @@ export function WatchlistCard({
   rows: WatchlistStatusRow[]
   tickers: WatchlistTickerRow[]
 }) {
+  // 종목 수가 늘면서 뉴스를 다 펼쳐 두면 스크롤이 너무 길어져, 이름을 눌러야만
+  // 그 종목 뉴스가 펼쳐지게 바꿨다(기본은 접힘). 펼치기 전엔 뉴스를 아예 불러오지도
+  // 않는다 — StockNewsFeed를 펼쳤을 때만 렌더링하므로 안 열어본 종목은 API 호출도 없다.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
   const statusMap = new Map(rows.map((r) => [`${r.market}-${r.ticker}`, r]))
   const seen = new Set<string>()
   const combined: CombinedEntry[] = []
@@ -111,10 +126,15 @@ export function WatchlistCard({
           }`}
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-bold">
+            <button
+              type="button"
+              onClick={() => toggle(entry.key)}
+              className="flex items-center gap-1 text-sm font-bold hover:text-primary"
+            >
+              <span className="text-xs text-muted-foreground">{expanded.has(entry.key) ? '▾' : '▸'}</span>
               {entry.name || entry.ticker}{' '}
               <span className="font-mono text-xs font-semibold text-muted-foreground">{entry.ticker}</span>
-            </span>
+            </button>
             <div className="flex items-center gap-1.5">
               {entry.status?.qualified ? (
                 <span
@@ -158,11 +178,20 @@ export function WatchlistCard({
             <p className="mt-2 text-xs text-muted-foreground">미달: {entry.status.reason}</p>
           )}
           {entry.status && <p className="mt-1 text-xs text-muted-foreground/70">평가일: {entry.status.date}</p>}
-          {/* 실제로 들고 있거나 관심 있는 종목이라 뉴스는 펼치지 않아도 항상 보이게 둔다. */}
-          <StockNewsFeed
-            query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
-            className="mt-3 border-t border-border pt-3"
-          />
+          {expanded.has(entry.key) ? (
+            <StockNewsFeed
+              query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
+              className="mt-3 border-t border-border pt-3"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggle(entry.key)}
+              className="mt-2 text-xs text-muted-foreground hover:text-primary"
+            >
+              뉴스 보기 ▾
+            </button>
+          )}
         </div>
       ))}
     </section>
