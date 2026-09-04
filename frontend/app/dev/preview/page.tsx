@@ -122,7 +122,9 @@ const WATCHLIST_TICKERS: WatchlistTickerRow[] = [
 // SK하이닉스·현대차는 차트가 있는 경우, 삼성전자·아이온큐는 없는 경우(데이터
 // 부족)를 함께 둬서 "차트를 그릴 시세 데이터가 아직 없습니다" 폴백도 확인한다.
 const WATCHLIST_HISTORY: Record<string, PriceHistoryRow[]> = {
-  'KR-000660': default2rHistory('000660'),
+  'KR-000660': watchlistChartHistory('000660'),
+  // 005380은 일부러 짧은 픽스처(108봉)를 써서, 120일선·일목구름도가 데이터
+  // 부족으로 부분적으로만(또는 전혀) 안 그려지는 경우도 깨지지 않는지 함께 본다.
   'KR-005380': resistanceTargetHistory('005380'),
 }
 
@@ -150,6 +152,28 @@ function default2rHistory(ticker: string): PriceHistoryRow[] {
   for (let i = 1; i <= 3; i++) {
     const c = peak - i * 0.5
     points.push({ close: c, high: c + 0.5, low: c - 0.5 })
+  }
+  return historyFrom(ticker, points)
+}
+
+// 감시 종목 차트의 120일선·일목구름도(52봉 필요)가 실제로 그려지는 걸 보려면
+// 최소 150봉 이상 필요하다 — 위 두 픽스처(70~108봉)로는 부족해서 따로 만들었다.
+// 고점 → 40% 하락 → 등락하며 다지는 흐름으로, 매집 구간 컨셉과도 얼추 맞는 모양.
+function watchlistChartHistory(ticker: string): PriceHistoryRow[] {
+  const points: { close: number; high: number; low: number }[] = []
+  let close = 100
+  for (let i = 0; i < 40; i++) {
+    close += 0.8
+    points.push({ close, high: close + 1, low: close - 1 })
+  }
+  const peak = close
+  for (let i = 1; i <= 60; i++) {
+    close = peak - peak * 0.4 * (i / 60)
+    points.push({ close, high: close + 1.5, low: close - 1.5 })
+  }
+  for (let i = 0; i < 100; i++) {
+    close += Math.sin(i / 4) * 1.2
+    points.push({ close, high: close + 0.8, low: close - 0.8 })
   }
   return historyFrom(ticker, points)
 }

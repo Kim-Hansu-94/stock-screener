@@ -14,6 +14,15 @@ const StockChart = dynamic(
   { ssr: false, loading: () => <LoadingFallback label="차트 로딩 중..." className="py-8" /> },
 )
 
+// 감시 종목은 분할매수 판단에 장기 추세까지 보고 싶다는 요청으로 120일선을 추가한 세트.
+// 다른 화면(StockCard 등)의 기본 5/20/60일선과는 별개로 이 카드에서만 쓴다.
+const WATCHLIST_MOVING_AVERAGES = [
+  { window: 5, color: '#2563eb' },
+  { window: 20, color: '#d97706' },
+  { window: 60, color: '#7c3aed' },
+  { window: 120, color: '#0891b2' },
+]
+
 // qualified_since ~ 평가일(as-of) 사이 일수. 시작일 당일을 1일째로 센다.
 function accumulationDays(qualifiedSince: string, asOf: string): number {
   const start = new Date(`${qualifiedSince}T00:00:00Z`).getTime()
@@ -211,7 +220,12 @@ export function WatchlistCard({
             <>
               {(history[entry.key]?.length ?? 0) > 0 ? (
                 <div className="mt-3 border-t border-border pt-3">
-                  <StockChart history={history[entry.key]} />
+                  <StockChart
+                    history={history[entry.key]}
+                    volume
+                    ichimoku
+                    movingAverages={WATCHLIST_MOVING_AVERAGES}
+                  />
                 </div>
               ) : (
                 <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
