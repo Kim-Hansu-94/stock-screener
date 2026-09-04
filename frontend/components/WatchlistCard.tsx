@@ -6,6 +6,13 @@ import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
 
+// qualified_since ~ 평가일(as-of) 사이 일수. 시작일 당일을 1일째로 센다.
+function accumulationDays(qualifiedSince: string, asOf: string): number {
+  const start = new Date(`${qualifiedSince}T00:00:00Z`).getTime()
+  const end = new Date(`${asOf}T00:00:00Z`).getTime()
+  return Math.round((end - start) / 86_400_000) + 1
+}
+
 function CheckChip({ ok, label }: { ok: boolean | null; label: string }) {
   return (
     <span
@@ -108,7 +115,11 @@ export function WatchlistCard({
           뉴스·소문으로 관심 가는 종목은 스크리너 통과 여부와 상관없이 아래에서 직접 추가해 추적할 수 있습니다.
         </p>
         <p className="mt-1 text-xs text-accent-foreground">
-          <span className="font-medium">초록불 조건:</span> 위 기준 통과 + {BUY_GRADE_CRITERIA}
+          <span className="font-medium">매집 구간:</span> 하루짜리 신호가 아니라, 위 기준을 계속
+          충족하는 동안 전체를 분할매수 창으로 봅니다 — 이 구간엔 언제 얼마씩 사도 됩니다.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="font-medium">초록불(적극·매수검토) 조건:</span> 매집 구간 중 + {BUY_GRADE_CRITERIA}
         </p>
       </div>
 
@@ -137,14 +148,21 @@ export function WatchlistCard({
             </button>
             <div className="flex items-center gap-1.5">
               {entry.status?.qualified ? (
-                <span
-                  className={`rounded-md px-2.5 py-0.5 text-xs font-semibold ${
-                    BUY_GRADE_CLASS[grades.get(entry.key) ?? 'watch']
-                  }`}
-                >
-                  매력도 {Math.round((entry.status.score ?? 0) * 100)}점 ·{' '}
-                  {BUY_GRADE_LABEL[grades.get(entry.key) ?? 'watch']}
-                </span>
+                <>
+                  <span className="rounded-md bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                    매집 구간{' '}
+                    {entry.status.qualified_since &&
+                      `${accumulationDays(entry.status.qualified_since, entry.status.date)}일째`}
+                  </span>
+                  <span
+                    className={`rounded-md px-2.5 py-0.5 text-xs font-semibold ${
+                      BUY_GRADE_CLASS[grades.get(entry.key) ?? 'watch']
+                    }`}
+                  >
+                    매력도 {Math.round((entry.status.score ?? 0) * 100)}점 ·{' '}
+                    {BUY_GRADE_LABEL[grades.get(entry.key) ?? 'watch']}
+                  </span>
+                </>
               ) : entry.status ? (
                 <span className="rounded-md bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
                   대기 중

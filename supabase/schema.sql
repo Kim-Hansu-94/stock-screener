@@ -220,8 +220,15 @@ create table if not exists watchlist_status (
   volume_dry        boolean,
   aligned_mas       boolean,
   volume_trigger    boolean,
+  -- 조건을 계속 충족 중인 "매집 구간"이 언제 시작됐는지. 어제도 통과 상태였으면
+  -- 이어가고, 오늘 새로 통과했거나 미달로 끊겼다면 그때그때 갱신된다
+  -- (미통과 시 null). 분할매수 컨셉이라 "오늘 하루" 신호가 아니라 이 구간이
+  -- 며칠째 이어지는지를 보여주려고 둔다.
+  qualified_since   date,
   primary key (ticker, market)
 );
+-- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
+-- ALTER TABLE watchlist_status ADD COLUMN IF NOT EXISTS qualified_since date;
 
 -- 오늘의 추천(Gold Standard 패턴 매칭) 기록. pattern_match_results가 "지금 화면에
 -- 띄울 목록"(매 실행 전체 삭제 후 재작성)인 반면, 이쪽은 "그날 무엇을 추천했는지"를

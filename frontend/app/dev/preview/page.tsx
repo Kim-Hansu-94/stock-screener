@@ -93,7 +93,7 @@ const CLOSED_POSITIONS: PaperPosition[] = [
 function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
   return {
     ticker: '000660', market: 'KR', name: 'SK하이닉스', date: '2026-08-19',
-    qualified: true, reason: null, drawdown: -34, in_drawdown_band: true,
+    qualified: true, qualified_since: '2026-08-01', reason: null, drawdown: -34, in_drawdown_band: true,
     no_new_low: true, box_ok: true, score: 0.72, days_since_low: 18,
     vcp: true, higher_lows: true, volume_dry: true, aligned_mas: true, volume_trigger: false,
     ...over,
@@ -104,11 +104,13 @@ function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
 // 사이트에서 추가한 종목(watchlist_tickers) 3개 중 IONQ만 아직 평가 전(status 없음),
 // 005380은 status만 있고 tickers엔 없는 경우(코드에 박힌 기본 종목 → 삭제 버튼 없음)를
 // 함께 둬서 세 갈래(통과/미달/평가대기)와 삭제 가능 여부를 한 화면에서 확인한다.
+// SK하이닉스는 매집 구간 19일째(길게 이어짐), 현대차는 오늘 막 진입(1일째)로
+// qualified_since 표시가 둘 다 자연스러운지 함께 본다.
 const WATCHLIST: WatchlistStatusRow[] = [
   watch({}),
-  watch({ ticker: '005930', name: '삼성전자', qualified: false, score: null,
+  watch({ ticker: '005930', name: '삼성전자', qualified: false, qualified_since: null, score: null,
     reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
-  watch({ ticker: '005380', market: 'KR', name: '현대차' }),
+  watch({ ticker: '005380', market: 'KR', name: '현대차', qualified_since: '2026-08-19' }),
 ]
 
 const WATCHLIST_TICKERS: WatchlistTickerRow[] = [

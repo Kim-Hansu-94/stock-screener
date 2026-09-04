@@ -233,11 +233,25 @@ def run_watchlist(db: ScreenerDB, today: date) -> None:
 
     if not combined:
         return
+
+    # 분할매수 컨셉: "오늘 통과했다/안했다"라는 하루짜리 신호가 아니라, 조건을
+    # 계속 충족하는 동안을 하나의 "매집 구간"으로 본다. 어제도 통과 상태였다면
+    # qualified_since를 그대로 이어가고, 오늘 새로 통과했거나 끊겼다 다시
+    # 통과했다면 오늘 날짜로 새로 시작한다.
+    previous = db.get_watchlist_status_rows()
+
     print("감시 종목 평가 중...", flush=True)
     for ticker, market, name in combined:
         try:
             bars = _fetch_bars(db, ticker, market, today)
             status = evaluate_watch(bars)
+
+            prev = previous.get((market, ticker))
+            if status["qualified"]:
+                still_continuous = bool(prev and prev.get("qualified") and prev.get("qualified_since"))
+                status["qualified_since"] = prev["qualified_since"] if still_continuous else today.isoformat()
+            else:
+                status["qualified_since"] = None
 
             db.client.table("watchlist_status").upsert({
                 "ticker": ticker,
@@ -247,7 +261,11 @@ def run_watchlist(db: ScreenerDB, today: date) -> None:
                 **status,
             }).execute()
 
-            label = "통과 ✓" if status["qualified"] else f"대기 ({status['reason']})"
+            if status["qualified"]:
+                days = (today - date.fromisoformat(status["qualified_since"])).days + 1
+                label = f"통과 ✓ (매집 구간 {days}일째)"
+            else:
+                label = f"대기 ({status['reason']})"
             print(f"  {name}({ticker}): {label}", flush=True)
         except Exception as exc:  # noqa: BLE001
             # 테이블 미생성 등으로 실패해도 파이프라인 본체는 계속 진행

@@ -276,6 +276,19 @@ class ScreenerDB:
         )
         return result.count or 0
 
+    def get_watchlist_status_rows(self) -> dict[tuple[str, str], dict]:
+        """감시 종목의 기존(어제까지) 평가 결과를 (market, ticker) 기준으로 돌려준다.
+
+        run_watchlist가 "매집 구간이 며칠째 이어지는지"(qualified_since)를
+        판단할 때, 오늘 갱신하기 전의 값을 참조하는 데 쓴다.
+        """
+        try:
+            result = self.client.table("watchlist_status") \
+                .select("ticker, market, qualified, qualified_since").execute()
+        except Exception:  # noqa: BLE001
+            return {}
+        return {(r["market"], r["ticker"]): r for r in (result.data or [])}
+
     def get_watchlist_tickers(self) -> list[tuple[str, str, str]]:
         """사용자가 사이트(/api/watchlist)에서 직접 추가한 감시 종목.
 
