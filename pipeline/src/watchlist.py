@@ -212,21 +212,29 @@ def _fetch_bars(db: ScreenerDB, ticker: str, market: str, today: date) -> list[d
     ]
 
 
-def run_watchlist(db: ScreenerDB, today: date) -> None:
-    # 코드의 기본 목록 + 사이트에서 직접 추가한 목록을 합친다. 같은 (market, ticker)면
-    # 사이트 쪽 이름으로 덮어써 최신 표기를 따른다.
+def get_combined_watchlist(db: ScreenerDB) -> list[tuple[str, str, str]]:
+    """코드의 기본 목록(WATCHLIST) + 사이트에서 직접 추가한 목록(watchlist_tickers)을 합친다.
+
+    같은 (market, ticker)면 사이트 쪽 이름으로 덮어써 최신 표기를 따른다.
+    main.py가 평가 전에 히스토리 보완 대상을 고르는 데도 이 목록을 그대로 재사용한다
+    (감시 종목은 정규 스크리닝 유니버스 밖의 임의 종목일 수 있어 일봉이 없을 수 있음).
+    """
     combined: dict[tuple[str, str], tuple[str, str, str]] = {
         (market, ticker): (ticker, market, name) for ticker, market, name in WATCHLIST
     }
     for ticker, market, name in db.get_watchlist_tickers():
         combined[(market, ticker)] = (ticker, market, name)
+    return list(combined.values())
 
-    db.prune_watchlist_status(list(combined.keys()))
+
+def run_watchlist(db: ScreenerDB, today: date) -> None:
+    combined = get_combined_watchlist(db)
+    db.prune_watchlist_status([(market, ticker) for ticker, market, _name in combined])
 
     if not combined:
         return
     print("감시 종목 평가 중...", flush=True)
-    for ticker, market, name in combined.values():
+    for ticker, market, name in combined:
         try:
             bars = _fetch_bars(db, ticker, market, today)
             status = evaluate_watch(bars)
