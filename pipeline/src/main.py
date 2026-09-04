@@ -12,6 +12,7 @@ from .db import PipelineResult, ScreenerDB
 from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
+from .market_indices import collect_market_index_snapshots
 from .opportunities import in_band_tickers, refresh_opportunity_snapshot
 from .pipeline import (
     KR_MIN_MARKET_CAP,
@@ -272,6 +273,13 @@ def main() -> None:
     load_dotenv()
     today = _today_kst()
     db = ScreenerDB.from_env()
+
+    # 시황 위젯(코스피·코스닥·다우·나스닥·S&P500) 스냅샷 — 지수 5개만 받는 가벼운
+    # 작업이라 kr_only 여부·KR 신선도 체크와 무관하게 실행마다 갱신한다.
+    print("시황 지수 스냅샷 수집 중...", flush=True)
+    index_snapshots = collect_market_index_snapshots(today)
+    db.save_market_index_snapshots(index_snapshots)
+    print(f"  → {len(index_snapshots)}개 저장", flush=True)
 
     if kr_only or not _kr_pipeline_already_fresh(db, today):
         kr_result = run_kr_pipeline(today)

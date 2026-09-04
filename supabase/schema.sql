@@ -5,6 +5,18 @@ create table if not exists market_regime (
   primary key (date, market)
 );
 
+-- 홈 화면 시황 위젯(코스피·코스닥·다우존스·나스닥·S&P500). 이력을 쌓는 표가 아니라
+-- 지수당 최신 1행만 유지하는 스냅샷 — 차트가 아니라 "지금 얼마고 전일 대비 몇 %"만
+-- 보여주면 되므로. 환율은 프론트가 frankfurter.app에서 직접 받아와 여기 없다
+-- (pipeline/src/market_indices.py).
+create table if not exists market_index_snapshot (
+  index_name  text primary key,
+  date        date not null,
+  close       numeric not null,
+  prev_close  numeric not null,
+  updated_at  timestamptz not null default now()
+);
+
 create table if not exists leading_sectors (
   date date not null,
   market text not null check (market in ('KR', 'US')),

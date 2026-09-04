@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from supabase import Client, create_client
 
@@ -139,6 +140,18 @@ class ScreenerDB:
     def save_price_history(self, rows: list[dict]) -> None:
         if rows:
             _batch_upsert(self.client, "stock_price_history", rows)
+
+    def save_market_index_snapshots(self, snapshots: list[dict]) -> None:
+        """홈 화면 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500) 저장.
+
+        종목별 전체 이력이 아니라 지수당 최신 1행만 유지하는 스냅샷 테이블이라
+        upsert만으로 충분하다(_replace_day 같은 정리 불필요).
+        """
+        if not snapshots:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [{**s, "updated_at": now} for s in snapshots]
+        self.client.table("market_index_snapshot").upsert(rows).execute()
 
     def refresh_monthly_ohlcv(self) -> None:
         # 일봉 저장 후 월봉 사전 집계 MV를 갱신 (CONCURRENTLY라 조회를 막지 않음).

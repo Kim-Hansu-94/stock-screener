@@ -7,6 +7,15 @@ export interface MarketRegimeRow {
   regime: Regime
 }
 
+/** 홈 화면 시황 위젯(코스피·코스닥·다우존스·나스닥·S&P500) — 지수당 최신 1행뿐인 스냅샷 */
+export interface MarketIndexSnapshotRow {
+  index_name: string
+  date: string
+  close: number
+  prev_close: number
+  updated_at: string
+}
+
 export interface LeadingSectorRow {
   date: string
   market: Market
