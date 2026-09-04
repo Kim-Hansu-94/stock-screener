@@ -129,6 +129,14 @@ def _screen_candidates(
     near_misses = [t for t in evaluated if not t[1].passed]
     selected = passers + near_misses[: max(0, TOP_CANDIDATES - len(passers))]
 
+    # 조용히 0개로 끝나면(예: 데이터 수집 실패로 모든 후보의 히스토리가 비어
+    # evaluated 자체가 비는 경우) 화면에 왜 안 뜨는지 로그로 알 방법이 없었다.
+    print(
+        f"  스크리닝: 후보 {len(candidates)}종목 → 평가 {len(evaluated)}개 "
+        f"(전 조건 통과 {len(passers)} · 근접 후보 {len(near_misses)}) → 화면 표시 {len(selected)}개",
+        flush=True,
+    )
+
     screened = [stock for _, stock, _ in selected]
     price_history = {stock.ticker: hist.tail(120) for _, stock, hist in selected}
     return screened, price_history
@@ -152,6 +160,11 @@ def run_kr_pipeline(today: date) -> MarketPipelineResult:
     # passed=False로 저장한다 (매수 신호 아님 표시 + 이력 집계 제외).
     sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= KR_MEGA_CAP)
     candidates = universe[sector_gate & universe["meets_cap_threshold"]]
+    print(
+        f"KR 눌림목 스크리닝: 장세={regime}, 주도 섹터={top_sectors or '없음'}, "
+        f"유니버스 {len(universe)}종목 → 대상 {len(candidates)}종목",
+        flush=True,
+    )
     screened, price_history = _screen_candidates(
         candidates, lambda t: prices_kr.get_kr_stock_history(t, today, FULL_HISTORY_LOOKBACK_DAYS),
         require_sma200=True,
@@ -191,6 +204,11 @@ def run_us_pipeline(today: date) -> MarketPipelineResult:
     # 하락장에도 상위 후보는 랭킹으로 보여주되 "시장 하락장" 미달로 passed=False 저장.
     sector_gate = universe["sector"].isin(top_sectors) | (universe["market_cap"] >= US_MEGA_CAP)
     candidates = universe[screener_mask & sector_gate & universe["meets_cap_threshold"]]
+    print(
+        f"US 눌림목 스크리닝: 장세={regime}, 주도 섹터={top_sectors or '없음'}, "
+        f"스크리너 유니버스 {len(screener_tickers)}종목 → 대상 {len(candidates)}종목",
+        flush=True,
+    )
     screened, _ = _screen_candidates(
         candidates, lambda t: all_histories.get(t, pd.DataFrame()), require_sma200=True,
         extra_failures=[] if regime == "bull" else [MARKET_BEAR_CRITERION],

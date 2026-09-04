@@ -1,10 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import type { Market, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
+import dynamic from 'next/dynamic'
+import type { Market, PriceHistoryRow, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
+import { LoadingFallback } from '@/components/LoadingFallback'
+
+// lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다(StockCard와 동일 패턴).
+const StockChart = dynamic(
+  () => import('./StockChart').then((mod) => mod.StockChart),
+  { ssr: false, loading: () => <LoadingFallback label="차트 로딩 중..." className="py-8" /> },
+)
 
 // qualified_since ~ 평가일(as-of) 사이 일수. 시작일 당일을 1일째로 센다.
 function accumulationDays(qualifiedSince: string, asOf: string): number {
@@ -47,9 +55,12 @@ interface CombinedEntry {
 export function WatchlistCard({
   rows,
   tickers,
+  history,
 }: {
   rows: WatchlistStatusRow[]
   tickers: WatchlistTickerRow[]
+  /** `${market}-${ticker}` 키의 일봉 — 종목을 펼쳤을 때 차트를 그리는 데 쓴다. */
+  history: Record<string, PriceHistoryRow[]>
 }) {
   // 종목 수가 늘면서 뉴스를 다 펼쳐 두면 스크롤이 너무 길어져, 이름을 눌러야만
   // 그 종목 뉴스가 펼쳐지게 바꿨다(기본은 접힘). 펼치기 전엔 뉴스를 아예 불러오지도
@@ -197,17 +208,35 @@ export function WatchlistCard({
           )}
           {entry.status && <p className="mt-1 text-xs text-muted-foreground/70">평가일: {entry.status.date}</p>}
           {expanded.has(entry.key) ? (
-            <StockNewsFeed
-              query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
-              className="mt-3 border-t border-border pt-3"
-            />
+            <>
+              {(history[entry.key]?.length ?? 0) > 0 ? (
+                <div className="mt-3 border-t border-border pt-3">
+                  <StockChart history={history[entry.key]} />
+                </div>
+              ) : (
+                <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+                  차트를 그릴 시세 데이터가 아직 없습니다.
+                </p>
+              )}
+              <StockNewsFeed
+                query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
+                className="mt-3 border-t border-border pt-3"
+              />
+              <button
+                type="button"
+                onClick={() => toggle(entry.key)}
+                className="mt-2 text-xs text-muted-foreground hover:text-primary"
+              >
+                접기 ▴
+              </button>
+            </>
           ) : (
             <button
               type="button"
               onClick={() => toggle(entry.key)}
               className="mt-2 text-xs text-muted-foreground hover:text-primary"
             >
-              뉴스 보기 ▾
+              차트·뉴스 보기 ▾
             </button>
           )}
         </div>

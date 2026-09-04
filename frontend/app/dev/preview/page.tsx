@@ -119,6 +119,13 @@ const WATCHLIST_TICKERS: WatchlistTickerRow[] = [
   { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z' },
 ]
 
+// SK하이닉스·현대차는 차트가 있는 경우, 삼성전자·아이온큐는 없는 경우(데이터
+// 부족)를 함께 둬서 "차트를 그릴 시세 데이터가 아직 없습니다" 폴백도 확인한다.
+const WATCHLIST_HISTORY: Record<string, PriceHistoryRow[]> = {
+  'KR-000660': default2rHistory('000660'),
+  'KR-005380': resistanceTargetHistory('005380'),
+}
+
 // 손익비 카드용 일봉 픽스처 — lib/risk.test.ts의 두 시나리오를 그대로 재현한다.
 // (1) 얕은 눌림목이라 위에 의미 있는 저항이 없어 고정 2R로 떨어지는 경우
 //     ('신고가 코앞 2R 기본값' 테스트와 동일한 모양 — 손익비 2.00 뭉침의 실제 원인)
@@ -305,7 +312,7 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">감시 종목 카드 (뉴스는 실제 API 호출)</h2>
-        <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} />
+        <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} history={WATCHLIST_HISTORY} />
       </section>
 
       <section className="space-y-3">
