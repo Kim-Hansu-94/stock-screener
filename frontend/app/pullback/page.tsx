@@ -136,7 +136,24 @@ function SectionSkeleton() {
 async function WatchlistSection() {
   await connection()
   const [watchlist, tickers] = await Promise.all([getWatchlistStatus(), getWatchlistTickers()])
-  return <WatchlistCard rows={watchlist} tickers={tickers} />
+
+  // 감시 종목 카드에서 차트를 펼쳐볼 수 있게, 감시 목록에 있는 모든 종목(평가
+  // 대기 중이라 status가 없는 것 포함)의 일봉을 시장별로 나눠 미리 가져온다.
+  const byKey = new Map<string, { market: Market; ticker: string }>()
+  for (const r of watchlist) byKey.set(`${r.market}-${r.ticker}`, { market: r.market, ticker: r.ticker })
+  for (const t of tickers) byKey.set(`${t.market}-${t.ticker}`, { market: t.market, ticker: t.ticker })
+  const krTickers = [...byKey.values()].filter((e) => e.market === 'KR').map((e) => e.ticker)
+  const usTickers = [...byKey.values()].filter((e) => e.market === 'US').map((e) => e.ticker)
+
+  const [krHistory, usHistory] = await Promise.all([
+    getPriceHistoryByTicker('KR', krTickers, 500),
+    getPriceHistoryByTicker('US', usTickers, 500),
+  ])
+  const history: Record<string, PriceHistoryRow[]> = {}
+  for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
+  for (const [ticker, bars] of Object.entries(usHistory)) history[`US-${ticker}`] = bars
+
+  return <WatchlistCard rows={watchlist} tickers={tickers} history={history} />
 }
 
 async function MarketSection({ market, label, universe }: { market: Market; label: string; universe: string }) {
