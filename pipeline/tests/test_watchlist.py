@@ -1,3 +1,6 @@
+from datetime import date
+
+from pipeline.src import watchlist as watchlist_module
 from pipeline.src.watchlist import MIN_BARS, evaluate_watch
 
 
@@ -86,3 +89,82 @@ def test_formed_base_qualifies_with_signals():
     assert 0.0 < status["score"] <= 1.0
     assert status["higher_lows"] is True
     assert status["volume_dry"] is True
+
+
+class _FakeTable:
+    def __init__(self, sink: list[dict]):
+        self._sink = sink
+
+    def upsert(self, payload: dict) -> "_FakeTable":
+        self._sink.append(payload)
+        return self
+
+    def execute(self) -> None:
+        return None
+
+
+class _FakeClient:
+    def __init__(self, sink: list[dict]):
+        self._sink = sink
+
+    def table(self, name: str) -> _FakeTable:
+        assert name == "watchlist_status"
+        return _FakeTable(self._sink)
+
+
+class _FakeDB:
+    """run_watchlist이 필요로 하는 최소 인터페이스만 흉내낸 테스트용 더블."""
+
+    def __init__(self, status_rows: dict[tuple[str, str], dict]):
+        self.upserts: list[dict] = []
+        self.client = _FakeClient(self.upserts)
+        self._status_rows = status_rows
+
+    def get_watchlist_tickers(self) -> list[tuple[str, str, str]]:
+        return []
+
+    def prune_watchlist_status(self, keep: list[tuple[str, str]]) -> None:
+        pass
+
+    def get_watchlist_status_rows(self) -> dict[tuple[str, str], dict]:
+        return self._status_rows
+
+
+def test_run_watchlist_keeps_qualified_since_while_continuously_qualified(monkeypatch):
+    """분할매수 컨셉: 어제도 통과 상태였다면 매집 구간 시작일(qualified_since)이
+    끊기지 않고 이어져야 한다 — 매일 새로 "오늘 처음 통과했다"로 리셋되면 안 된다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(watchlist_module, "evaluate_watch", lambda bars: {"qualified": True, "score": 0.5})
+
+    db = _FakeDB(status_rows={("US", "TICK"): {"qualified": True, "qualified_since": "2024-01-10"}})
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["qualified_since"] == "2024-01-10"
+
+
+def test_run_watchlist_starts_new_streak_when_first_qualified(monkeypatch):
+    """어제까지는 미달이었다가 오늘 처음 통과했다면 오늘 날짜로 새로 시작해야 한다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(watchlist_module, "evaluate_watch", lambda bars: {"qualified": True, "score": 0.5})
+
+    db = _FakeDB(status_rows={("US", "TICK"): {"qualified": False, "qualified_since": None}})
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["qualified_since"] == "2024-01-11"
+
+
+def test_run_watchlist_clears_qualified_since_when_no_longer_qualified(monkeypatch):
+    """매집 구간이 끊기면(오늘 미달) qualified_since는 null이어야 한다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": False, "reason": "조정폭 미달"},
+    )
+
+    db = _FakeDB(status_rows={("US", "TICK"): {"qualified": True, "qualified_since": "2024-01-05"}})
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["qualified_since"] is None

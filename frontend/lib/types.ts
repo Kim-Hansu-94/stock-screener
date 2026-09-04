@@ -128,6 +128,8 @@ export interface WatchlistStatusRow {
   name: string | null
   date: string
   qualified: boolean
+  /** 조건을 계속 충족 중인 매집 구간이 시작된 날짜. 미통과 시 null. */
+  qualified_since: string | null
   reason: string | null
   drawdown: number | null
   in_drawdown_band: boolean | null
