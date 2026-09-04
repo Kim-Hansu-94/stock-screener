@@ -7,6 +7,7 @@ import { StockCard } from '@/components/StockCard'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
 import { RealestateMediaSection } from '@/components/RealestateMediaSection'
+import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
@@ -377,6 +378,30 @@ export default function PreviewPage() {
         <h2 className="text-base font-semibold text-foreground">내 매매장 — 청산 완료</h2>
         <PaperTradeSummary closed={CLOSED_POSITIONS} />
         <PaperTradeTable items={CLOSED_POSITIONS} showSell={false} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">시황 위젯 — 상승·하락 혼합</h2>
+        <MarketOverviewWidget
+          snapshots={[
+            { index_name: '코스피', date: '2026-09-03', close: 2650.32, prev_close: 2610.5, updated_at: '2026-09-03T21:30:00Z' },
+            { index_name: '코스닥', date: '2026-09-03', close: 780.11, prev_close: 795.4, updated_at: '2026-09-03T21:30:00Z' },
+            { index_name: '다우존스', date: '2026-09-02', close: 41250.77, prev_close: 41100.2, updated_at: '2026-09-03T21:30:00Z' },
+            { index_name: '나스닥', date: '2026-09-02', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-03T21:30:00Z' },
+            { index_name: 'S&P500', date: '2026-09-02', close: 5620.15, prev_close: 5620.15, updated_at: '2026-09-03T21:30:00Z' },
+          ]}
+          usdKrwRate={1382.5}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          시황 위젯 — 미수집(섹션 자체가 숨겨져야 함)
+        </h2>
+        <div className="rounded-md border border-dashed border-border p-4 text-xs text-muted-foreground">
+          {'<MarketOverviewWidget snapshots={[]} usdKrwRate={1382.5} />'} → null (아래에 카드가 안 보이면 정상)
+        </div>
+        <MarketOverviewWidget snapshots={[]} usdKrwRate={1382.5} />
       </section>
 
       <section className="space-y-4">

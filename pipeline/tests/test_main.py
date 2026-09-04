@@ -46,6 +46,8 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module.prices_us, "get_opportunity_histories", lambda *a, **k: {})
     monkeypatch.setattr(main_module.prices_kr, "get_kr_stock_history", lambda *a, **k: pd.DataFrame())
 
+    monkeypatch.setattr(main_module, "collect_market_index_snapshots", lambda today: [])
+
     fake_db = MagicMock()
     fake_db.count_price_bars.return_value = 0
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))
@@ -119,6 +121,7 @@ def test_opportunity_universe_excludes_stocks_below_the_market_cap_floor(monkeyp
     monkeypatch.setattr(main_module, "in_band_tickers", lambda *a, **k: {})
     monkeypatch.setattr(main_module, "refresh_fundamentals", lambda *a, **k: None)
     monkeypatch.setattr(main_module, "seed_long_monthly", lambda *a, **k: None)
+    monkeypatch.setattr(main_module, "collect_market_index_snapshots", lambda today: [])
 
     fake_db = MagicMock()
     fake_db.count_price_bars.return_value = 0
@@ -216,6 +219,7 @@ def test_main_skips_kr_pipeline_when_evening_run_already_fresh(monkeypatch, tmp_
     monkeypatch.setattr(main_module, "_SEED_FILE", tmp_path / ".yfinance_opp_seeded")
     monkeypatch.setattr(main_module, "_SEEDED_TICKERS_FILE", tmp_path / ".yfinance_opp_seeded_tickers")
     monkeypatch.setattr(main_module.prices_us, "get_opportunity_histories", lambda *a, **k: {})
+    monkeypatch.setattr(main_module, "collect_market_index_snapshots", lambda today: [])
     monkeypatch.setattr(sys, "argv", ["main.py"])
 
     fake_db = MagicMock()
@@ -250,6 +254,7 @@ def test_main_kr_only_never_skips_regardless_of_freshness(monkeypatch, tmp_path)
     monkeypatch.setattr(main_module, "seed_long_monthly", lambda *a, **k: None)
     monkeypatch.setattr(main_module, "refresh_opportunity_snapshot", lambda *a, **k: None)
     monkeypatch.setattr(main_module, "run_watchlist", lambda *a, **k: None)
+    monkeypatch.setattr(main_module, "collect_market_index_snapshots", lambda today: [])
     monkeypatch.setattr(sys, "argv", ["main.py", "--kr-only"])
 
     fake_db = MagicMock()

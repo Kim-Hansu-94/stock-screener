@@ -1,11 +1,23 @@
 import { Suspense } from 'react'
+import { connection } from 'next/server'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { getRealestateMedia, getRealestateMonthly } from '@/lib/queries/realestate'
+import { getMarketIndexSnapshots } from '@/lib/queries/marketOverview'
+import { fetchUsdKrwRate } from '@/lib/queries/shared'
 import { AREA_BANDS, regionOverview, regionRows, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
 import { RealestateMediaSection } from '@/components/RealestateMediaSection'
+import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import type { AreaBand } from '@/lib/types'
+
+// 부동산 데이터와 무관한 별도 소스라, 하나의 Suspense로 묶지 않고 독립적으로 스트리밍한다
+// (pullback/page.tsx의 감시 종목 섹션과 동일한 이유 — 느린 쪽이 빠른 쪽을 붙잡지 않게).
+async function MarketOverviewSection() {
+  await connection()
+  const [snapshots, usdKrwRate] = await Promise.all([getMarketIndexSnapshots(), fetchUsdKrwRate()])
+  return <MarketOverviewWidget snapshots={snapshots} usdKrwRate={usdKrwRate} />
+}
 
 async function RealestateContent({
   searchParams,
@@ -74,6 +86,10 @@ export default function RealestatePage({
           1~2개월은 숫자가 나중에 더 올라올 수 있습니다.
         </p>
       </div>
+
+      <Suspense fallback={<LoadingFallback className="py-6" />}>
+        <MarketOverviewSection />
+      </Suspense>
 
       <Suspense fallback={<LoadingFallback />}>
         <RealestateContent searchParams={searchParams} />
