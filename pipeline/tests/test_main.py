@@ -47,6 +47,7 @@ def test_main_saves_kr_and_us_results(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module.prices_kr, "get_kr_stock_history", lambda *a, **k: pd.DataFrame())
 
     fake_db = MagicMock()
+    fake_db.count_price_bars.return_value = 0
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))
 
     main_module.main()
@@ -119,8 +120,10 @@ def test_opportunity_universe_excludes_stocks_below_the_market_cap_floor(monkeyp
     monkeypatch.setattr(main_module, "refresh_fundamentals", lambda *a, **k: None)
     monkeypatch.setattr(main_module, "seed_long_monthly", lambda *a, **k: None)
 
+    fake_db = MagicMock()
+    fake_db.count_price_bars.return_value = 0
     monkeypatch.setattr(
-        main_module.ScreenerDB, "from_env", classmethod(lambda cls: MagicMock())
+        main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db)
     )
 
     main_module.main()
@@ -133,6 +136,38 @@ def test_opportunity_universe_excludes_stocks_below_the_market_cap_floor(monkeyp
 
     # 스냅샷 계산 대상에서도 동일하게 빠졌는지
     assert seen_snapshot_tickers["KR"] == ["005930"]
+
+
+def test_backfill_missing_watchlist_history_only_targets_insufficient_tickers(monkeypatch):
+    """감시 종목 중 이미 MIN_BARS 이상 쌓인 종목은 다시 받지 않고, 부족한(또는 0봉인)
+    종목만 시장별로 골라 백필하는지 확인한다."""
+    monkeypatch.setattr(
+        main_module, "get_combined_watchlist",
+        lambda db: [("000660", "KR", "SK하이닉스"), ("AAPL", "US", "애플"), ("TEM", "US", "템퍼스AI")],
+    )
+
+    fake_db = MagicMock()
+    bar_counts = {("000660", "KR"): 300, ("AAPL", "US"): 500, ("TEM", "US"): 0}
+    fake_db.count_price_bars.side_effect = lambda ticker, market: bar_counts[(ticker, market)]
+
+    kr_calls = []
+    monkeypatch.setattr(
+        main_module, "_collect_kr_opportunity_rows",
+        lambda tickers, today, lookback_days: kr_calls.append((tickers, lookback_days)) or [],
+    )
+
+    us_calls = []
+    monkeypatch.setattr(
+        main_module.prices_us, "get_opportunity_histories",
+        lambda tickers, today, lookback_days=1095: us_calls.append((tickers, lookback_days)) or {},
+    )
+
+    main_module._backfill_missing_watchlist_history(fake_db, date(2024, 1, 2))
+
+    # 000660은 이미 충분(300봉)해서 KR 백필 자체가 안 걸림
+    assert kr_calls == []
+    # TEM만 0봉이라 US 백필 대상, AAPL(500봉)은 빠짐
+    assert us_calls == [(["TEM"], 1095)]
 
 
 class TestKrPipelineAlreadyFresh:
@@ -218,6 +253,7 @@ def test_main_kr_only_never_skips_regardless_of_freshness(monkeypatch, tmp_path)
     monkeypatch.setattr(sys, "argv", ["main.py", "--kr-only"])
 
     fake_db = MagicMock()
+    fake_db.count_price_bars.return_value = 0
     # 이미 "오늘" 날짜가 최신으로 잡혀 있어도(=아침에 얘기하는 신선 기준을 만족해도)
     fake_db.get_latest_regime_date.return_value = "2024-01-02"
     monkeypatch.setattr(main_module.ScreenerDB, "from_env", classmethod(lambda cls: fake_db))

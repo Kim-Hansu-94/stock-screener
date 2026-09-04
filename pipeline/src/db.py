@@ -264,6 +264,18 @@ class ScreenerDB:
         self.client.table("recommendation_history").insert(rows).execute()
         print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)
 
+    def count_price_bars(self, ticker: str, market: str) -> int:
+        """stock_price_history에 이 종목의 일봉이 몇 개 있는지. 감시 종목 히스토리
+        보완 대상을 고를 때 쓴다(정규 유니버스 밖 종목은 0일 수 있음)."""
+        result = (
+            self.client.table("stock_price_history")
+            .select("date", count="exact")
+            .eq("ticker", ticker)
+            .eq("market", market)
+            .execute()
+        )
+        return result.count or 0
+
     def get_watchlist_tickers(self) -> list[tuple[str, str, str]]:
         """사용자가 사이트(/api/watchlist)에서 직접 추가한 감시 종목.
 

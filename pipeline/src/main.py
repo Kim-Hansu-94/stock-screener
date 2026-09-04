@@ -22,7 +22,8 @@ from .pipeline import (
     run_us_pipeline,
 )
 from .split_guard import detect_adjusted, report
-from .watchlist import run_watchlist
+from .watchlist import MIN_BARS as _WATCHLIST_MIN_BARS
+from .watchlist import get_combined_watchlist, run_watchlist
 
 KST = timezone(timedelta(hours=9))
 _SEED_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded"
@@ -204,6 +205,45 @@ def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days:
     return rows
 
 
+def _backfill_missing_watchlist_history(db: ScreenerDB, today: date) -> None:
+    """감시 종목(watchlist.py의 WATCHLIST + 사이트에서 추가한 watchlist_tickers)은
+    정규 스크리닝 유니버스(S&P1500+NASDAQ100+Russell3000, KOSPI/KOSDAQ) 수집 루프를
+    타지 않는 임의 종목일 수 있다 — 사용자가 뉴스·소문으로 관심 가는 종목을 유니버스와
+    상관없이 추가할 수 있게 만든 기능이라, 일봉이 아예 없거나(0봉) 최근에 막 유니버스에
+    편입돼 일부만 쌓여 있는(MIN_BARS 미만) 경우가 있다. run_watchlist가 평가하기 전에
+    이런 종목만 골라 1회 백필한다 — 이미 충분한 종목까지 매번 다시 받으면 API 낭비다.
+    """
+    combined = get_combined_watchlist(db)
+    if not combined:
+        return
+
+    kr_targets: list[str] = []
+    us_targets: list[str] = []
+    for ticker, market, _name in combined:
+        try:
+            bars = db.count_price_bars(ticker, market)
+        except Exception:
+            continue
+        if bars >= _WATCHLIST_MIN_BARS:
+            continue
+        (kr_targets if market == "KR" else us_targets).append(ticker)
+
+    if kr_targets:
+        print(f"  감시 종목 히스토리 보완 중 (KR {len(kr_targets)}개)...", flush=True)
+        rows = _collect_kr_opportunity_rows(kr_targets, today, _KR_OPP_LOOKBACK_DAYS)
+        if rows:
+            db.save_price_history(rows)
+        print(f"  → {len(rows)}행 저장", flush=True)
+
+    if us_targets:
+        print(f"  감시 종목 히스토리 보완 중 (US {len(us_targets)}개)...", flush=True)
+        histories = prices_us.get_opportunity_histories(us_targets, today, lookback_days=1095)
+        rows = _us_histories_to_rows(histories)
+        if rows:
+            db.save_price_history(rows)
+        print(f"  → {len(rows)}행 저장", flush=True)
+
+
 def _kr_pipeline_already_fresh(db: ScreenerDB, today: date) -> bool:
     """저녁 --kr-only 실행이 이미 오늘 아침이 계산할 것과 같은 as_of를 저장해뒀는가.
 
@@ -320,7 +360,9 @@ def main() -> None:
                             if r["ticker"] in kr_opp_ticker_set]
         refresh_opportunity_snapshot(db, "KR", kr_universe_rows, today)
 
-        # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준
+        # 감시 종목(보유 종목) 평가 — KR 봉 저장 직후라 아침·저녁(kr_only) 모두 최신 기준.
+        # 평가 전에 유니버스 밖 종목(사용자가 직접 추가한 임의 종목)의 일봉을 먼저 보완한다.
+        _backfill_missing_watchlist_history(db, today)
         run_watchlist(db, today)
     else:
         print(
