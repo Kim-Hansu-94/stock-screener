@@ -38,6 +38,39 @@ export function bollingerBands(
   })
 }
 
+/**
+ * 일목균형표(일목구름도)의 4개 구성선을 계산한다. 전환선·기준선·선행스팬A·선행스팬B —
+ * 시간축 이동(선행스팬 26봉 앞, 후행스팬 26봉 뒤)은 실제 거래일 날짜가 필요해
+ * 차트 컴포넌트(StockChart)에서 처리하고, 여기서는 값만 순수 계산한다.
+ */
+export function ichimokuLines(
+  highs: number[],
+  lows: number[],
+  { tenkanWindow = 9, kijunWindow = 26, senkouBWindow = 52 } = {},
+): { tenkan: (number | null)[]; kijun: (number | null)[]; senkouA: (number | null)[]; senkouB: (number | null)[] } {
+  const n = highs.length
+  const midpoint = (window: number, index: number): number | null => {
+    if (index < window - 1) return null
+    const highSlice = highs.slice(index - window + 1, index + 1)
+    const lowSlice = lows.slice(index - window + 1, index + 1)
+    return (Math.max(...highSlice) + Math.min(...lowSlice)) / 2
+  }
+
+  const tenkan: (number | null)[] = []
+  const kijun: (number | null)[] = []
+  const senkouA: (number | null)[] = []
+  const senkouB: (number | null)[] = []
+  for (let i = 0; i < n; i++) {
+    const t = midpoint(tenkanWindow, i)
+    const k = midpoint(kijunWindow, i)
+    tenkan.push(t)
+    kijun.push(k)
+    senkouA.push(t !== null && k !== null ? (t + k) / 2 : null)
+    senkouB.push(midpoint(senkouBWindow, i))
+  }
+  return { tenkan, kijun, senkouA, senkouB }
+}
+
 export function relativeStrengthIndex(values: number[], window: number = 14): (number | null)[] {
   const result: (number | null)[] = new Array(values.length).fill(null)
   if (values.length < window + 1) return result
