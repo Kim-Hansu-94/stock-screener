@@ -141,9 +141,10 @@ def test_opportunity_universe_excludes_stocks_below_the_market_cap_floor(monkeyp
     assert seen_snapshot_tickers["KR"] == ["005930"]
 
 
-def test_backfill_missing_watchlist_history_only_targets_insufficient_tickers(monkeypatch):
-    """감시 종목 중 이미 MIN_BARS 이상 쌓인 종목은 다시 받지 않고, 부족한(또는 0봉인)
-    종목만 시장별로 골라 백필하는지 확인한다."""
+def test_backfill_missing_watchlist_history_splits_full_backfill_vs_incremental(monkeypatch):
+    """감시 종목 중 부족한(또는 0봉인) 종목은 3년 전체를 백필하고, 이미 MIN_BARS
+    이상 쌓인 종목도 최근 며칠치는 증분으로 계속 받는지 확인한다 — 정규 유니버스
+    밖 종목은 이 함수가 아니면 최초 백필 이후 새 종가가 전혀 안 들어오기 때문."""
     monkeypatch.setattr(
         main_module, "get_combined_watchlist",
         lambda db: [("000660", "KR", "SK하이닉스"), ("AAPL", "US", "애플"), ("TEM", "US", "템퍼스AI")],
@@ -167,10 +168,13 @@ def test_backfill_missing_watchlist_history_only_targets_insufficient_tickers(mo
 
     main_module._backfill_missing_watchlist_history(fake_db, date(2024, 1, 2))
 
-    # 000660은 이미 충분(300봉)해서 KR 백필 자체가 안 걸림
-    assert kr_calls == []
-    # TEM만 0봉이라 US 백필 대상, AAPL(500봉)은 빠짐
-    assert us_calls == [(["TEM"], 1095)]
+    # 000660은 이미 충분(300봉)하니 3년 전체가 아니라 증분(14일)만
+    assert kr_calls == [(["000660"], main_module._WATCHLIST_INCREMENTAL_DAYS)]
+    # TEM은 0봉이라 3년 전체 백필, AAPL(500봉)은 증분만
+    assert us_calls == [
+        (["TEM"], 1095),
+        (["AAPL"], main_module._WATCHLIST_INCREMENTAL_DAYS),
+    ]
 
 
 class TestKrPipelineAlreadyFresh:
