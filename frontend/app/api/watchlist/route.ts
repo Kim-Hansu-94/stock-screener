@@ -48,20 +48,20 @@ export async function POST(request: Request) {
     )
   }
 
-  // 가격 데이터가 없으면 파이프라인이 평가할 수 없다 — 미리 걸러서 알려준다
-  // (상장 안 된 종목·티커 오타를 여기서 잡아준다).
-  const { data: priceRow } = await supabase
-    .from('stock_price_history')
-    .select('date')
-    .eq('market', market)
-    .eq('ticker', ticker)
-    .limit(1)
-    .maybeSingle()
-  if (!priceRow) {
+  // 형식만 가볍게 검증한다 — 가격 데이터가 이미 있어야 한다는 조건은 걸지 않는다.
+  // 이 기능의 목적 자체가 정규 스크리닝 유니버스 밖의 임의 종목(뉴스·소문으로 관심
+  // 가는 소형주 등)을 추가하는 것이라, 추가 시점엔 가격 데이터가 없는 게 정상이다.
+  // 다음 파이프라인 실행의 _backfill_missing_watchlist_history가 직접 받아온다 —
+  // 진짜 존재하지 않는 티커라면 그 시점에 조용히 실패해 "데이터 부족"으로 남으므로
+  // 사용자가 확인 후 삭제하면 된다.
+  const tickerPattern = market === 'KR' ? /^\d{6}$/ : /^[A-Z][A-Z0-9.-]{0,9}$/
+  if (!tickerPattern.test(ticker)) {
     return Response.json(
       {
         error:
-          '이 종목의 가격 데이터가 없어 감시 목록에 추가할 수 없습니다. 티커를 확인하거나, 상장되지 않은(비상장) 종목은 아닌지 확인해 주세요.',
+          market === 'KR'
+            ? '한국 티커는 6자리 숫자여야 합니다 (예: 005930).'
+            : '올바른 티커 형식이 아닙니다 (예: AAPL).',
       },
       { status: 422 },
     )
