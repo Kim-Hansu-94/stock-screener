@@ -32,6 +32,7 @@ _SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".yfinance_opp_seeded_tick
 _KR_SEED_FILE = Path(__file__).parent.parent / ".kr_opp_seeded"
 _KR_SEEDED_TICKERS_FILE = Path(__file__).parent.parent / ".kr_opp_seeded_tickers"
 _KR_OPP_LOOKBACK_DAYS = 1095  # 3년
+_WATCHLIST_INCREMENTAL_DAYS = 14  # 감시 종목 일봉 증분 갱신 창 (겹치는 날짜는 upsert로 덮어써 안전)
 # 아침 전체 실행이 KR을 다시 돌지 판단하는 신선도 창(일). 06:30 KST는 한국장
 # 개장 전이라 이 시각의 KR as_of는 항상 "가장 최근 거래일 종가"이고, 이는
 # 전날 저녁(16:30 KST, --kr-only) 실행이 이미 저장한 값과 동일하다 — 그래서
@@ -208,38 +209,78 @@ def _collect_kr_opportunity_rows(tickers: list[str], today: date, lookback_days:
 
 def _backfill_missing_watchlist_history(db: ScreenerDB, today: date) -> None:
     """감시 종목(watchlist.py의 WATCHLIST + 사이트에서 추가한 watchlist_tickers)은
-    정규 스크리닝 유니버스(S&P1500+NASDAQ100+Russell3000, KOSPI/KOSDAQ) 수집 루프를
-    타지 않는 임의 종목일 수 있다 — 사용자가 뉴스·소문으로 관심 가는 종목을 유니버스와
-    상관없이 추가할 수 있게 만든 기능이라, 일봉이 아예 없거나(0봉) 최근에 막 유니버스에
-    편입돼 일부만 쌓여 있는(MIN_BARS 미만) 경우가 있다. run_watchlist가 평가하기 전에
-    이런 종목만 골라 1회 백필한다 — 이미 충분한 종목까지 매번 다시 받으면 API 낭비다.
+    정규 스크리닝 유니버스(S&P1500+NASDAQ100+Russell3000, KOSPI 시총 3,000억 이상)
+    수집 루프를 타지 않는 임의 종목일 수 있다 — 사용자가 뉴스·소문으로 관심 가는
+    종목을 유니버스와 상관없이 추가할 수 있게 만든 기능이다. run_watchlist는
+    stock_price_history를 읽기만 하고 직접 받아오지 않으므로(_fetch_bars), 이
+    함수가 유니버스 밖 종목의 유일한 일봉 공급원이다.
+
+    일봉이 아예 없거나(0봉) 막 추가돼 일부만 쌓여 있는(MIN_BARS 미만) 종목은 3년
+    전체를 백필한다. 이미 충분한 종목도 최근 며칠치는 증분으로 계속 받아야 한다 —
+    "충분하니 그만 받는다"로 두면, 유니버스 밖 종목은 정규 수집 루프를 타지 않아
+    최초 백필 이후 어떤 경로로도 새 종가가 들어오지 않는다(2026-09-05 발견: 3년
+    백필 직후 바로 MIN_BARS를 넘는 게 보통이라, 사실상 추가 다음 날부터 차트와
+    평가가 영구히 그 시점 값에 멈춘다). 정규 유니버스 종목처럼 다른 경로로 매일
+    갱신되는 게 아니므로 여기서 직접 챙겨야 한다.
     """
     combined = get_combined_watchlist(db)
     if not combined:
         return
 
-    kr_targets: list[str] = []
-    us_targets: list[str] = []
+    kr_full: list[str] = []
+    kr_incremental: list[str] = []
+    us_full: list[str] = []
+    us_incremental: list[str] = []
     for ticker, market, _name in combined:
         try:
             bars = db.count_price_bars(ticker, market)
         except Exception:
             continue
-        if bars >= _WATCHLIST_MIN_BARS:
-            continue
-        (kr_targets if market == "KR" else us_targets).append(ticker)
+        full_list = kr_full if market == "KR" else us_full
+        incremental_list = kr_incremental if market == "KR" else us_incremental
+        (full_list if bars < _WATCHLIST_MIN_BARS else incremental_list).append(ticker)
 
-    if kr_targets:
-        print(f"  감시 종목 히스토리 보완 중 (KR {len(kr_targets)}개)...", flush=True)
-        rows = _collect_kr_opportunity_rows(kr_targets, today, _KR_OPP_LOOKBACK_DAYS)
+    if kr_full:
+        print(f"  감시 종목 히스토리 백필 중 (KR {len(kr_full)}개, 3년 전체)...", flush=True)
+        rows = _collect_kr_opportunity_rows(kr_full, today, _KR_OPP_LOOKBACK_DAYS)
         if rows:
             db.save_price_history(rows)
         print(f"  → {len(rows)}행 저장", flush=True)
 
-    if us_targets:
-        print(f"  감시 종목 히스토리 보완 중 (US {len(us_targets)}개)...", flush=True)
-        histories = prices_us.get_opportunity_histories(us_targets, today, lookback_days=1095)
+    if kr_incremental:
+        print(f"  감시 종목 히스토리 갱신 중 (KR {len(kr_incremental)}개, 증분)...", flush=True)
+        rows = _collect_kr_opportunity_rows(kr_incremental, today, _WATCHLIST_INCREMENTAL_DAYS)
+        readjusted = detect_adjusted(db, "KR", rows)
+        report("KR", readjusted)
+        if readjusted:
+            rows = [r for r in rows if r["ticker"] not in set(readjusted)]
+            rows.extend(_collect_kr_opportunity_rows(readjusted, today, _KR_OPP_LOOKBACK_DAYS))
+        if rows:
+            db.save_price_history(rows)
+        print(f"  → {len(rows)}행 저장", flush=True)
+
+    if us_full:
+        print(f"  감시 종목 히스토리 백필 중 (US {len(us_full)}개, 3년 전체)...", flush=True)
+        histories = prices_us.get_opportunity_histories(us_full, today, lookback_days=1095)
         rows = _us_histories_to_rows(histories)
+        if rows:
+            db.save_price_history(rows)
+        print(f"  → {len(rows)}행 저장", flush=True)
+
+    if us_incremental:
+        print(f"  감시 종목 히스토리 갱신 중 (US {len(us_incremental)}개, 증분)...", flush=True)
+        histories = prices_us.get_opportunity_histories(
+            us_incremental, today, lookback_days=_WATCHLIST_INCREMENTAL_DAYS
+        )
+        rows = _us_histories_to_rows(histories)
+        readjusted = detect_adjusted(db, "US", rows)
+        report("US", readjusted)
+        if readjusted:
+            rows = [r for r in rows if r["ticker"] not in set(readjusted)]
+            readjusted_histories = prices_us.get_opportunity_histories(
+                readjusted, today, lookback_days=1095
+            )
+            rows.extend(_us_histories_to_rows(readjusted_histories))
         if rows:
             db.save_price_history(rows)
         print(f"  → {len(rows)}행 저장", flush=True)
