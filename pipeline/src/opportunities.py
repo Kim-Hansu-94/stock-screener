@@ -114,6 +114,9 @@ def refresh_opportunity_snapshot(
 
         bars_by_ticker = _fetch_bars_bulk(db, market, list(in_band), today)
         meta = {r["ticker"]: r for r in universe_rows}
+        # 어제까지 통과 상태였던 종목은 그 시작일을 이어받고, 오늘 처음 나타난
+        # 종목은 오늘 날짜로 새로 시작한다 — 하드필터를 삭제 전에 미리 읽어둬야 한다.
+        previous_since = db.get_opportunity_snapshot_since(market)
 
         rows: list[dict] = []
         for ticker, summary in in_band.items():
@@ -141,6 +144,7 @@ def refresh_opportunity_snapshot(
                 "aligned_mas": status["aligned_mas"],
                 "volume_trigger": status["volume_trigger"],
                 "as_of_date": bars[-1]["date"] if bars else None,
+                "qualified_since": previous_since.get(ticker, today.isoformat()),
             })
 
         # 이번 계산에서 빠진 종목(밴드 이탈·하드 필터 탈락·시총 하한 미달)은 화면에서도

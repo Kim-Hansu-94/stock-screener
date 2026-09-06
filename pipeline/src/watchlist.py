@@ -102,11 +102,14 @@ def evaluate_watch(bars: list[dict]) -> dict:
     prior_lows = lows[:-RECENT_LOW_WINDOW]
     status["no_new_low"] = min(recent_lows) >= min(prior_lows)
 
-    # 하드 필터 2 — 최근 60거래일 박스폭 (최고−최저)/최저 ≤ 30%
+    # 하드 필터 2 — 최근 60거래일 박스폭 (최고−최저)/최저 ≤ 30%. 일중 고가·저가
+    # 기준이라 하루 급등락(뉴스·실적 갭)만으로도 이후 60일 내내 미달로 남을 수
+    # 있다 — 실제 계산값을 reason에 남겨야 "얼마나 벗어났는지" 판단할 수 있다.
     box_bars = bars[-BOX_WINDOW:]
     box_high = max(b["high"] for b in box_bars)
     box_low = min(b["low"] for b in box_bars)
-    status["box_ok"] = box_low > 0 and (box_high - box_low) / box_low <= MAX_BOX_RANGE
+    box_range_pct = (box_high - box_low) / box_low * 100 if box_low > 0 else None
+    status["box_ok"] = box_range_pct is not None and box_range_pct <= MAX_BOX_RANGE * 100
 
     # 하드 필터 3 — 유동성 (거래량 평균 0이면 계산 불가)
     volumes = [b["volume"] for b in bars]
@@ -118,7 +121,8 @@ def evaluate_watch(bars: list[dict]) -> dict:
     if not status["no_new_low"]:
         failed.append("최근 20일 내 신저가 갱신 중")
     if not status["box_ok"]:
-        failed.append("60일 박스폭 30% 초과 (아직 횡보 아님)")
+        range_str = f"{box_range_pct:.0f}%" if box_range_pct is not None else "계산 불가"
+        failed.append(f"60일 박스폭 {range_str} (기준 {MAX_BOX_RANGE * 100:.0f}% 이하, 아직 횡보 아님)")
     if not volumes_ok:
         failed.append("거래량 데이터 이상")
     if failed:

@@ -38,3 +38,27 @@ export const BUY_GRADE_CRITERIA =
   `매력도 ${Math.round(STRONG_SCORE * 100)}점 이상 = 적극 검토, ` +
   `${Math.round(CONSIDER_SCORE * 100)}점 이상 = 매수 검토. ` +
   `두 등급 모두 "저점 높이기"가 충족돼야 하며, 미충족 시 점수와 무관하게 관망입니다.`
+
+// ── 후보 신선도 ──
+// 매력도 점수는 저점 이후 최소 몇 달은 조용해야 오르는 구조라(opportunityScore.ts의
+// EXHAUSTION_CAP_DAYS 등), 점수만 보면 항상 "어느 정도 오른 뒤"에야 눈에 띈다.
+// qualified_since(하드필터를 이어서 계속 통과 중인 구간의 시작일)를 따로 노출해,
+// 점수가 아직 낮아도 "오늘 막 바닥을 다지기 시작한" 종목을 구분해 보여준다.
+
+/** 이 안이면 "신규 진입"으로 강조 표시한다. */
+export const NEW_ENTRY_WINDOW_DAYS = 3
+
+/** qualifiedSince(YYYY-MM-DD)부터 오늘까지 며칠째인지. 데이터 없으면 null. */
+export function daysSinceQualified(qualifiedSince: string | null, today: Date = new Date()): number | null {
+  if (!qualifiedSince) return null
+  const then = new Date(`${qualifiedSince}T00:00:00Z`)
+  if (Number.isNaN(then.getTime())) return null
+  const startOfToday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  return Math.max(0, Math.round((startOfToday.getTime() - then.getTime()) / 86_400_000))
+}
+
+/** 후보로 처음 뜬 지 NEW_ENTRY_WINDOW_DAYS일 이내인지 — 참/거짓 판정에 데이터 없음(null)까지 포함. */
+export function isNewEntry(qualifiedSince: string | null, today?: Date): boolean {
+  const days = daysSinceQualified(qualifiedSince, today)
+  return days !== null && days <= NEW_ENTRY_WINDOW_DAYS
+}

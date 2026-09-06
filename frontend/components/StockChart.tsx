@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts'
 import { simpleMovingAverage, bollingerBands, relativeStrengthIndex, ichimokuLines } from '@/lib/calculations'
+import { IchimokuCloudSeries } from '@/lib/ichimokuCloudSeries'
 import type { PriceHistoryRow } from '@/lib/types'
 
 interface StockChartProps {
@@ -37,8 +38,10 @@ const ICHIMOKU_SENKOU_B = 52
 const ICHIMOKU_DISPLACEMENT = 26
 
 // 캔들 색과 동일한 규칙: 양봉(상승) 계열 빨강, 음봉(하락) 계열 파랑.
-const ICHIMOKU_SENKOU_A_COLOR = '#f0445299'
-const ICHIMOKU_SENKOU_B_COLOR = '#3182f699'
+// 구름 채우기(ichimokuCloudSeries.ts)가 이미 반투명이라, 경계선은 불투명에 가깝게
+// 줘야 겹친 이동평균선·볼린저밴드 사이에서도 구름의 윤곽이 또렷이 보인다.
+const ICHIMOKU_SENKOU_A_COLOR = '#f04452cc'
+const ICHIMOKU_SENKOU_B_COLOR = '#3182f6cc'
 const ICHIMOKU_TENKAN_COLOR = '#059669'
 const ICHIMOKU_KIJUN_COLOR = '#db2777'
 const ICHIMOKU_CHIKOU_COLOR = '#6b7280'
@@ -116,6 +119,38 @@ export function StockChart({
       localization: { priceFormatter: formatAxisPrice },
     })
 
+    // 구름(선행스팬A·B 사이 채우기)은 캔들·이동평균선보다 먼저 그려야 뒤에 깔린다 —
+    // lightweight-charts는 나중에 addXxxSeries한 시리즈를 위에 그린다. 이전 구현은
+    // v4가 두 선 사이를 채우는 밴드 시리즈를 기본 제공하지 않는다고 보고 경계선
+    // 두 개(얇고 반투명한 대시선)만 그렸는데, 다른 선과 겹치면 거의 안 보였다.
+    // Custom Series API(v4.1+)로 실제 채워진 구름을 그린다.
+    let ichimokuResult: ReturnType<typeof ichimokuLines> | null = null
+    if (ichimoku) {
+      const highs = data.map((row) => row.high)
+      const lows = data.map((row) => row.low)
+      ichimokuResult = ichimokuLines(highs, lows, {
+        tenkanWindow: ICHIMOKU_TENKAN,
+        kijunWindow: ICHIMOKU_KIJUN,
+        senkouBWindow: ICHIMOKU_SENKOU_B,
+      })
+      const cloudSeries = chart.addCustomSeries(new IchimokuCloudSeries(), {
+        lastValueVisible: false,
+        priceLineVisible: false,
+      })
+      const cloudPoints: { time: string; senkouA: number; senkouB: number }[] = []
+      let lastCloudTime: string | null = null
+      for (let index = 0; index < ichimokuResult.senkouA.length; index++) {
+        const a = ichimokuResult.senkouA[index]
+        const b = ichimokuResult.senkouB[index]
+        if (a === null || b === null) continue
+        const time = addTradingDays(data[index].date, ICHIMOKU_DISPLACEMENT)
+        if (lastCloudTime !== null && time <= lastCloudTime) continue
+        cloudPoints.push({ time, senkouA: a, senkouB: b })
+        lastCloudTime = time
+      }
+      cloudSeries.setData(cloudPoints)
+    }
+
     // lightweight-charts 기본값은 상승=초록/하락=빨강(서양식)이라 명시적으로 덮어써야 한다.
     // 한국 관례: 상승=빨강(--up), 하락=파랑(--down).
     const candleSeries = chart.addCandlestickSeries({
@@ -168,14 +203,8 @@ export function StockChart({
       )
     }
 
-    if (ichimoku) {
-      const highs = data.map((row) => row.high)
-      const lows = data.map((row) => row.low)
-      const { tenkan, kijun, senkouA, senkouB } = ichimokuLines(highs, lows, {
-        tenkanWindow: ICHIMOKU_TENKAN,
-        kijunWindow: ICHIMOKU_KIJUN,
-        senkouBWindow: ICHIMOKU_SENKOU_B,
-      })
+    if (ichimoku && ichimokuResult) {
+      const { tenkan, kijun, senkouA, senkouB } = ichimokuResult
 
       const addLine = (color: string, dashed: boolean) =>
         chart.addLineSeries({
@@ -212,12 +241,12 @@ export function StockChart({
       setLineData(addLine(ICHIMOKU_TENKAN_COLOR, false), tenkan, (i) => data[i].date)
       setLineData(addLine(ICHIMOKU_KIJUN_COLOR, false), kijun, (i) => data[i].date)
 
-      // 선행스팬A/B는 26봉 앞(미래)으로 투영 — 구름의 경계선. 실제 v4 lightweight-charts는
-      // 두 선 사이를 채우는 밴드 시리즈가 없어(플러그인 없이는), 경계선 두 개로만 표시한다.
-      setLineData(addLine(ICHIMOKU_SENKOU_A_COLOR, true), senkouA, (i) =>
+      // 선행스팬A/B — 구름 채우기 자체는 위에서 addCustomSeries로 이미 그렸다. 여기서는
+      // 그 구름의 경계를 또렷하게 보여주는 테두리선만 덧그린다.
+      setLineData(addLine(ICHIMOKU_SENKOU_A_COLOR, false), senkouA, (i) =>
         addTradingDays(data[i].date, ICHIMOKU_DISPLACEMENT),
       )
-      setLineData(addLine(ICHIMOKU_SENKOU_B_COLOR, true), senkouB, (i) =>
+      setLineData(addLine(ICHIMOKU_SENKOU_B_COLOR, false), senkouB, (i) =>
         addTradingDays(data[i].date, ICHIMOKU_DISPLACEMENT),
       )
 
@@ -343,8 +372,12 @@ export function StockChart({
               기준선
             </span>
             <span className="flex items-center gap-1">
-              <span className="inline-block w-3.5" style={{ borderTop: `2px dashed ${ICHIMOKU_SENKOU_A_COLOR}` }} />
-              선행스팬A/B(구름)
+              <span className="inline-block h-2.5 w-3.5 rounded-[1px]" style={{ backgroundColor: 'rgba(240, 68, 82, 0.35)' }} />
+              구름(상승, A&gt;B)
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-3.5 rounded-[1px]" style={{ backgroundColor: 'rgba(49, 130, 246, 0.35)' }} />
+              구름(하락, A&lt;B)
             </span>
             <span className="flex items-center gap-1">
               <span className="inline-block w-3.5" style={{ borderTop: `2px dashed ${ICHIMOKU_CHIKOU_COLOR}` }} />

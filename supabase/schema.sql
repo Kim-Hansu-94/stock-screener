@@ -174,8 +174,17 @@ create table if not exists opportunity_snapshot (
   aligned_mas       boolean,
   volume_trigger    boolean,
   as_of_date        date,
+  -- 하드 필터(조정폭 20~60% + 신저가 없음 + 박스권 + 유동성)를 이어서 계속 통과 중인
+  -- 구간이 언제 시작됐는지. watchlist_status.qualified_since와 같은 방식 —
+  -- 어제도 있던 종목이면 그 값을 이어가고, 오늘 처음 나타난 종목이면 오늘 날짜로
+  -- 새로 시작한다(미통과 시 행 자체가 삭제되므로 null은 없음). 화면에 "며칠째
+  -- 후보인지"를 보여줘 "이미 오래전부터 뜬 종목"과 "오늘 막 새로 뜬 종목"을
+  -- 구분하는 데 쓴다.
+  qualified_since   date,
   primary key (ticker, market)
 );
+-- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
+-- ALTER TABLE opportunity_snapshot ADD COLUMN IF NOT EXISTS qualified_since date;
 
 -- 실적 요약. "주가가 빠질 때 실적도 같이 빠졌는가"를 판정하기 위한 최소 집합으로,
 -- 가치 함정(실적 동반 하락)과 밸류에이션 조정(실적은 유지)을 구분하는 데 쓴다.

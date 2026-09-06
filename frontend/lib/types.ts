@@ -83,6 +83,8 @@ export interface OpportunitySnapshotRow {
   aligned_mas: boolean | null
   volume_trigger: boolean | null
   as_of_date: string | null
+  /** 하드필터 통과 상태를 이어서 계속 만족 중인 구간의 시작일 (미통과 시 행 자체가 없음) */
+  qualified_since: string | null
 }
 
 /** 사이트 진입 팝업(DailyAlertPopup)용 — /api/alerts 응답 */
@@ -95,6 +97,13 @@ export interface AlertStock {
 
 export interface OpportunityAlertStock extends AlertStock {
   score: number
+}
+
+/** 오늘 새로 하드필터를 통과하기 시작한 관찰 대상 — 아직 매수 등급(적극검토/매수검토)에
+ * 못 미쳐도 "막 바닥을 다지기 시작했다"는 것만으로 미리 알려주기 위한 항목. */
+export interface NewEntryAlertStock extends AlertStock {
+  score: number
+  qualifiedSince: string
 }
 
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
@@ -200,6 +209,8 @@ export interface OpportunityStockRow {
   hasLongHistory: boolean
   /** 실적 요약 — 미수집이면 null */
   fundamentals: FundamentalsRow | null
+  /** 하드필터를 이어서 계속 통과 중인 구간의 시작일 — "며칠째 후보인지" 표시용 */
+  qualifiedSince: string | null
 }
 
 export interface DailyReportResult {
