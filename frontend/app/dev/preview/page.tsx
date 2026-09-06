@@ -3,6 +3,7 @@ import { DailyAlertPreview } from './DailyAlertPreview'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 import { WatchlistCard } from '@/components/WatchlistCard'
+import { PositionCard } from '@/components/PositionCard'
 import { StockCard } from '@/components/StockCard'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
@@ -120,9 +121,29 @@ const WATCHLIST: WatchlistStatusRow[] = [
 ]
 
 const WATCHLIST_TICKERS: WatchlistTickerRow[] = [
-  { market: 'KR', ticker: '000660', name: 'SK하이닉스', added_at: '2026-07-01T00:00:00Z' },
-  { market: 'KR', ticker: '005930', name: '삼성전자', added_at: '2026-08-10T00:00:00Z' },
-  { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z' },
+  { market: 'KR', ticker: '000660', name: 'SK하이닉스', added_at: '2026-07-01T00:00:00Z',
+    category: 'accumulation', avg_cost: null },
+  { market: 'KR', ticker: '005930', name: '삼성전자', added_at: '2026-08-10T00:00:00Z',
+    category: 'accumulation', avg_cost: null },
+  // category가 null인 행(컬럼 추가 이전에 넣은 종목)도 매집 감시로 취급되는지 함께 본다.
+  { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z',
+    category: null, avg_cost: null },
+]
+
+// 포지션 관리 카드용 — (1) 평단가가 있고 손실 중, (2) 평단가가 있고 수익 중(부호
+// 반대), (3) 평단가를 안 넣은 경우, (4) 시세가 아직 없는 경우를 모두 둔다.
+// 손익률 색(한국 관례: 상승 빨강/하락 파랑)이 양쪽 다 맞는지 여기서 확인할 것.
+// 평단가는 픽스처 일봉의 가격대(수십~수백)에 맞춰 둔다 — 실제 평단(216만원)을
+// 그대로 넣으면 손익률이 -100%로 찍혀 표시 확인에 도움이 안 된다.
+const POSITION_TICKERS: WatchlistTickerRow[] = [
+  { market: 'KR', ticker: '000660', name: 'SK하이닉스', added_at: '2026-07-01T00:00:00Z',
+    category: 'position', avg_cost: 103 },
+  { market: 'KR', ticker: '005380', name: '현대차', added_at: '2026-07-05T00:00:00Z',
+    category: 'position', avg_cost: 100 },
+  { market: 'KR', ticker: '005930', name: '삼성전자', added_at: '2026-08-10T00:00:00Z',
+    category: 'position', avg_cost: null },
+  { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z',
+    category: 'position', avg_cost: 40 },
 ]
 
 // SK하이닉스·현대차는 차트가 있는 경우, 삼성전자·아이온큐는 없는 경우(데이터
@@ -341,8 +362,20 @@ export default function PreviewPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">감시 종목 카드 (뉴스는 실제 API 호출)</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">매집 감시 카드 (뉴스는 실제 API 호출)</h2>
         <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} history={WATCHLIST_HISTORY} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          포지션 관리 카드 (손실/수익/평단가 없음/시세 없음 4가지)
+        </h2>
+        <PositionCard tickers={POSITION_TICKERS} history={WATCHLIST_HISTORY} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">포지션 관리 카드 (등록 종목 0개)</h2>
+        <PositionCard tickers={[]} history={{}} />
       </section>
 
       <section className="space-y-3">

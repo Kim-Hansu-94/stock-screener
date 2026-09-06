@@ -9,9 +9,21 @@ import {
   getMonthlyPriceHistory,
   getOpportunitySnapshot,
 } from '@/lib/queries/opportunities'
+import {
+  getPriceHistoryByTicker,
+  getWatchlistStatus,
+  getWatchlistTickers,
+} from '@/lib/queries/screener'
 import { getUniverseMarketCaps } from '@/lib/queries/universe'
 import { buildLongTermContext } from '@/lib/longTermContext'
-import type { Market, OpportunitySnapshotRow, OpportunityStockRow } from '@/lib/types'
+import type {
+  Market,
+  OpportunitySnapshotRow,
+  OpportunityStockRow,
+  PriceHistoryRow,
+  WatchlistStatusRow,
+  WatchlistTickerRow,
+} from '@/lib/types'
 import { DiscoverTabs } from './DiscoverTabs'
 import { getOpenTickers } from '@/lib/queries/trades'
 
@@ -87,11 +99,48 @@ async function loadOpportunities(): Promise<OpportunityStockRow[]> {
   return [...us, ...kr].sort((a, b) => b.score - a.score || b.drawdown - a.drawdown)
 }
 
+/**
+ * 매집 감시 데이터 — 아직 사지 않은 관심 종목이 매집 구간에 들어왔는지 보는 쪽.
+ * 예전에는 눌림목 페이지에 있었지만, 단기매매인 그 탭과 달리 장기 관점이라
+ * 종목발굴 탭으로 옮겼다 (2026-09-06).
+ *
+ * 이미 보유 중인 종목(category='position')은 여기서 뺀다 — 재는 질문이
+ * 완전히 달라서(매집 구간 포착 vs 지지 신호 점검) 눌림목 페이지 상단의
+ * 포지션 관리 카드가 따로 맡는다.
+ */
+async function loadAccumulationWatchlist() {
+  const [rows, tickers] = await Promise.all([getWatchlistStatus(), getWatchlistTickers()])
+
+  const accumulationTickers = tickers.filter((t) => t.category !== 'position')
+  const positionKeys = new Set(
+    tickers.filter((t) => t.category === 'position').map((t) => `${t.market}-${t.ticker}`),
+  )
+  // 파이프라인은 category를 모른 채 전 종목을 평가하므로, 포지션 관리 종목의
+  // 매집 판정 행은 여기서 빼야 같은 종목이 두 화면에 겹쳐 뜨지 않는다.
+  const accumulationRows = rows.filter((r) => !positionKeys.has(`${r.market}-${r.ticker}`))
+
+  // 차트에 쓸 일봉을 시장별로 한 번에 받는다(아직 평가 전인 종목도 포함).
+  const byKey = new Map<string, { market: Market; ticker: string }>()
+  for (const r of accumulationRows) byKey.set(`${r.market}-${r.ticker}`, { market: r.market, ticker: r.ticker })
+  for (const t of accumulationTickers) byKey.set(`${t.market}-${t.ticker}`, { market: t.market, ticker: t.ticker })
+  const entries = [...byKey.values()]
+
+  const [krHistory, usHistory] = await Promise.all([
+    getPriceHistoryByTicker('KR', entries.filter((e) => e.market === 'KR').map((e) => e.ticker), 500),
+    getPriceHistoryByTicker('US', entries.filter((e) => e.market === 'US').map((e) => e.ticker), 500),
+  ])
+  const history: Record<string, PriceHistoryRow[]> = {}
+  for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
+  for (const [ticker, bars] of Object.entries(usHistory)) history[`US-${ticker}`] = bars
+
+  return { accumulationRows, accumulationTickers, history }
+}
+
 async function DiscoverContent() {
   await connection()
 
-  // 환율과 기회 종목은 서로 무관하므로 함께 기다린다 (순차 대기 제거)
-  const [usdKrwRate, openTickers, opportunityResult] = await Promise.all([
+  // 환율·기회 종목·감시 종목은 서로 무관하므로 함께 기다린다 (순차 대기 제거)
+  const [usdKrwRate, openTickers, opportunityResult, watchlist] = await Promise.all([
     fetchUsdKrwRate(),
     getOpenTickers(),
     loadOpportunities().then(
@@ -101,6 +150,12 @@ async function DiscoverContent() {
         error: cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.',
       }),
     ),
+    // 감시 종목이 실패해도 나머지 탭은 그대로 보여준다.
+    loadAccumulationWatchlist().catch(() => ({
+      accumulationRows: [] as WatchlistStatusRow[],
+      accumulationTickers: [] as WatchlistTickerRow[],
+      history: {} as Record<string, PriceHistoryRow[]>,
+    })),
   ])
 
   return (
@@ -109,6 +164,9 @@ async function DiscoverContent() {
       opportunityError={opportunityResult.error}
       usdKrwRate={usdKrwRate}
       ownedTickers={[...openTickers]}
+      watchlistRows={watchlist.accumulationRows}
+      watchlistTickers={watchlist.accumulationTickers}
+      watchlistHistory={watchlist.history}
     />
   )
 }

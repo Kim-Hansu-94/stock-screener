@@ -4,12 +4,22 @@ import { useState } from 'react'
 import { DailyReport } from './DailyReport'
 import { SimilaritySearch } from './SimilaritySearch'
 import { OpportunityTab } from './OpportunityTab'
-import type { OpportunityStockRow } from '@/lib/types'
+import { WatchlistCard } from '@/components/WatchlistCard'
+import type {
+  OpportunityStockRow,
+  PriceHistoryRow,
+  WatchlistStatusRow,
+  WatchlistTickerRow,
+} from '@/lib/types'
 
-type Tab = 'report' | 'search' | 'opportunity'
+type Tab = 'report' | 'search' | 'opportunity' | 'watchlist'
 
+// 매집 감시는 눌림목(단기매매) 탭이 아니라 여기 있다 — 아직 안 산 종목의 매집
+// 구간을 기다리는 장기 관점이라 이 탭의 나머지 컨텐츠와 결이 같다 (2026-09-06 이동).
+// 이미 보유 중인 종목의 포지션 관리는 눌림목 페이지 상단에 따로 있다.
 const TABS: { id: Tab; label: string }[] = [
   { id: 'opportunity', label: '횡보 조정 종목' },
+  { id: 'watchlist', label: '감시 종목' },
   { id: 'report', label: '저점 매집 후보' },
   { id: 'search', label: '패턴 검색' },
 ]
@@ -19,11 +29,17 @@ export function DiscoverTabs({
   opportunityError,
   usdKrwRate,
   ownedTickers,
+  watchlistRows,
+  watchlistTickers,
+  watchlistHistory,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
   usdKrwRate: number
   ownedTickers: string[]
+  watchlistRows: WatchlistStatusRow[]
+  watchlistTickers: WatchlistTickerRow[]
+  watchlistHistory: Record<string, PriceHistoryRow[]>
 }) {
   const [tab, setTab] = useState<Tab>('opportunity')
 
@@ -53,6 +69,10 @@ export function DiscoverTabs({
           usdKrwRate={usdKrwRate}
           ownedTickers={ownedTickers}
         />
+      )}
+
+      {tab === 'watchlist' && (
+        <WatchlistCard rows={watchlistRows} tickers={watchlistTickers} history={watchlistHistory} />
       )}
 
       {tab === 'report' && (
