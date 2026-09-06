@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { Market, PriceHistoryRow, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
-import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
+import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade, isFreshTurnSignal } from '@/lib/buySignal'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
 import { LoadingFallback } from '@/components/LoadingFallback'
@@ -141,6 +141,11 @@ export function WatchlistCard({
         <p className="mt-1 text-xs text-muted-foreground">
           <span className="font-medium">초록불(적극·매수검토) 조건:</span> 매집 구간 중 + {BUY_GRADE_CRITERIA}
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span className="font-medium">🚀 상승 전환 감지:</span> 매집 구간이 오래됐어도, 이동평균선이
+          정배열(종가&gt;5일선&gt;20일선&gt;60일선)로 막 바뀐 것만 따로 표시합니다 — 이미 몇 배
+          오른 뒤가 아니라 오르기 시작하는 시점 자체를 알 수 있게 합니다.
+        </p>
       </div>
 
       <AddWatchlistForm />
@@ -182,6 +187,11 @@ export function WatchlistCard({
                     매력도 {Math.round((entry.status.score ?? 0) * 100)}점 ·{' '}
                     {BUY_GRADE_LABEL[grades.get(entry.key) ?? 'watch']}
                   </span>
+                  {isFreshTurnSignal(entry.status.aligned_since, new Date(entry.status.date)) && (
+                    <span className="rounded-md bg-up px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                      🚀 상승 전환 감지
+                    </span>
+                  )}
                 </>
               ) : entry.status ? (
                 <span className="rounded-md bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">

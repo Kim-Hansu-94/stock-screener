@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { DailyAlertModal } from '@/components/DailyAlertModal'
-import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock } from '@/lib/types'
+import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock } from '@/lib/types'
 
 const PULLBACK_FIXTURE: AlertStock[] = [
   { ticker: '000660', market: 'KR', name: 'SK하이닉스', nameKr: null },
@@ -15,6 +15,10 @@ const OPPORTUNITY_FIXTURE: OpportunityAlertStock[] = [
 
 const NEW_ENTRY_FIXTURE: NewEntryAlertStock[] = [
   { ticker: '005945', market: 'KR', name: 'NH투자증권우', nameKr: null, score: 0.42, qualifiedSince: '2026-09-04' },
+]
+
+const TURN_SIGNAL_FIXTURE: TurnSignalAlertStock[] = [
+  { ticker: '024110', market: 'KR', name: '기업은행', nameKr: null, score: 0.68, breakoutSince: '2026-09-05' },
 ]
 
 /** DailyAlertModal은 onClose 콜백을 받는 클라이언트 컴포넌트라, 서버 컴포넌트인
@@ -37,6 +41,7 @@ export function DailyAlertPreview() {
         pullback={PULLBACK_FIXTURE}
         opportunity={OPPORTUNITY_FIXTURE}
         newEntries={NEW_ENTRY_FIXTURE}
+        turnSignals={TURN_SIGNAL_FIXTURE}
         open={open}
         onClose={() => setOpen(false)}
       />

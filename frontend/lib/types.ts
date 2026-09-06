@@ -85,6 +85,8 @@ export interface OpportunitySnapshotRow {
   as_of_date: string | null
   /** 하드필터 통과 상태를 이어서 계속 만족 중인 구간의 시작일 (미통과 시 행 자체가 없음) */
   qualified_since: string | null
+  /** 박스 상단 돌파(상승 전환)가 이어서 계속 유지 중인 구간의 시작일. 미충족 시 null */
+  breakout_since: string | null
 }
 
 /** 사이트 진입 팝업(DailyAlertPopup)용 — /api/alerts 응답 */
@@ -104,6 +106,13 @@ export interface OpportunityAlertStock extends AlertStock {
 export interface NewEntryAlertStock extends AlertStock {
   score: number
   qualifiedSince: string
+}
+
+/** 횡보를 멈추고 박스 상단을 돌파(상승 전환)하기 시작한 종목 — "저점 대비 몇 배 오른
+ * 뒤"가 아니라 오르기 시작하는 그 시점 자체를 알려주기 위한 항목. */
+export interface TurnSignalAlertStock extends AlertStock {
+  score: number
+  breakoutSince: string
 }
 
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
@@ -160,6 +169,8 @@ export interface WatchlistStatusRow {
   volume_dry: boolean | null
   aligned_mas: boolean | null
   volume_trigger: boolean | null
+  /** 이평 정배열이 이어서 계속 유지 중인 구간의 시작일. 미충족 시 null. */
+  aligned_since: string | null
 }
 
 export interface SimilarStockResult {
@@ -211,6 +222,8 @@ export interface OpportunityStockRow {
   fundamentals: FundamentalsRow | null
   /** 하드필터를 이어서 계속 통과 중인 구간의 시작일 — "며칠째 후보인지" 표시용 */
   qualifiedSince: string | null
+  /** 박스 상단 돌파가 이어서 계속 유지 중인 구간의 시작일 — "며칠째 상승 전환 상태인지" 표시용 */
+  breakoutSince: string | null
 }
 
 export interface DailyReportResult {

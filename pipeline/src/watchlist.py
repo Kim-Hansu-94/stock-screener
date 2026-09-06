@@ -38,6 +38,9 @@ EXHAUSTION_CAP_DAYS = 60
 # 횡보·조정 탭 진입 조건 (frontend/app/discover/page.tsx MIN/MAX_DRAWDOWN)
 MIN_DRAWDOWN = 20.0
 MAX_DRAWDOWN = 60.0
+# 거래량 급증 판정 배수(90일 평균 대비). aligned_mas 보너스와 detect_box_breakout이
+# 공유한다.
+VOLUME_TRIGGER_MULT = 2
 
 _LOOKBACK_DAYS = 1095  # 3년 — 조정폭 계산 기준
 
@@ -165,7 +168,7 @@ def evaluate_watch(bars: list[dict]) -> dict:
     if aligned_mas:
         score += 0.15
 
-    volume_trigger = volumes[-1] >= 2 * _mean(volumes[-90:])
+    volume_trigger = volumes[-1] >= VOLUME_TRIGGER_MULT * _mean(volumes[-90:])
     if volume_trigger:
         score += 0.15
 
@@ -180,6 +183,31 @@ def evaluate_watch(bars: list[dict]) -> dict:
         "volume_trigger": volume_trigger,
     })
     return status
+
+
+def detect_box_breakout(bars: list[dict]) -> bool:
+    """박스 상단(오늘 이전 60거래일 최고가) 돌파 + 거래량 확인.
+
+    횡보·조정 탭(3년 고점 대비 20~60% 빠져 아직 상승 추세가 확인 안 된 종목)에서
+    "오르기 시작했다"를 판정할 때 이평 정배열(aligned_mas)보다 이걸 쓰는 이유:
+    정배열은 좁은 박스 안에서 노이즈로도 순서가 맞아떨어질 수 있는 반면, 이건
+    실제로 저항(박스 상단)을 가격이 뚫고 나갔다는 직접적인 증거다(와이코프
+    Sign of Strength·다바스 박스 돌파와 같은 개념). VCP(정배열 포함)는 원래
+    "이미 상승 추세가 증명된 종목"의 재상승 신호로 만들어진 개념이라, 상승
+    이력이 없는 이런 종목에는 신뢰도가 더 필요하다.
+
+    watchlist_status(감시 종목)는 여전히 aligned_mas를 쓴다 — 그쪽은 이미
+    장기 상승 추세가 있는 종목이 많아 정배열 자체의 신뢰도가 이 종목군보다 높다.
+    """
+    if len(bars) <= BOX_WINDOW:
+        return False
+    prior_box = bars[-(BOX_WINDOW + 1):-1]
+    prior_high = max(b["high"] for b in prior_box)
+    last = bars[-1]
+    volumes = [b["volume"] for b in bars]
+    avg_volume = _mean(volumes[-90:])
+    volume_ok = avg_volume > 0 and volumes[-1] >= VOLUME_TRIGGER_MULT * avg_volume
+    return last["close"] > prior_high and volume_ok
 
 
 def _fetch_bars(db: ScreenerDB, ticker: str, market: str, today: date) -> list[dict]:
@@ -256,6 +284,15 @@ def run_watchlist(db: ScreenerDB, today: date) -> None:
                 status["qualified_since"] = prev["qualified_since"] if still_continuous else today.isoformat()
             else:
                 status["qualified_since"] = None
+
+            # 이평 정배열이 이어지는 구간의 시작일도 같은 방식으로 이어받는다 —
+            # "며칠째 매집 구간인지"와 별개로 "며칠째 상승 전환 상태인지"를 보여주기
+            # 위함(opportunity_snapshot의 breakout_since와 같은 목적, 다른 신호).
+            if status["aligned_mas"]:
+                still_aligned = bool(prev and prev.get("aligned_mas") and prev.get("aligned_since"))
+                status["aligned_since"] = prev["aligned_since"] if still_aligned else today.isoformat()
+            else:
+                status["aligned_since"] = None
 
             db.client.table("watchlist_status").upsert({
                 "ticker": ticker,

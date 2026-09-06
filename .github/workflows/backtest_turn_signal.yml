@@ -4,8 +4,8 @@ name: Backtest Turn Signal (one-off)
 # 진단 도구. 개발 컨테이너는 외부 시세 API(FinanceDataReader/yfinance)에 대한
 # 네트워크 접근이 막혀 있어, 실제 네트워크가 열려 있는 이 워크플로에서 대신 돌린다.
 # 스케줄 없음 — 수동 실행(workflow_dispatch) 전용. 실행 대상 스크립트
-# (pipeline/research/backtest_turn_signal.py)는 아직 검증 전인 기능 브랜치에만
-# 있으므로, 실행 시 그 브랜치를 ref로 지정한다.
+# (pipeline/research/backtest_turn_signal.py)는 이 저장소의 어느 브랜치에도
+# 있을 수 있으므로, 실행 시 원하는 ref를 지정한다.
 on:
   workflow_dispatch:
 
