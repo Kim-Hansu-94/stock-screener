@@ -41,7 +41,7 @@ const HIGHER_LOW_WINDOW = 120
 const MIN_BARS = HIGHER_LOW_WINDOW * 2
 const YEAR_WINDOW = 252
 const RECENT_LOW_WINDOW = 20
-const BOX_WINDOW = 60
+export const BOX_WINDOW = 60
 const MAX_BOX_RANGE = 0.3
 // 120일(6개월)이던 걸 60일로 줄였다 — 저점 이후 "더 오래 기다릴수록" 계속 점수를
 // 얹어주는 구간이 넓으면, 막 저점을 다지기 시작한(그래서 아직 덜 오른) 종목보다
