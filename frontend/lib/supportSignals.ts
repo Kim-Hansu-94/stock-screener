@@ -50,6 +50,11 @@ export interface SupportSignal {
   met: boolean | null
   /** 충족 여부와 별개로 "지금 얼마나 가까운지"를 보여주는 실제 숫자 */
   detail: string
+  /**
+   * 코멘트 문장에 끼워 넣을 짧은 구절 (예: "120일선에 근접(-2.6%)").
+   * detail 문자열을 다시 파싱하지 않도록 계산한 자리에서 같이 만든다.
+   */
+  phrase: string
 }
 
 export interface SupportSignalAssessment {
@@ -69,14 +74,20 @@ function nearMaSignal(closes: number[]): SupportSignal {
   const label = `${MA_WINDOW}일선 근접`
   const ma = simpleMovingAverage(closes, MA_WINDOW)
   const maNow = ma[ma.length - 1]
-  if (maNow === null || maNow === 0) return { id: 'nearMa', label, met: null, detail: INSUFFICIENT }
+  if (maNow === null || maNow === 0) {
+    return { id: 'nearMa', label, met: null, detail: INSUFFICIENT, phrase: '' }
+  }
 
   const gapPct = ((closes[closes.length - 1] - maNow) / maNow) * 100
+  const met = Math.abs(gapPct) <= MA_NEAR_PCT
   return {
     id: 'nearMa',
     label,
-    met: Math.abs(gapPct) <= MA_NEAR_PCT,
+    met,
     detail: `${MA_WINDOW}일선 대비 ${signed(gapPct)} (기준 ±${MA_NEAR_PCT}%)`,
+    phrase: met
+      ? `${MA_WINDOW}일선에 근접(${signed(gapPct)})`
+      : `${MA_WINDOW}일선보다 ${Math.abs(gapPct).toFixed(1)}% ${gapPct < 0 ? '아래' : '위'}`,
   }
 }
 
@@ -87,22 +98,34 @@ function cloudSignal(bars: PriceHistoryRow[]): SupportSignal {
   const at = bars.length - 1 - ICHIMOKU_SHIFT
   const a = at >= 0 ? senkouA[at] : null
   const b = at >= 0 ? senkouB[at] : null
-  if (a === null || b === null) return { id: 'cloud', label, met: null, detail: INSUFFICIENT }
+  if (a === null || b === null) {
+    return { id: 'cloud', label, met: null, detail: INSUFFICIENT, phrase: '' }
+  }
 
   const top = Math.max(a, b)
   const bottom = Math.min(a, b)
   const close = bars[bars.length - 1].close
   if (close >= top) {
-    return { id: 'cloud', label, met: true, detail: `구름 위 (상단 대비 ${signed(((close - top) / top) * 100)})` }
+    return {
+      id: 'cloud', label, met: true,
+      detail: `구름 위 (상단 대비 ${signed(((close - top) / top) * 100)})`,
+      phrase: '일목구름 위',
+    }
   }
   if (close >= bottom) {
-    return { id: 'cloud', label, met: true, detail: `구름 안 (하단 대비 ${signed(((close - bottom) / bottom) * 100)})` }
+    return {
+      id: 'cloud', label, met: true,
+      detail: `구름 안 (하단 대비 ${signed(((close - bottom) / bottom) * 100)})`,
+      phrase: '일목구름 안',
+    }
   }
+  const belowPct = ((close - bottom) / bottom) * 100
   return {
     id: 'cloud',
     label,
     met: false,
-    detail: `구름 아래로 이탈 (하단 대비 ${signed(((close - bottom) / bottom) * 100)})`,
+    detail: `구름 아래로 이탈 (하단 대비 ${signed(belowPct)})`,
+    phrase: `일목구름보다 ${Math.abs(belowPct).toFixed(1)}% 아래`,
   }
 }
 
@@ -112,37 +135,51 @@ function rsiBounceSignal(closes: number[]): SupportSignal {
   const now = rsi[rsi.length - 1]
   const window = rsi.slice(-RSI_LOOKBACK).filter((v): v is number => v !== null)
   if (now === null || window.length < RSI_LOOKBACK) {
-    return { id: 'rsiBounce', label, met: null, detail: INSUFFICIENT }
+    return { id: 'rsiBounce', label, met: null, detail: INSUFFICIENT, phrase: '' }
   }
 
   const lowest = Math.min(...window)
+  // 과매도를 찍은 적이 있고(매도 소진), 지금은 그 바닥보다 올라와 있어야(방향 전환 시도) 한다.
+  const wasOversold = lowest <= RSI_OVERSOLD
+  const met = wasOversold && now > lowest
   return {
     id: 'rsiBounce',
     label,
-    // 과매도를 찍은 적이 있고(매도 소진), 지금은 그 바닥보다 올라와 있어야(방향 전환 시도) 한다.
-    met: lowest <= RSI_OVERSOLD && now > lowest,
+    met,
     detail: `RSI ${now.toFixed(0)} · 최근 ${RSI_LOOKBACK}일 최저 ${lowest.toFixed(0)} (기준 ${RSI_OVERSOLD} 이하)`,
+    // 미충족이라도 이유가 둘로 갈린다 — 과매도까지 안 간 것과, 과매도에서 아직 못 올라온 것.
+    phrase: met
+      ? `RSI가 과매도(${lowest.toFixed(0)})를 찍고 ${now.toFixed(0)}까지 반등`
+      : wasOversold
+        ? `RSI ${now.toFixed(0)}로 과매도에서 아직 반등 못 함`
+        : `RSI ${now.toFixed(0)}로 과매도(${RSI_OVERSOLD} 이하)까지는 안 감`,
   }
 }
 
 function higherLowSignal(lows: number[]): SupportSignal {
   const label = '저점 높이기'
-  if (lows.length < LOW_WINDOW * 2) return { id: 'higherLow', label, met: null, detail: INSUFFICIENT }
+  if (lows.length < LOW_WINDOW * 2) {
+    return { id: 'higherLow', label, met: null, detail: INSUFFICIENT, phrase: '' }
+  }
 
   const recent = Math.min(...lows.slice(-LOW_WINDOW))
   const prior = Math.min(...lows.slice(-LOW_WINDOW * 2, -LOW_WINDOW))
+  const met = recent > prior
   return {
     id: 'higherLow',
     label,
-    met: recent > prior,
+    met,
     detail: `최근 ${LOW_WINDOW}일 저점 ${price(recent)} / 직전 ${LOW_WINDOW}일 ${price(prior)}`,
+    phrase: met ? '저점이 높아지는 중' : '저점이 계속 낮아지는 중',
   }
 }
 
 function volumeRiseSignal(bars: PriceHistoryRow[]): SupportSignal {
   const label = '거래량 실린 상승'
   const needed = VOLUME_RECENT_WINDOW + VOLUME_BASE_WINDOW
-  if (bars.length < needed + 1) return { id: 'volumeRise', label, met: null, detail: INSUFFICIENT }
+  if (bars.length < needed + 1) {
+    return { id: 'volumeRise', label, met: null, detail: INSUFFICIENT, phrase: '' }
+  }
 
   const volumes = bars.map((b) => b.volume)
   const recentVol = mean(volumes.slice(-VOLUME_RECENT_WINDOW))
@@ -152,14 +189,21 @@ function volumeRiseSignal(bars: PriceHistoryRow[]): SupportSignal {
     ((closes[closes.length - 1] - closes[closes.length - 1 - VOLUME_RECENT_WINDOW]) /
       closes[closes.length - 1 - VOLUME_RECENT_WINDOW]) *
     100
-  if (baseVol <= 0) return { id: 'volumeRise', label, met: null, detail: INSUFFICIENT }
+  if (baseVol <= 0) return { id: 'volumeRise', label, met: null, detail: INSUFFICIENT, phrase: '' }
 
+  const ratio = recentVol / baseVol
+  // 거래량만 늘고 가격이 빠지면 오히려 투매다 — 둘을 함께 요구한다.
+  const met = ratio > 1 && changePct > 0
   return {
     id: 'volumeRise',
     label,
-    // 거래량만 늘고 가격이 빠지면 오히려 투매다 — 둘을 함께 요구한다.
-    met: recentVol > baseVol && changePct > 0,
-    detail: `최근 ${VOLUME_RECENT_WINDOW}일 거래량 ${(recentVol / baseVol).toFixed(1)}배 · 주가 ${signed(changePct)}`,
+    met,
+    detail: `최근 ${VOLUME_RECENT_WINDOW}일 거래량 ${ratio.toFixed(1)}배 · 주가 ${signed(changePct)}`,
+    phrase: met
+      ? `거래량 ${ratio.toFixed(1)}배로 늘며 주가 ${signed(changePct)}`
+      : ratio <= 1
+        ? `거래량이 ${ratio.toFixed(1)}배에 그쳐 매수세 유입 흔적 없음`
+        : `거래량은 늘었지만 주가는 ${signed(changePct)}`,
   }
 }
 
@@ -185,6 +229,70 @@ export function assessSupportSignals(bars: PriceHistoryRow[]): SupportSignalAsse
     metCount: signals.filter((s) => s.met === true).length,
     evaluatedCount: signals.filter((s) => s.met !== null).length,
   }
+}
+
+// ── 코멘트 자동 생성 ────────────────────────────────────────────────────
+// 5개 조건의 충족 여부를 사람이 읽는 문장으로 바꾼다. 카드에 조건별 ✓/✗와
+// 숫자는 이미 다 나오지만, "그래서 지금 어떤 그림인가"는 사용자가 매번 다섯 줄을
+// 머릿속에서 합쳐야 알 수 있었다 — 그 합치는 일을 대신한다.
+//
+// **이 코멘트는 매일 AI가 새로 판단하는 게 아니라 아래 규칙이 그대로 도는 것이다.**
+// 사이트는 Supabase에서 값만 읽어 그리는 정적 앱이라 판단하는 주체가 없다.
+// 규칙이라 항상 같은 입력에 같은 문장이 나오고, 그래서 검증도 가능하다.
+
+/** 지지(바닥이 받쳐주는가) 계열 — 하방이 단단한지를 본다. */
+const SUPPORT_IDS: SupportSignalId[] = ['nearMa', 'cloud', 'higherLow']
+/** 수요(올라갈 힘이 있는가) 계열 — 매수세가 실제로 들어오는지를 본다. */
+const DEMAND_IDS: SupportSignalId[] = ['rsiBounce', 'volumeRise']
+
+export interface SupportSummary {
+  /** 카드에 그대로 띄우는 한 문단 */
+  text: string
+  /** 지지·수요 조합으로 고른 한 줄 결론 (text의 마지막 문장과 같다) */
+  verdict: string
+}
+
+function verdictFor(supportStrong: boolean, demandStrong: boolean): string {
+  if (supportStrong && demandStrong) {
+    return '바닥이 받쳐주는 데다 매수세도 들어오는 중이라, 5개 조건 중에서는 가장 좋은 조합입니다.'
+  }
+  if (supportStrong) {
+    return '바닥은 다지는 듯하지만 아직 올라갈 힘은 안 보이는 그림입니다.'
+  }
+  if (demandStrong) {
+    return '지지선 위로는 아직 못 올라왔지만, 단기 반등 조짐은 보이는 그림입니다.'
+  }
+  return '지지선 아래인 데다 매수세도 없어, 아직 하락이 진행 중일 수 있는 그림입니다.'
+}
+
+/**
+ * 5개 조건 판정을 한 문단 코멘트로 정리한다. 판정된 조건이 하나도 없으면 null.
+ */
+export function summarizeSupportSignals(assessment: SupportSignalAssessment): SupportSummary | null {
+  const judged = assessment.signals.filter((s) => s.met !== null && s.phrase)
+  if (judged.length === 0) return null
+
+  const met = judged.filter((s) => s.met)
+  const unmet = judged.filter((s) => !s.met)
+
+  // 계열별로 "판정된 것 중 몇 개가 충족인지"를 본다 — 데이터 부족으로 판정 못 한
+  // 조건까지 미충족으로 세면 실제보다 비관적으로 나온다.
+  const countMet = (ids: SupportSignalId[]) => met.filter((s) => ids.includes(s.id)).length
+  const countJudged = (ids: SupportSignalId[]) => judged.filter((s) => ids.includes(s.id)).length
+  // 지지 계열은 과반, 수요 계열은 하나라도 충족이면 "있다"로 본다(수요 조건은 2개뿐이라
+  // 과반을 요구하면 사실상 둘 다여야 해서 너무 빡빡하다).
+  const supportStrong = countMet(SUPPORT_IDS) * 2 >= countJudged(SUPPORT_IDS) && countMet(SUPPORT_IDS) > 0
+  const demandStrong = countMet(DEMAND_IDS) > 0
+
+  const verdict = verdictFor(supportStrong, demandStrong)
+  const parts: string[] = []
+  if (met.length > 0) parts.push(`지금은 ${met.map((s) => s.phrase).join(', ')}입니다.`)
+  if (unmet.length > 0) {
+    parts.push(`${met.length > 0 ? '다만 ' : ''}${unmet.map((s) => s.phrase).join(', ')}입니다.`)
+  }
+  parts.push(verdict)
+
+  return { text: parts.join(' '), verdict }
 }
 
 /** 평단가 대비 현재 손익률(%). 평단가가 없거나 0이면 null. */
