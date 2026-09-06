@@ -177,7 +177,7 @@ export function EditAvgCostButton({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        className="rounded-md border border-input bg-card px-2 py-0.5 text-xs font-medium text-secondary-foreground hover:border-ring hover:text-primary"
       >
         평단가 수정
       </button>
