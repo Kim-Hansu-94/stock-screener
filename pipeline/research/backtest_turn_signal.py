@@ -28,6 +28,7 @@ from pipeline.src.watchlist import MIN_BARS, detect_box_breakout, evaluate_watch
 TICKERS = [
     ("005945", "NH투자증권우"),
     ("024110", "기업은행"),
+    ("030200", "KT"),
 ]
 START_DATE = "2015-01-01"
 
