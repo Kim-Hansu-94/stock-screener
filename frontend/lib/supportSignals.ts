@@ -20,8 +20,14 @@ export const MA_WINDOW = 120
 /** 120일선에 이만큼(%) 안쪽이면 "근접"으로 본다. */
 export const MA_NEAR_PCT = 5
 export const RSI_WINDOW = 14
-/** 이 값 이하를 찍었으면 과매도 구간에 들어갔던 것으로 본다. */
-export const RSI_OVERSOLD = 30
+/**
+ * 이 값 이하를 찍었으면 과매도 구간에 들어갔던 것으로 본다.
+ *
+ * 교과서 기준은 30이지만 35로 완화했다(2026-09-06, 사용자 요청) — 대형주는
+ * 지수·수급에 눌려도 RSI가 30까지 잘 안 내려가서, 30을 고수하면 실제로는 충분히
+ * 과매도인 구간을 계속 놓친다. SK하이닉스가 최근 14일 최저 43이었던 것이 그 예다.
+ */
+export const RSI_OVERSOLD = 35
 /** 과매도 기록을 찾는 창 (거래일). */
 export const RSI_LOOKBACK = 14
 /** 저점 높이기 비교 창 — 최근 20일 저점 vs 직전 20일 저점. */

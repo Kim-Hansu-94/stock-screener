@@ -112,8 +112,24 @@ describe('assessSupportSignals', () => {
 
   it('does not flag RSI bounce when the stock never got oversold', () => {
     const closes = Array.from({ length: LONG }, () => 100)
-    // 횡보만 하면 RSI가 30 아래로 간 적이 없다
+    // 횡보만 하면 RSI가 기준선 아래로 간 적이 없다
     expect(signal(bars(closes), 'rsiBounce').met).toBe(false)
+  })
+
+  it('counts an RSI dip into the 30~35 band as oversold (기준 30 → 35 완화)', () => {
+    // 교과서 기준 30을 쓰면 대형주가 실제로 눌린 구간을 계속 놓친다는 요청으로
+    // 35로 완화했다(2026-09-06). 이 픽스처는 RSI 최저가 34.3까지만 내려가므로
+    // 기준이 30이면 미충족, 35면 충족이다 — 임계값이 되돌아가면 여기서 깨진다.
+    const closes = [
+      ...Array.from({ length: 180 }, (_, i) => 100 + (i % 2 === 0 ? 1 : -1)),
+      ...Array.from({ length: 8 }, () => 0), // 아래에서 채운다
+    ]
+    for (let i = 180; i < 188; i++) closes[i] = closes[i - 1] - 1
+    closes.push(closes[closes.length - 1] + 0.8, closes[closes.length - 1] + 1.6)
+
+    const s = signal(bars(closes), 'rsiBounce')
+    expect(s.met).toBe(true)
+    expect(s.detail).toContain('기준 35 이하')
   })
 
   // ── 저점 높이기 ──────────────────────────────────────────────────────
