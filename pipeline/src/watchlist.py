@@ -13,12 +13,15 @@ from datetime import date, timedelta
 
 from .db import ScreenerDB
 
-# (ticker, market, 표시명). 코드에 박혀 있는 기본 감시 종목 — 배포 없이 늘리고
-# 싶으면 홈 화면 "감시 종목" 카드에서 직접 추가한다(watchlist_tickers 테이블,
-# /api/watchlist). run_watchlist가 이 상수와 그 테이블을 합쳐서 평가한다.
-WATCHLIST: list[tuple[str, str, str]] = [
-    ("000660", "KR", "SK하이닉스"),
-]
+# (ticker, market, 표시명). 코드에 박아두는 기본 감시 종목 — run_watchlist가 이
+# 상수와 watchlist_tickers 테이블을 합쳐서 평가한다.
+#
+# 지금은 비어 있고, 그게 정상이다. 감시 종목은 전부 사이트에서 직접 추가·삭제하는
+# 게 낫다(배포 없이 되고, 매집 감시/포지션 관리 구분도 화면에서만 가능하다).
+# 예전엔 SK하이닉스가 여기 박혀 있었는데, 사이트에서 포지션 관리로 등록한 뒤에도
+# 이 상수 때문에 파이프라인이 계속 매집 감시 대상으로 평가했다 — 포지션 관리에서
+# 삭제하면 매집 감시에 되살아나는 유령이 되므로 지웠다(2026-09-06).
+WATCHLIST: list[tuple[str, str, str]] = []
 
 # ── frontend/lib/opportunityScore.ts 와 동일한 상수 ──
 # 저점 높이기는 120일씩 두 구간(총 1년)을 비교한다 — 60일 대비로는 장기 하락 중의
@@ -261,10 +264,20 @@ def get_combined_watchlist(db: ScreenerDB) -> list[tuple[str, str, str]]:
 
 def run_watchlist(db: ScreenerDB, today: date) -> None:
     combined = get_combined_watchlist(db)
-    db.prune_watchlist_status([(market, ticker) for ticker, market, _name in combined])
 
+    # 목록이 비면 정리(prune)까지 건너뛴다 — prune_watchlist_status([])는
+    # watchlist_status를 통째로 지운다. 그런데 이 "비었음"은 진짜 빈 것일 수도,
+    # get_watchlist_tickers가 조회에 실패해 빈 목록을 돌려준 것일 수도 있어
+    # 구분이 안 된다(그 메서드는 예외를 삼키고 []를 반환한다). 예전엔 WATCHLIST
+    # 상수에 종목이 박혀 있어 이 경우가 아예 없었지만, 이제 상수가 비어 있으므로
+    # 일시적 조회 실패 한 번에 전체 평가 결과가 날아갈 수 있다. 낡은 행이 잠시
+    # 남는 쪽이 훨씬 덜 해로우므로 아무것도 안 한다 — 다음 실행에서 조회가
+    # 성공하면 그때 정상적으로 정리된다.
     if not combined:
+        print("감시 종목 없음 — 평가·정리 모두 건너뜀", flush=True)
         return
+
+    db.prune_watchlist_status([(market, ticker) for ticker, market, _name in combined])
 
     # 분할매수 컨셉: "오늘 통과했다/안했다"라는 하루짜리 신호가 아니라, 조건을
     # 계속 충족하는 동안을 하나의 "매집 구간"으로 본다. 어제도 통과 상태였다면
