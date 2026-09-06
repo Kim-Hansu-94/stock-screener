@@ -12,6 +12,7 @@ import {
   EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, ONE_TIME_GAIN_LABEL, ONE_TIME_GAIN_NOTE,
   PROFIT_SOURCE_LABEL, assessEarnings,
   FINANCIAL_HEALTH_CLASS, FINANCIAL_HEALTH_LABEL, FINANCIAL_HEALTH_NOTE, assessFinancialHealth,
+  VALUATION_LEVEL_LABEL, assessValuation,
 } from '@/lib/fundamentals'
 import { changeTextClass } from '@/lib/marketColors'
 import { StockChart } from '@/components/StockChart'
@@ -193,6 +194,7 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
   const grade = buyGrade(stock.score, stock.higherLows)
   const earnings = assessEarnings(stock.fundamentals)
   const health = assessFinancialHealth(stock.fundamentals, stock.sector)
+  const valuation = assessValuation(stock.fundamentals, stock.sector)
 
   const formatPrice = (price: number) =>
     stock.market === 'KR'
@@ -371,13 +373,23 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
               {stock.fundamentals?.per != null && (
                 <div className="flex gap-1">
                   <dt className="text-muted-foreground">PER</dt>
-                  <dd>{stock.fundamentals.per.toFixed(1)}</dd>
+                  <dd>
+                    {stock.fundamentals.per.toFixed(1)}
+                    {valuation.perLevel !== 'unknown' && (
+                      <span className="text-muted-foreground"> ({VALUATION_LEVEL_LABEL[valuation.perLevel]})</span>
+                    )}
+                  </dd>
                 </div>
               )}
               {stock.fundamentals?.pbr != null && (
                 <div className="flex gap-1">
                   <dt className="text-muted-foreground">PBR</dt>
-                  <dd>{stock.fundamentals.pbr.toFixed(2)}</dd>
+                  <dd>
+                    {stock.fundamentals.pbr.toFixed(2)}
+                    {valuation.pbrLevel !== 'unknown' && (
+                      <span className="text-muted-foreground"> ({VALUATION_LEVEL_LABEL[valuation.pbrLevel]})</span>
+                    )}
+                  </dd>
                 </div>
               )}
             </dl>
@@ -386,6 +398,13 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
             </p>
             {earnings.oneTimeGainFlag && (
               <p className="mt-1 text-xs leading-relaxed text-amber-800">{ONE_TIME_GAIN_NOTE}</p>
+            )}
+            {(valuation.perLevel !== 'unknown' || valuation.pbrLevel !== 'unknown') && (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground/70">
+                PER·PBR 평가는 같은 업종 평균과 대략 비교한 참고용입니다(실시간 지표 아님). 낮다고
+                무조건 저평가·안전한 건 아니고(가치 함정일 수 있음), 높다고 무조건 고평가는
+                아닙니다(성장 프리미엄일 수 있음).
+              </p>
             )}
           </div>
         )}

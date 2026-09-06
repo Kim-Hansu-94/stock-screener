@@ -261,3 +261,92 @@ export const FINANCIAL_HEALTH_NOTE: Record<FinancialHealthVerdict, string> = {
     '은행·금융업은 "짧게 빌려 길게 빌려주는" 사업 구조라 유동비율로 단기 지급 능력을 재는 게 애초에 안 맞습니다. 판단에 참고하지 마세요.',
   unknown: '유동자산·유동부채 데이터를 아직 받지 못했습니다. 판단에 참고하지 마세요.',
 }
+
+// ── PER/PBR 수준 ────────────────────────────────────────────────────────
+// PER·PBR은 절대 숫자만 봐서는 비싼지 싼지 판단이 안 된다 — 업종마다 "정상" 구간이
+// 크게 다르다(기술주는 PER 30이 흔하지만 금융주는 PER 15도 비싼 편). 유동비율과
+// 같은 이유로 업종별 기준을 둔다.
+//
+// 기준 출처(2026-09, 웹 조사 — 실시간 지수가 아니라 대략치, 책 근거 아님):
+// Siblis Research 업종별 P/E(기술 ~28x, 헬스케어 ~23.7x, 유틸리티 ~18x, 에너지
+// ~10x, 필수소비재 ~22x), GuruFocus S&P500 전체 PER(~26, 2026-09-04 기준),
+// 일반적으로 알려진 PBR 특성(금융·유틸리티·에너지는 장부가 근접 1~2배대, 기술은
+// 무형자산 비중이 커 8배 이상도 흔함). 소스마다 수치가 꽤 갈렸다(예: 기술 업종
+// PER을 28x로 보는 곳과 40x로 보는 곳이 공존) — 그래서 기준을 좁게 잡지 않고
+// "낮음/보통/높음" 3단계로만 나누고 경계를 넓게 둔다. 정밀한 실시간 지표가
+// 아니라 대략적인 감을 잡는 참고용이라는 걸 화면에도 그대로 밝힌다.
+//
+// KR(DART) 종목은 애초에 이 필드가 항상 null이라(dart_fundamentals.py 참고,
+// DART가 시가 데이터를 안 갖고 있음) 이 판정은 사실상 US 종목에만 적용된다.
+
+export type ValuationLevel = 'low' | 'fair' | 'high' | 'unknown'
+
+interface ValuationThresholds {
+  low: number
+  high: number
+}
+
+const DEFAULT_PER_THRESHOLDS: ValuationThresholds = { low: 12, high: 25 }
+const DEFAULT_PBR_THRESHOLDS: ValuationThresholds = { low: 1.5, high: 4 }
+
+const SECTOR_PER_THRESHOLDS: Partial<Record<string, ValuationThresholds>> = {
+  기술: { low: 20, high: 35 },
+  헬스케어: { low: 15, high: 30 },
+  금융: { low: 8, high: 16 },
+  임의소비재: { low: 15, high: 30 },
+  필수소비재: { low: 15, high: 25 },
+  커뮤니케이션: { low: 12, high: 25 },
+  산업재: { low: 15, high: 28 },
+  에너지: { low: 6, high: 15 },
+  유틸리티: { low: 13, high: 22 },
+  부동산: { low: 15, high: 35 },
+  소재: { low: 10, high: 20 },
+}
+
+const SECTOR_PBR_THRESHOLDS: Partial<Record<string, ValuationThresholds>> = {
+  기술: { low: 4, high: 12 },
+  헬스케어: { low: 2.5, high: 6 },
+  금융: { low: 0.8, high: 1.8 },
+  임의소비재: { low: 2, high: 6 },
+  필수소비재: { low: 3, high: 8 },
+  커뮤니케이션: { low: 1.5, high: 4 },
+  산업재: { low: 2, high: 5 },
+  에너지: { low: 1, high: 2.5 },
+  유틸리티: { low: 1, high: 2.5 },
+  부동산: { low: 1, high: 2.5 },
+  소재: { low: 1, high: 2.5 },
+}
+
+function valuationLevel(value: number | null, thresholds: ValuationThresholds): ValuationLevel {
+  if (value === null) return 'unknown'
+  if (value <= thresholds.low) return 'low'
+  if (value >= thresholds.high) return 'high'
+  return 'fair'
+}
+
+export interface ValuationAssessment {
+  perLevel: ValuationLevel
+  pbrLevel: ValuationLevel
+}
+
+export function assessValuation(
+  row: Pick<FundamentalsRow, 'per' | 'pbr'> | null | undefined,
+  sector?: string | null,
+): ValuationAssessment {
+  if (!row) return { perLevel: 'unknown', pbrLevel: 'unknown' }
+  const broad = broadSector(sector)
+  return {
+    perLevel: valuationLevel(row.per, SECTOR_PER_THRESHOLDS[broad] ?? DEFAULT_PER_THRESHOLDS),
+    pbrLevel: valuationLevel(row.pbr, SECTOR_PBR_THRESHOLDS[broad] ?? DEFAULT_PBR_THRESHOLDS),
+  }
+}
+
+// 고평가=위험/저평가=기회로 단정하지 않는다 — 싼 데는 이유가 있을 수 있고(가치
+// 함정), 비싼 데도 이유가 있을 수 있다(성장 프리미엄). 그래서 등락색이나
+// 실적판정색과 다른, 중립적인 톤만 쓴다.
+export const VALUATION_LEVEL_LABEL: Record<ValuationLevel, string> = {
+  low: '업종 평균보다 낮음',
+  fair: '업종 평균 수준',
+  high: '업종 평균보다 높음',
+  unknown: '',
+}
