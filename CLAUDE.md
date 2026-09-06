@@ -60,7 +60,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunity_snapshot` | opportunities.py | 횡보·조정 탭 (사전 계산 결과) |
 | `stock_fundamentals` | fundamentals.py(실적) + us_financial_health_main.py(US 재무건전성) | 실적 동반 하락 판정 + 재무건전성(유동비율·부채비율, KR·US) |
 | `watchlist_status` | watchlist.py | 눌림목 종목 탭 감시 종목 카드 |
-| `watchlist_tickers` | `/api/watchlist`(사이트 "관심 종목 추가" 폼) | watchlist.py가 코드 상수와 합쳐 평가 대상으로 읽음 (`supabase/watchlist_tickers.sql`로 생성) |
+| `watchlist_tickers` | `/api/watchlist`(사이트 "관심 종목 추가"·"보유 종목 추가" 폼) | watchlist.py가 코드 상수와 합쳐 평가 대상으로 읽음. `category`로 매집 감시(accumulation, 기본값)와 포지션 관리(position)가 갈리고, 후자만 `avg_cost`(평단가)를 쓴다 (`supabase/watchlist_tickers.sql`로 생성) |
 | `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
 | `realestate_media` | realestate_media_main.py (4시간마다, 매 실행마다 전체 갈아끼움) | 부동산 동향 탭 홈 상단 뉴스·영상 (`supabase/realestate_media.sql`로 생성) |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
@@ -101,6 +101,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `opportunityScore.ts` | 횡보·조정 매력도 점수 **참조 구현** — 실제 채점은 `pipeline/src/watchlist.py`가 포팅해서 수행. 상수 바꿀 때 항상 같이 수정 |
 | `exitSignal.ts` | "이제 팔 때" 판정 — 진입일부터 하루씩 걸어 처음 걸린 날을 찾는다. **컨셉(`paper_trades.source`)에 따라 규칙이 갈린다**: 눌림목은 손절/목표 + 대량거래음봉·하락장·주도섹터이탈·60일선하회, 횡보·조정은 **가격만**(손절/목표 + 진입 시점 바닥 이탈). 횡보·조정 종목은 구조상 60일선 아래라 눌림목 규칙을 걸면 진입 다음 날 바로 신호가 뜬다. **신호 시점 가격을 저장하지 않고 매번 재현한다**(사이트에 안 들어온 날의 신호를 놓치지 않고, 기존 보유분에도 소급 적용) |
 | `buySignal.ts` | 매력도 점수 → 매수 등급(적극검토/매수검토/관망) 변환 |
+| `supportSignals.ts` | **포지션 관리** 카드의 지지 신호 점검 — 이미 보유 중인 종목의 추가 매수(물타기) 타이밍 참고용으로 5개 조건(120일선 근접 ±5% · 일목구름 지지 · RSI 과매도 후 반등 · 저점 높이기 · 거래량 실린 상승)을 각각 판정한다. 매집 감시(`watchlist.py`)와 목적이 정반대라 **박스 수축을 요구하지 않는다** — SK하이닉스처럼 변동성 큰 대형주는 60일 박스폭 조건에 구조적으로 영원히 걸려서, 안 맞는 잣대를 들이대는 꼴이 되기 때문(2026-09-06). 일목구름은 선행스팬이 26봉 앞으로 그려지므로 **오늘 가격과 비교할 구름은 26봉 전 값**이다(`ICHIMOKU_SHIFT`) — 이 보정을 빼면 아직 오지 않은 미래 구름과 비교하게 된다. 충족 개수를 단일 "매수 등급"으로 합치지 않는 것도 의도적이다(지지선은 뚫리기도 하므로 근거를 감춘 초록불 대신 조건별 숫자를 그대로 노출) |
 | `longTermContext.ts` | 3년 월봉 + 10년 월봉 병합, 장기 고점/하락 판정 |
 | `fundamentals.ts` | 실적 데이터 → 가치함정/밸류에이션조정 판정 |
 | `similarity.ts` | 패턴 유사도 검색 (SimilaritySearch 탭용) |
@@ -127,8 +128,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | 경로 | 내용 |
 |---|---|
 | `page.tsx` | **홈(`/`)** — 부동산 동향. 수도권 시군구별 아파트 매매·전월세 월간 집계. `?region=코드`로 지역 목록 ↔ 지역 상세(구간별 펼치기) 전환. 목록은 매매 평균가 내림차순 + 지도(`components/RealestateMap.tsx`, 매매가 색상 choropleth), 표시는 `components/RealestateTables.tsx`. 지역 목록(개요) 화면 최상단에는 `RealestateMediaSection.tsx`(관련 뉴스·유튜브, 지역과 무관한 전국 단위라 지역 상세 화면엔 없음). 탭 순서 개편(2026-08)으로 구 `realestate/`가 루트로, 구 홈은 `pullback/`로 이동 |
-| `pullback/` | 눌림목 종목 — 감시 종목 카드 + 한국/미국 눌림목 스크리닝 (구 홈, 경로 `/pullback`) |
-| `discover/` | 종목발굴 — 횡보·조정(사전계산) / 저점 매집 후보(패턴유사도, 구 "오늘의 추천") / 패턴검색 3탭(이 순서로 노출, 기본 선택 탭도 횡보·조정). `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `OpportunityTab.tsx` / `DailyReport.tsx` / `SimilaritySearch.tsx`로 분리(컴포넌트·API 경로 이름은 예전 그대로) |
+| `pullback/` | 눌림목 종목 — **포지션 관리 카드**(상단) + 한국/미국 눌림목 스크리닝 (구 홈, 경로 `/pullback`). 포지션 관리는 이미 보유 중인 종목(`watchlist_tickers.category='position'`)의 추가 매수 타이밍을 보는 카드로, 매일 확인하는 성격이라 여기 상단에 둔다 |
+| `discover/` | 종목발굴 — 횡보·조정(사전계산) / **감시 종목**(매집 감시) / 저점 매집 후보(패턴유사도, 구 "오늘의 추천") / 패턴검색 4탭(이 순서로 노출, 기본 선택 탭은 횡보·조정). `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `OpportunityTab.tsx` / `WatchlistCard.tsx` / `DailyReport.tsx` / `SimilaritySearch.tsx`로 분리(컴포넌트·API 경로 이름은 예전 그대로). 매집 감시는 2026-09-06에 눌림목 탭에서 옮겨왔다 — 눌림목은 단기매매, 매집 감시는 "아직 안 산 종목이 매집 구간에 들어왔는가"를 기다리는 장기 관점이라 컨셉이 갈린다 |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `api/daily-report` | 저점 매집 후보 API (Gold Standard 패턴 매칭, 구 "오늘의 추천") |
@@ -140,7 +141,8 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 ## frontend/components/
 
 `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
-`WatchlistCard.tsx`(감시 카드) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
+`WatchlistCard.tsx`(매집 감시 카드) · `PositionCard.tsx`(포지션 관리 카드 — 보유 종목 지지 신호 점검,
+`supportSignals.ts` 사용) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
 `RealestateMediaSection.tsx`(부동산 홈 상단 뉴스·영상, 데이터 없으면 섹션째 숨김)
 
@@ -164,6 +166,12 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   벌어지는 지점이 `ATR/entry=0.10`) — 둘 중 하나를 바꾸면 다른 쪽도 재계산해서 맞출 것
   (2026-09-02, 온투이노베이션 사례로 추가)
 - **횡보·조정 채점**: `frontend/lib/opportunityScore.ts`(참조) ↔ `pipeline/src/watchlist.py` · `pipeline/src/opportunities.py`(실제 실행) — 상수 하나도 따로 안 놀아야 함
+- **감시 목적 분리(2026-09-06)**: 같은 `watchlist_tickers` 테이블이지만 `category`로 두 갈래다.
+  파이프라인(`watchlist.py`)은 **category를 모른 채 전 종목을 평가**하므로, 포지션 관리
+  종목의 매집 판정 행(`watchlist_status`)도 그대로 쌓인다 — 화면 쪽(`app/discover/page.tsx`의
+  `loadAccumulationWatchlist`)이 그 행을 걸러내야 같은 종목이 두 화면에 겹쳐 뜨지 않는다.
+  category를 파이프라인까지 내리지 않은 건, 포지션 관리 카드가 파이프라인 판정을 전혀
+  안 쓰고 일봉만으로 프론트에서 계산하기 때문(`supportSignals.ts`)
 - **조정폭 밴드**: `MIN_DRAWDOWN`/`MAX_DRAWDOWN` 원본은 `watchlist.py`, 밴드 판정 함수(`in_band_tickers`)는 `opportunities.py`. `fundamentals.py`는 이 함수를 `main.py`를 통해 그대로 재사용하므로(독립 재정의 없음) 어긋날 일은 없음
 - **하루 2회 실행 전제**: 파이프라인은 아침 전체(06:30 KST)와 저녁 KR 전용(16:30 KST)
   두 번 돈다(트리거는 `supabase/pg_cron_pipeline_trigger.sql`). 저녁 실행이 쓰는 KR

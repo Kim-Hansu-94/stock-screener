@@ -3,14 +3,13 @@ import { connection } from 'next/server'
 import { LeadingSectors } from '@/components/LeadingSectors'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { StockCard } from '@/components/StockCard'
-import { WatchlistCard } from '@/components/WatchlistCard'
+import { PositionCard } from '@/components/PositionCard'
 import { fetchUsdKrwRate } from '@/lib/queries/shared'
 import {
   getLatestRegime,
   getLeadingSectors,
   getPriceHistoryByTicker,
   getScreenedStocks,
-  getWatchlistStatus,
   getWatchlistTickers,
 } from '@/lib/queries/screener'
 import { getUniverseNameMap } from '@/lib/queries/universe'
@@ -130,30 +129,29 @@ function SectionSkeleton() {
   )
 }
 
-// 감시 종목·한국장·미국장을 하나의 Suspense로 묶으면 셋 중 가장 느린 쿼리(보통 한국장의
-// 종목별 시세 조회) 하나 때문에 먼저 끝난 것도 같이 안 보이고 기다리게 된다. 셋을 독립된
-// 컴포넌트 + 각자의 Suspense로 나눠, 끝난 순서대로 스트리밍되게 한다.
-async function WatchlistSection() {
+// 포지션 관리·한국장·미국장을 하나의 Suspense로 묶으면 셋 중 가장 느린 쿼리(보통
+// 한국장의 종목별 시세 조회) 하나 때문에 먼저 끝난 것도 같이 안 보이고 기다리게 된다.
+// 셋을 독립된 컴포넌트 + 각자의 Suspense로 나눠, 끝난 순서대로 스트리밍되게 한다.
+//
+// 여기 있는 건 이미 보유 중인 종목(category='position')뿐이다. 아직 안 산 관심
+// 종목의 매집 감시는 2026-09-06에 종목발굴 탭(/discover)으로 옮겼다 — 그쪽은
+// "매집 구간에 들어왔는가"를 기다리는 장기 관점이라 이 페이지(단기 눌림목 매매)와
+// 컨셉이 갈린다. 반면 보유 종목의 추가 매수 타이밍은 매일 확인하는 것이라 여기
+// 상단에 그대로 둔다.
+async function PositionSection() {
   await connection()
-  const [watchlist, tickers] = await Promise.all([getWatchlistStatus(), getWatchlistTickers()])
-
-  // 감시 종목 카드에서 차트를 펼쳐볼 수 있게, 감시 목록에 있는 모든 종목(평가
-  // 대기 중이라 status가 없는 것 포함)의 일봉을 시장별로 나눠 미리 가져온다.
-  const byKey = new Map<string, { market: Market; ticker: string }>()
-  for (const r of watchlist) byKey.set(`${r.market}-${r.ticker}`, { market: r.market, ticker: r.ticker })
-  for (const t of tickers) byKey.set(`${t.market}-${t.ticker}`, { market: t.market, ticker: t.ticker })
-  const krTickers = [...byKey.values()].filter((e) => e.market === 'KR').map((e) => e.ticker)
-  const usTickers = [...byKey.values()].filter((e) => e.market === 'US').map((e) => e.ticker)
+  // 등록된 보유 종목이 없어도 카드는 그린다 — 종목을 추가하는 폼이 이 카드 안에 있다.
+  const tickers = (await getWatchlistTickers()).filter((t) => t.category === 'position')
 
   const [krHistory, usHistory] = await Promise.all([
-    getPriceHistoryByTicker('KR', krTickers, 500),
-    getPriceHistoryByTicker('US', usTickers, 500),
+    getPriceHistoryByTicker('KR', tickers.filter((t) => t.market === 'KR').map((t) => t.ticker), 500),
+    getPriceHistoryByTicker('US', tickers.filter((t) => t.market === 'US').map((t) => t.ticker), 500),
   ])
   const history: Record<string, PriceHistoryRow[]> = {}
   for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
   for (const [ticker, bars] of Object.entries(usHistory)) history[`US-${ticker}`] = bars
 
-  return <WatchlistCard rows={watchlist} tickers={tickers} history={history} />
+  return <PositionCard tickers={tickers} history={history} />
 }
 
 async function MarketSection({ market, label, universe }: { market: Market; label: string; universe: string }) {
@@ -339,7 +337,7 @@ export default function HomePage() {
       </div>
 
       <Suspense fallback={<SectionSkeleton />}>
-        <WatchlistSection />
+        <PositionSection />
       </Suspense>
 
       {MARKETS.map(({ market, label, universe }) => (

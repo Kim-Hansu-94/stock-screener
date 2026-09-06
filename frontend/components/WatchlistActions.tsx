@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState, useTransition, type FormEvent } from 'react'
 import { askPin, clearPin } from '@/lib/pinClient'
-import type { Market } from '@/lib/types'
+import type { Market, WatchlistCategory } from '@/lib/types'
 
 /**
  * 감시 종목(watchlist_tickers) 추가/삭제.
@@ -28,13 +28,24 @@ async function callWatchlist(
   return { ok: false, status: res.status, error: data.error ?? '요청에 실패했습니다.' }
 }
 
-export function AddWatchlistForm() {
+/**
+ * @param defaultCategory 이 폼이 놓인 섹션의 감시 목적. 매집 감시 섹션에서는
+ * 목적 선택을 숨기고(항상 accumulation), 포지션 관리 섹션에서는 평단가까지 받는다.
+ */
+export function AddWatchlistForm({
+  defaultCategory = 'accumulation',
+}: {
+  defaultCategory?: WatchlistCategory
+}) {
   const router = useRouter()
   const [market, setMarket] = useState<Market>('KR')
   const [ticker, setTicker] = useState('')
+  const [avgCost, setAvgCost] = useState('')
   const [pending, startTransition] = useTransition()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const isPosition = defaultCategory === 'position'
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -45,7 +56,17 @@ export function AddWatchlistForm() {
 
     setBusy(true)
     setError(null)
-    const result = await callWatchlist('POST', { market, ticker: t }, pin)
+    const result = await callWatchlist(
+      'POST',
+      {
+        market,
+        ticker: t,
+        category: defaultCategory,
+        // 평단가는 선택 입력 — 비워두면 손익률만 안 보이고 나머지는 그대로 동작한다.
+        avgCost: isPosition && avgCost.trim() ? Number(avgCost.replace(/,/g, '')) : undefined,
+      },
+      pin,
+    )
     setBusy(false)
 
     if (!result.ok) {
@@ -54,6 +75,7 @@ export function AddWatchlistForm() {
       return
     }
     setTicker('')
+    setAvgCost('')
     startTransition(() => router.refresh())
   }
 
@@ -77,16 +99,28 @@ export function AddWatchlistForm() {
           placeholder={market === 'KR' ? '티커 (예: 005930)' : '티커 (예: TSLA)'}
           className="h-9 w-36 rounded-md border border-input px-3 text-sm outline-none focus:border-ring"
         />
+        {isPosition && (
+          <input
+            type="text"
+            inputMode="numeric"
+            value={avgCost}
+            onChange={(e) => setAvgCost(e.target.value)}
+            placeholder="평단가 (선택)"
+            className="h-9 w-32 rounded-md border border-input px-3 text-sm outline-none focus:border-ring"
+          />
+        )}
         <button
           type="submit"
           disabled={working || !ticker.trim()}
           className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
-          {working ? '추가 중...' : '관심 종목 추가'}
+          {working ? '추가 중...' : isPosition ? '보유 종목 추가' : '관심 종목 추가'}
         </button>
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
-        스크리너 통과 여부와 상관없이 매일 자동으로 평가해 감시 목록에 표시합니다.
+        {isPosition
+          ? '이미 보유 중인 종목을 추가하면 지지 신호 점검을 매일 보여줍니다. 평단가를 넣으면 손익률도 같이 표시됩니다.'
+          : '스크리너 통과 여부와 상관없이 매일 자동으로 평가해 감시 목록에 표시합니다.'}
       </p>
       {error && <p className="mt-1 text-xs text-down">{error}</p>}
     </form>

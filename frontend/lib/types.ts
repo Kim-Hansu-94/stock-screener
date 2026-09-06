@@ -141,11 +141,22 @@ export interface FundamentalsRow {
 
 /** 사이트에서 직접 추가한 감시 종목 원본(/api/watchlist) — watchlist_status와 합쳐
  *  "추가했지만 아직 파이프라인이 평가 전"인 종목도 카드에 보여주는 데 쓴다. */
+/**
+ * 감시 목적 — 같은 감시 목록이지만 재는 질문이 다르다.
+ * `accumulation`: 아직 안 산 종목. "조용히 매집 구간에 들어왔는가"(박스 수축 등)를 본다.
+ * `position`: 이미 보유 중인 종목. "지금 지지선 근처인가"(supportSignals.ts)를 본다.
+ * 값이 없는 기존 행은 accumulation으로 취급한다(컬럼 추가 이전에 넣은 종목).
+ */
+export type WatchlistCategory = 'accumulation' | 'position'
+
 export interface WatchlistTickerRow {
   market: Market
   ticker: string
   name: string
   added_at: string
+  category: WatchlistCategory | null
+  /** 평단가 — category가 'position'일 때만 쓴다. */
+  avg_cost: number | null
 }
 
 /** 감시 종목(보유 종목) 상태 — pipeline/src/watchlist.py가 매 실행마다 갱신 */

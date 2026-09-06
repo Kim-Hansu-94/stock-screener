@@ -2,7 +2,7 @@ import { revalidateTag } from 'next/cache'
 import { createServerSupabaseClient } from '@/lib/supabase'
 import { SCREENER_CACHE_TAG } from '@/lib/queries/shared'
 import { checkTradePin } from '@/lib/tradeAuth'
-import type { Market } from '@/lib/types'
+import type { Market, WatchlistCategory } from '@/lib/types'
 
 /**
  * 감시 종목(watchlist_tickers) 추가/삭제. 조회는 서버 컴포넌트가 직접 하고,
@@ -19,11 +19,17 @@ function parseMarket(value: unknown): Market | null {
   return value === 'KR' || value === 'US' ? value : null
 }
 
+// 값이 없으면 매집 감시로 본다 — 대부분의 종목이 그쪽이고, 컬럼 추가 이전에
+// 넣어둔 기존 행도 같은 기본값을 갖는다.
+function parseCategory(value: unknown): WatchlistCategory {
+  return value === 'position' ? 'position' : 'accumulation'
+}
+
 export async function POST(request: Request) {
   const pin = checkTradePin(request)
   if (!pin.ok) return Response.json({ error: pin.error }, { status: pin.status })
 
-  let body: { market?: string; ticker?: string; name?: string }
+  let body: { market?: string; ticker?: string; name?: string; category?: string; avgCost?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -35,6 +41,13 @@ export async function POST(request: Request) {
   if (!market || !ticker) {
     return Response.json({ error: 'market과 ticker가 필요합니다.' }, { status: 400 })
   }
+
+  const category = parseCategory(body.category)
+  // 평단가는 포지션 관리에서만 의미가 있다. 숫자가 아니거나 0 이하면 저장하지
+  // 않고 null로 둔다 — 손익률만 안 보일 뿐 지지 신호 점검은 그대로 동작한다.
+  const rawAvgCost = typeof body.avgCost === 'number' ? body.avgCost : Number(body.avgCost)
+  const avgCost =
+    category === 'position' && Number.isFinite(rawAvgCost) && rawAvgCost > 0 ? rawAvgCost : null
 
   const supabase = createServerSupabaseClient()
 
@@ -80,7 +93,7 @@ export async function POST(request: Request) {
 
   const { error } = await supabase
     .from('watchlist_tickers')
-    .insert({ market, ticker, name: name.slice(0, 200) })
+    .insert({ market, ticker, name: name.slice(0, 200), category, avg_cost: avgCost })
 
   if (error) {
     if (error.code === '23505') {
@@ -90,7 +103,7 @@ export async function POST(request: Request) {
   }
 
   revalidateTag(SCREENER_CACHE_TAG, { expire: 0 })
-  return Response.json({ market, ticker, name })
+  return Response.json({ market, ticker, name, category, avgCost })
 }
 
 export async function DELETE(request: Request) {

@@ -123,7 +123,7 @@ export function WatchlistCard({
     >
       <div>
         <h2 className="text-base font-bold">
-          감시 종목
+          매집 감시
           {anyQualified && (
             <span className="ml-2 rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
               매수 신호 발생
@@ -131,8 +131,9 @@ export function WatchlistCard({
           )}
         </h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          횡보·조정 스크리너 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 아침·저녁 평가합니다.
-          뉴스·소문으로 관심 가는 종목은 스크리너 통과 여부와 상관없이 아래에서 직접 추가해 추적할 수 있습니다.
+          아직 사지 않은 관심 종목이 저점에서 물량이 소진되고 상승 초입에 들어섰는지 감시합니다.
+          횡보·조정 스크리너와 같은 기준(조정폭 20~60% · 신저가 진정 · 박스 수축)으로 매일 아침·저녁 평가합니다.
+          이미 보유 중이라 물타기 타이밍을 보는 종목은 눌림목 종목 탭 상단의 &ldquo;포지션 관리&rdquo;에서 따로 다룹니다.
         </p>
         <p className="mt-1 text-xs text-accent-foreground">
           <span className="font-medium">매집 구간:</span> 하루짜리 신호가 아니라, 위 기준을 계속

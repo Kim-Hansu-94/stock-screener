@@ -12,8 +12,24 @@ create table if not exists watchlist_tickers (
   ticker   text not null,
   name     text not null,
   added_at timestamptz not null default now(),
+  -- 감시 목적. 'accumulation'(매집 감시 — 아직 안 산 종목의 매집 구간 포착) /
+  -- 'position'(포지션 관리 — 이미 보유 중인 종목의 지지 신호 점검).
+  -- 둘은 같은 목록에 있지만 재는 질문이 완전히 달라서, 같은 알고리즘
+  -- (박스 수축 등)을 양쪽에 적용하면 한쪽이 구조적으로 영원히 미달로 남는다
+  -- (SK하이닉스처럼 변동성 큰 대형주는 60일 박스폭 조건을 절대 못 넘는다).
+  category text not null default 'accumulation'
+    check (category in ('accumulation', 'position')),
+  -- 평단가 — category = 'position'일 때만 쓴다(손익률 표시용).
+  avg_cost numeric,
   primary key (market, ticker)
 );
+
+-- ── 기존 테이블에 컬럼 추가 (2026-09-06) ────────────────────────────────
+-- 이미 테이블이 있으면 위 CREATE TABLE은 아무것도 안 하므로 이 두 줄을 실행한다.
+alter table watchlist_tickers
+  add column if not exists category text not null default 'accumulation';
+alter table watchlist_tickers
+  add column if not exists avg_cost numeric;
 
 -- paper_trades와 동일한 이유로 RLS를 켜고 정책은 만들지 않는다 — anon 키로는
 -- 접근 불가, 프론트 API 라우트(/api/watchlist)는 service key로 붙어 PIN 검사를
