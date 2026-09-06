@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts'
 import { simpleMovingAverage, bollingerBands, relativeStrengthIndex, ichimokuLines } from '@/lib/calculations'
 import { IchimokuCloudSeries } from '@/lib/ichimokuCloudSeries'
+import { BOX_WINDOW } from '@/lib/opportunityScore'
 import type { PriceHistoryRow } from '@/lib/types'
 
 interface StockChartProps {
@@ -13,6 +14,10 @@ interface StockChartProps {
   rsi?: boolean
   volume?: boolean
   ichimoku?: boolean
+  /** 박스 수축 판정(watchlist.py evaluate_watch·detect_box_breakout)이 보는 최근
+   * BOX_WINDOW(60)거래일 고가~저가 구간을 그대로 표시한다. 일봉 기준 지표라
+   * monthly 차트와 같이 쓰지 않는다. */
+  boxRange?: boolean
   preAggregated?: boolean
   stopPrice?: number
   targetPrice?: number
@@ -45,6 +50,11 @@ const ICHIMOKU_SENKOU_B_COLOR = '#3182f6cc'
 const ICHIMOKU_TENKAN_COLOR = '#059669'
 const ICHIMOKU_KIJUN_COLOR = '#db2777'
 const ICHIMOKU_CHIKOU_COLOR = '#6b7280'
+
+// 박스 구간 표시색 — 다른 지표(빨강/파랑 캔들, 초록/분홍 일목, 파랑 볼린저,
+// 주황 20일선)와 안 겹치는 중립적인 슬레이트 톤을 쓴다.
+const BOX_RANGE_FILL_COLOR = 'rgba(100, 116, 139, 0.14)'
+const BOX_RANGE_LINE_COLOR = '#475569cc'
 
 // 선행스팬(미래로 26봉)·후행스팬(과거로 26봉) 이동에 쓸 거래일 근사 — 주말만 건너뛰고
 // 공휴일은 무시한다(시각적 참고용 보조지표라 이 정도 근사로 충분, 실제 거래일 데이터를
@@ -96,6 +106,7 @@ export function StockChart({
   rsi = false,
   volume = false,
   ichimoku = false,
+  boxRange = false,
   preAggregated = false,
   stopPrice,
   targetPrice,
@@ -149,6 +160,41 @@ export function StockChart({
         lastCloudTime = time
       }
       cloudSeries.setData(cloudPoints)
+    }
+
+    // 박스 구간 — watchlist.py의 evaluate_watch(box_ok)·detect_box_breakout이 보는
+    // "최근 60거래일 고가~저가"를 그대로 그린다. 어디부터 어디까지를 박스로 보고
+    // 있는지 눈으로 바로 확인할 수 있게 하기 위함. 캔들보다 먼저 그려야 뒤에 깔린다.
+    if (boxRange && data.length > 0) {
+      const windowBars = data.slice(-BOX_WINDOW)
+      const boxHigh = Math.max(...windowBars.map((b) => b.high))
+      const boxLow = Math.min(...windowBars.map((b) => b.low))
+      const startDate = windowBars[0].date
+      const endDate = windowBars[windowBars.length - 1].date
+
+      const boxFillSeries = chart.addCustomSeries(new IchimokuCloudSeries(), {
+        upColor: BOX_RANGE_FILL_COLOR,
+        downColor: BOX_RANGE_FILL_COLOR,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      })
+      boxFillSeries.setData(windowBars.map((b) => ({ time: b.date, senkouA: boxHigh, senkouB: boxLow })))
+
+      const addBoxEdge = (value: number) => {
+        const edgeSeries = chart.addLineSeries({
+          color: BOX_RANGE_LINE_COLOR,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          lastValueVisible: false,
+          priceLineVisible: false,
+        })
+        edgeSeries.setData([
+          { time: startDate, value },
+          { time: endDate, value },
+        ])
+      }
+      addBoxEdge(boxHigh)
+      addBoxEdge(boxLow)
     }
 
     // lightweight-charts 기본값은 상승=초록/하락=빨강(서양식)이라 명시적으로 덮어써야 한다.
@@ -330,7 +376,7 @@ export function StockChart({
       chart.remove()
       rsiChart?.remove()
     }
-  }, [history, monthly, bollinger, rsi, volume, ichimoku, preAggregated, stopPrice, targetPrice, movingAverages])
+  }, [history, monthly, bollinger, rsi, volume, ichimoku, boxRange, preAggregated, stopPrice, targetPrice, movingAverages])
 
   if (history.length === 0) {
     return <p className="text-sm text-muted-foreground">차트 데이터가 없습니다.</p>
@@ -359,6 +405,12 @@ export function StockChart({
           <span className="flex items-center gap-1">
             <span className="inline-block h-2.5 w-1.5 rounded-[1px] bg-muted-foreground/50" />
             거래량
+          </span>
+        )}
+        {boxRange && (
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-3.5 rounded-[1px]" style={{ backgroundColor: BOX_RANGE_FILL_COLOR, border: `1px dashed ${BOX_RANGE_LINE_COLOR}` }} />
+            박스 구간(최근 {BOX_WINDOW}거래일 고가~저가)
           </span>
         )}
         {ichimoku && (

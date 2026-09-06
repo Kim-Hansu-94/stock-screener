@@ -234,6 +234,7 @@ export function WatchlistCard({
                     history={history[entry.key]}
                     volume
                     ichimoku
+                    boxRange
                     movingAverages={WATCHLIST_MOVING_AVERAGES}
                   />
                 </div>
