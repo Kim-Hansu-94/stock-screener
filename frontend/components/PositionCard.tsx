@@ -3,7 +3,12 @@
 import { useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { Market, PriceHistoryRow, WatchlistTickerRow } from '@/lib/types'
-import { assessSupportSignals, drawdownFromHigh, profitLossPct } from '@/lib/supportSignals'
+import {
+  assessSupportSignals,
+  drawdownFromHigh,
+  profitLossPct,
+  summarizeSupportSignals,
+} from '@/lib/supportSignals'
 import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
@@ -95,7 +100,9 @@ export function PositionCard({
         const key = `${entry.market}-${entry.ticker}`
         const bars = history[key] ?? []
         const latest = bars.length > 0 ? bars[bars.length - 1] : null
-        const { signals, metCount, evaluatedCount } = assessSupportSignals(bars)
+        const assessment = assessSupportSignals(bars)
+        const { signals, metCount, evaluatedCount } = assessment
+        const summary = summarizeSupportSignals(assessment)
         const pl = latest ? profitLossPct(entry.avg_cost, latest.close) : null
         const dd = drawdownFromHigh(bars)
 
@@ -162,6 +169,12 @@ export function PositionCard({
                     <SignalChip key={s.id} met={s.met} label={s.label} />
                   ))}
                 </div>
+
+                {summary && (
+                  <p className="mt-2 rounded-md bg-accent/60 px-2.5 py-2 text-xs leading-relaxed text-accent-foreground">
+                    {summary.text}
+                  </p>
+                )}
 
                 <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
                   {signals.map((s) => (

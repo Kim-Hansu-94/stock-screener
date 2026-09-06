@@ -4,6 +4,7 @@ import {
   assessSupportSignals,
   drawdownFromHigh,
   profitLossPct,
+  summarizeSupportSignals,
   type SupportSignalId,
 } from './supportSignals'
 import type { PriceHistoryRow } from './types'
@@ -166,6 +167,71 @@ describe('assessSupportSignals', () => {
     const result = assessSupportSignals(bars(Array.from({ length: LONG }, () => 100)))
     expect(result.evaluatedCount).toBe(5)
     expect(result.metCount).toBe(result.signals.filter((s) => s.met === true).length)
+  })
+})
+
+describe('summarizeSupportSignals', () => {
+  /** 판정 결과를 직접 만들어 문장 생성만 검사한다(가격 픽스처로 5개 조합을 다 만들기 어렵다). */
+  function assessment(states: Partial<Record<SupportSignalId, boolean | null>>) {
+    const defaults: Record<SupportSignalId, boolean | null> = {
+      nearMa: false, cloud: false, rsiBounce: false, higherLow: false, volumeRise: false,
+    }
+    const merged = { ...defaults, ...states }
+    const signals = (Object.keys(merged) as SupportSignalId[]).map((id) => ({
+      id,
+      label: id,
+      met: merged[id],
+      detail: 'detail',
+      phrase: merged[id] === null ? '' : `${id}-구절`,
+    }))
+    return {
+      signals,
+      metCount: signals.filter((s) => s.met === true).length,
+      evaluatedCount: signals.filter((s) => s.met !== null).length,
+    }
+  }
+
+  it('returns null when nothing could be judged', () => {
+    expect(
+      summarizeSupportSignals(
+        assessment({ nearMa: null, cloud: null, rsiBounce: null, higherLow: null, volumeRise: null }),
+      ),
+    ).toBeNull()
+  })
+
+  it('calls it 바닥 다지기 when support holds but demand is absent (SK하이닉스 사례)', () => {
+    // 120일선 근접·저점 높이기는 충족, 구름·RSI·거래량은 미충족
+    const s = summarizeSupportSignals(assessment({ nearMa: true, higherLow: true }))
+    expect(s?.verdict).toContain('바닥은 다지는 듯하지만')
+    expect(s?.text).toContain('지금은')
+    expect(s?.text).toContain('다만')
+  })
+
+  it('calls it the best combination when both support and demand are there', () => {
+    const s = summarizeSupportSignals(
+      assessment({ nearMa: true, cloud: true, higherLow: true, volumeRise: true }),
+    )
+    expect(s?.verdict).toContain('가장 좋은 조합')
+  })
+
+  it('calls out a bounce with no support underneath', () => {
+    const s = summarizeSupportSignals(assessment({ rsiBounce: true, volumeRise: true }))
+    expect(s?.verdict).toContain('단기 반등 조짐')
+  })
+
+  it('warns when neither support nor demand is present', () => {
+    const s = summarizeSupportSignals(assessment({}))
+    expect(s?.verdict).toContain('하락이 진행 중일 수 있는')
+    expect(s?.text).not.toContain('다만') // 충족된 게 없으면 "다만"으로 시작하지 않는다
+  })
+
+  it('does not count unjudged conditions as failures', () => {
+    // 지지 계열 3개 중 2개가 판정 불가고 나머지 1개가 충족이면 "지지가 있다"로 봐야 한다 —
+    // 판정 못 한 걸 미충족으로 세면 실제보다 비관적으로 나온다.
+    const s = summarizeSupportSignals(
+      assessment({ nearMa: true, cloud: null, higherLow: null, rsiBounce: null, volumeRise: null }),
+    )
+    expect(s?.verdict).toContain('바닥은 다지는 듯하지만')
   })
 })
 
