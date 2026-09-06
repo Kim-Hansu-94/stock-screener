@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assessEarnings, assessFinancialHealth } from './fundamentals'
+import { assessEarnings, assessFinancialHealth, assessValuation } from './fundamentals'
 import type { FundamentalsRow } from './types'
 
 function row(over: Partial<FundamentalsRow>): FundamentalsRow {
@@ -203,5 +203,43 @@ describe('assessFinancialHealth', () => {
   it('treats an unspecified sector as the default threshold, not financial', () => {
     const result = assessFinancialHealth(row({ current_assets: 150, current_liabilities: 100 }))
     expect(result.verdict).not.toBe('not_applicable')
+  })
+})
+
+describe('assessValuation', () => {
+  it('returns unknown for both metrics with no row', () => {
+    const result = assessValuation(null)
+    expect(result.perLevel).toBe('unknown')
+    expect(result.pbrLevel).toBe('unknown')
+  })
+
+  it('returns unknown per-metric when that field is null even if the other is present', () => {
+    const result = assessValuation({ per: null, pbr: 1.2 })
+    expect(result.perLevel).toBe('unknown')
+    expect(result.pbrLevel).not.toBe('unknown')
+  })
+
+  it('uses the default thresholds for an unclassified sector', () => {
+    // 기본 기준: PER low<=12/high>=25, PBR low<=1.5/high>=4
+    expect(assessValuation({ per: 10, pbr: 1 }, undefined).perLevel).toBe('low')
+    expect(assessValuation({ per: 18, pbr: 2 }, undefined).perLevel).toBe('fair')
+    expect(assessValuation({ per: 30, pbr: 5 }, undefined).perLevel).toBe('high')
+  })
+
+  it('judges the same PER differently depending on sector (Technology vs 은행)', () => {
+    // PER 18은 금융(은행) 기준(low 8/high 16)으론 high, 기술 기준(low 20/high 35)으론 low
+    expect(assessValuation({ per: 18, pbr: null }, '은행').perLevel).toBe('high')
+    expect(assessValuation({ per: 18, pbr: null }, 'Technology').perLevel).toBe('low')
+  })
+
+  it('classifies PBR against sector-specific thresholds too', () => {
+    // PBR 3은 금융(은행) 기준(low 0.8/high 1.8)으론 high, 기술 기준(low 4/high 12)으론 low
+    expect(assessValuation({ per: null, pbr: 3 }, '은행').pbrLevel).toBe('high')
+    expect(assessValuation({ per: null, pbr: 3 }, 'Technology').pbrLevel).toBe('low')
+  })
+
+  it('falls back to default thresholds for a broad sector without a specific table (e.g. 기타)', () => {
+    const result = assessValuation({ per: 13, pbr: null }, '기타')
+    expect(result.perLevel).toBe('fair') // 기본 기준(low 12/high 25) 그대로
   })
 })
