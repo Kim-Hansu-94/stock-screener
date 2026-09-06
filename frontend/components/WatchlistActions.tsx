@@ -14,7 +14,7 @@ import type { Market, WatchlistCategory } from '@/lib/types'
  */
 
 async function callWatchlist(
-  method: 'POST' | 'DELETE',
+  method: 'POST' | 'PATCH' | 'DELETE',
   body: unknown,
   pin: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
@@ -124,6 +124,98 @@ export function AddWatchlistForm({
       </p>
       {error && <p className="mt-1 text-xs text-down">{error}</p>}
     </form>
+  )
+}
+
+/**
+ * 평단가 인라인 수정 — 물타기를 하면 평단가가 그때마다 바뀌므로, 삭제 후 재등록이
+ * 아니라 그 자리에서 고칠 수 있어야 한다.
+ */
+export function EditAvgCostButton({
+  market,
+  ticker,
+  avgCost,
+}: {
+  market: Market
+  ticker: string
+  avgCost: number | null
+}) {
+  const router = useRouter()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(avgCost != null ? String(avgCost) : '')
+  const [pending, startTransition] = useTransition()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    const pin = askPin()
+    if (!pin) return
+
+    setBusy(true)
+    setError(null)
+    const trimmed = value.replace(/,/g, '').trim()
+    const result = await callWatchlist(
+      'PATCH',
+      { market, ticker, avgCost: trimmed === '' ? null : Number(trimmed) },
+      pin,
+    )
+    setBusy(false)
+
+    if (!result.ok) {
+      if (result.status === 401) clearPin()
+      setError(result.error)
+      return
+    }
+    setEditing(false)
+    startTransition(() => router.refresh())
+  }
+
+  const working = busy || pending
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      >
+        평단가 수정
+      </button>
+    )
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="평단가"
+        autoFocus
+        className="h-7 w-28 rounded-md border border-input px-2 text-xs outline-none focus:border-ring"
+      />
+      <button
+        type="button"
+        onClick={save}
+        disabled={working}
+        className="rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      >
+        {working ? '저장 중...' : '저장'}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setEditing(false)
+          setValue(avgCost != null ? String(avgCost) : '')
+          setError(null)
+        }}
+        className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:text-secondary-foreground"
+      >
+        취소
+      </button>
+      {error && <span className="text-xs text-down">{error}</span>}
+    </span>
   )
 }
 

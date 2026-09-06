@@ -106,6 +106,48 @@ export async function POST(request: Request) {
   return Response.json({ market, ticker, name, category, avgCost })
 }
 
+/**
+ * 평단가 수정. 물타기를 하면 평단가가 그때마다 바뀌는데, 그게 이 카드의 존재
+ * 이유라서 삭제 후 재등록으로 때울 수 없다(삭제하면 watchlist_status까지 지워져
+ * 다음 파이프라인 실행 전까지 평가가 빈다).
+ */
+export async function PATCH(request: Request) {
+  const pin = checkTradePin(request)
+  if (!pin.ok) return Response.json({ error: pin.error }, { status: pin.status })
+
+  let body: { market?: string; ticker?: string; avgCost?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: '요청 형식이 올바르지 않습니다.' }, { status: 400 })
+  }
+
+  const market = parseMarket(body.market)
+  const ticker = typeof body.ticker === 'string' ? body.ticker.trim().toUpperCase() : ''
+  if (!market || !ticker) {
+    return Response.json({ error: 'market과 ticker가 필요합니다.' }, { status: 400 })
+  }
+
+  // 빈 값이면 평단가를 지운다(손익률만 안 보이고 지지 신호 점검은 그대로 동작).
+  const raw = typeof body.avgCost === 'number' ? body.avgCost : Number(body.avgCost)
+  const avgCost = Number.isFinite(raw) && raw > 0 ? raw : null
+  if (body.avgCost != null && body.avgCost !== '' && avgCost === null) {
+    return Response.json({ error: '평단가는 0보다 큰 숫자여야 합니다.' }, { status: 422 })
+  }
+
+  const supabase = createServerSupabaseClient()
+  const { error } = await supabase
+    .from('watchlist_tickers')
+    .update({ avg_cost: avgCost })
+    .eq('market', market)
+    .eq('ticker', ticker)
+
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  revalidateTag(SCREENER_CACHE_TAG, { expire: 0 })
+  return Response.json({ market, ticker, avgCost })
+}
+
 export async function DELETE(request: Request) {
   const pin = checkTradePin(request)
   if (!pin.ok) return Response.json({ error: pin.error }, { status: pin.status })

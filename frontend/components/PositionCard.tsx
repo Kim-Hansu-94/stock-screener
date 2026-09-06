@@ -6,7 +6,7 @@ import type { Market, PriceHistoryRow, WatchlistTickerRow } from '@/lib/types'
 import { assessSupportSignals, drawdownFromHigh, profitLossPct } from '@/lib/supportSignals'
 import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
-import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
+import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
 import { LoadingFallback } from '@/components/LoadingFallback'
 
 // 감시 카드와 같은 이유로 차트는 펼쳤을 때만 불러온다.
@@ -123,13 +123,19 @@ export function PositionCard({
 
             {latest ? (
               <>
-                <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary-foreground">
-                  {entry.avg_cost != null && (
-                    <div className="flex gap-1">
-                      <dt className="text-muted-foreground">평단가</dt>
-                      <dd className="font-mono">{formatPrice(entry.avg_cost, entry.market)}</dd>
-                    </div>
-                  )}
+                <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-secondary-foreground">
+                  <div className="flex items-center gap-1">
+                    <dt className="text-muted-foreground">평단가</dt>
+                    <dd className="font-mono">
+                      {entry.avg_cost != null ? formatPrice(entry.avg_cost, entry.market) : '미입력'}
+                    </dd>
+                    {/* 물타기를 하면 평단가가 바뀌므로 그 자리에서 고칠 수 있게 한다. */}
+                    <EditAvgCostButton
+                      market={entry.market}
+                      ticker={entry.ticker}
+                      avgCost={entry.avg_cost}
+                    />
+                  </div>
                   <div className="flex gap-1">
                     <dt className="text-muted-foreground">현재가</dt>
                     <dd className="font-mono">{formatPrice(latest.close, entry.market)}</dd>
