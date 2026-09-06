@@ -1,3 +1,4 @@
+import re
 from datetime import date
 
 from pipeline.src import watchlist as watchlist_module
@@ -89,6 +90,31 @@ def test_formed_base_qualifies_with_signals():
     assert 0.0 < status["score"] <= 1.0
     assert status["higher_lows"] is True
     assert status["volume_dry"] is True
+
+
+def test_wide_box_reports_actual_percentage_in_reason():
+    """box_ok 미달 사유에 "30% 초과"라는 고정 문구 대신 실제 계산값이 나와야, 기준(30%)에
+    얼마나 못 미쳤는지(턱걸이인지 훨씬 넓은지) 판단할 수 있다."""
+    bars: list[dict] = []
+    i = 0
+    for _ in range(300):
+        bars.append(_bar(i, 100.0, spread=1.0))
+        i += 1
+    for k in range(100):
+        bars.append(_bar(i, 100.0 - 0.4 * (k + 1), spread=1.0))  # 100 → 60
+        i += 1
+    for k in range(60):
+        # 최근 60일 구간 자체가 60~90을 오가는 넓은 박스 — 박스 수축 미달을 의도적으로 만든다.
+        close = 90.0 if k % 2 == 0 else 60.0
+        bars.append(_bar(i, close, spread=1.0))
+        i += 1
+
+    status = evaluate_watch(bars)
+    assert status["qualified"] is False
+    assert status["box_ok"] is False
+    match = re.search(r"60일 박스폭 (\d+)% \(기준 30% 이하", status["reason"])
+    assert match is not None, status["reason"]
+    assert int(match.group(1)) > 30
 
 
 class _FakeTable:

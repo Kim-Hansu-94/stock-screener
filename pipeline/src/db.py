@@ -116,6 +116,27 @@ class ScreenerDB:
         self.client.table("opportunity_snapshot").delete().eq("market", market).execute()
         _batch_upsert(self.client, "opportunity_snapshot", rows)
 
+    def get_opportunity_snapshot_since(self, market: str) -> dict[str, str]:
+        """그 시장의 기존(어제까지) 스냅샷에서 ticker별 qualified_since를 가져온다.
+
+        refresh_opportunity_snapshot이 "이 후보가 며칠째 화면에 떠 있는지"를 이어가는
+        데 쓴다. opportunity_snapshot은 통과 종목만 남기고 매번 통째로 갈아끼우므로,
+        여기 있다는 것 자체가 "지난 계산에서도 통과했다"는 뜻이다 — watchlist_status의
+        qualified_since와 같은 방식이지만, 미통과 종목의 행 자체가 없어 별도 qualified
+        플래그 비교 없이 존재 여부만으로 판단할 수 있다.
+        """
+        try:
+            result = self.client.table("opportunity_snapshot") \
+                .select("ticker, qualified_since") \
+                .eq("market", market).execute()
+        except Exception:  # noqa: BLE001
+            return {}
+        return {
+            r["ticker"]: r["qualified_since"]
+            for r in (result.data or [])
+            if r.get("qualified_since")
+        }
+
     def save_realestate_monthly(self, rows: list[dict]) -> None:
         # PK가 (region_code, month)라 같은 달을 다시 넣으면 덮어쓴다. 실거래 신고가
         # 최대 30일 늦게 들어와 최근 달 수치가 계속 바뀌므로 upsert여야 한다.

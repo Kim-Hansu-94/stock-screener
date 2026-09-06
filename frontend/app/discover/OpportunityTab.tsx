@@ -4,7 +4,10 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
-import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade } from '@/lib/buySignal'
+import {
+  BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade,
+  daysSinceQualified, isNewEntry,
+} from '@/lib/buySignal'
 import {
   EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, ONE_TIME_GAIN_LABEL, ONE_TIME_GAIN_NOTE,
   PROFIT_SOURCE_LABEL, assessEarnings,
@@ -51,6 +54,12 @@ export function OpportunityTab({
         </p>
         <p className="mt-2 text-xs text-accent-foreground">
           <span className="font-medium">매수 등급 기준:</span> {BUY_GRADE_CRITERIA}
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium">후보 등록 N일째:</span> 매력도 점수는 저점 이후
+          최소 몇 달은 조용해야 오르는 구조라, 점수만 보면 항상 어느 정도 오른 뒤에야 눈에
+          띕니다. 이 배지는 하드필터를 통과하기 시작한 날부터 며칠째인지 보여줘, 점수가
+          아직 낮아도 &ldquo;오늘 막 뜬 종목&rdquo;을 미리 알아볼 수 있게 합니다.
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           <span className="font-medium">읽을 때 주의:</span> 점수는 최근 6~12개월 가격 움직임만 봅니다.
@@ -263,6 +272,17 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${BUY_GRADE_CLASS[grade]}`}>
             매력도 {Math.round(stock.score * 100)}점 · {BUY_GRADE_LABEL[grade]}
           </span>
+          {isNewEntry(stock.qualifiedSince) ? (
+            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+              🆕 신규 진입
+            </span>
+          ) : (
+            daysSinceQualified(stock.qualifiedSince) != null && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">
+                후보 등록 {daysSinceQualified(stock.qualifiedSince)}일째
+              </span>
+            )
+          )}
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-foreground">
             저점 유지 {stock.daysSinceLow}일
           </span>

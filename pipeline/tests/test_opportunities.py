@@ -36,15 +36,19 @@ class _Client:
 
 
 class _DB:
-    def __init__(self):
+    def __init__(self, previous_since: dict[str, str] | None = None):
         self.client = _Client()
         self.saved: list[dict] = []
         self.replaced: list[str] = []
+        self._previous_since = previous_since or {}
 
     def replace_opportunity_snapshot(self, market, rows):
         # 실제 구현은 그 시장 행을 지우고 다시 넣는다. 테스트는 '무엇을 저장했는가'만 본다.
         self.replaced.append(market)
         self.saved.extend(rows)
+
+    def get_opportunity_snapshot_since(self, _market):
+        return self._previous_since
 
 
 UNIVERSE = [
@@ -129,6 +133,36 @@ def test_clears_stale_rows_so_dropouts_disappear(monkeypatch):
 
     assert db.replaced == ["KR"]
     assert [r["ticker"] for r in db.saved] == ["AAA"]
+
+
+def test_new_ticker_gets_qualified_since_today(monkeypatch):
+    db = _DB(previous_since={})
+    _patch(
+        monkeypatch,
+        in_band={"AAA": {"high3y": 100.0, "current_close": 70.0, "drawdown": 30.0}},
+        bars={"AAA": [{"date": "2026-07-30", "close": 70.0}]},
+        evaluate=lambda _b: _qualified(),
+    )
+
+    refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
+
+    assert db.saved[0]["qualified_since"] == "2026-07-31"
+
+
+def test_continuing_ticker_keeps_its_original_qualified_since(monkeypatch):
+    # 어제까지도 통과 상태였던 종목은 처음 통과한 날짜를 그대로 이어받아야 한다 —
+    # 안 그러면 "며칠째 후보인지"가 매일 오늘 날짜로 리셋된다.
+    db = _DB(previous_since={"AAA": "2026-05-01"})
+    _patch(
+        monkeypatch,
+        in_band={"AAA": {"high3y": 100.0, "current_close": 70.0, "drawdown": 30.0}},
+        bars={"AAA": [{"date": "2026-07-30", "close": 70.0}]},
+        evaluate=lambda _b: _qualified(),
+    )
+
+    refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
+
+    assert db.saved[0]["qualified_since"] == "2026-05-01"
 
 
 def test_survives_a_failure_without_raising(monkeypatch):

@@ -1,10 +1,11 @@
 import { Dialog } from '@base-ui/react/dialog'
 import Link from 'next/link'
-import type { AlertStock, OpportunityAlertStock } from '@/lib/types'
+import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock } from '@/lib/types'
 
 interface Props {
   pullback: AlertStock[]
   opportunity: OpportunityAlertStock[]
+  newEntries: NewEntryAlertStock[]
   open: boolean
   onClose: () => void
 }
@@ -23,7 +24,7 @@ function StockName({ stock }: { stock: AlertStock }) {
 
 /** 사이트 진입 알림 팝업 — 실제 표시는 DailyAlertPopup(fetch 담당)이 호출하고,
  * /dev/preview에서는 이 컴포넌트에 픽스처를 직접 넘겨 렌더 확인한다. */
-export function DailyAlertModal({ pullback, opportunity, open, onClose }: Props) {
+export function DailyAlertModal({ pullback, opportunity, newEntries, open, onClose }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <Dialog.Portal>
@@ -59,6 +60,30 @@ export function DailyAlertModal({ pullback, opportunity, open, onClose }: Props)
                 </p>
                 <ul className="mt-1.5 space-y-1 text-sm text-secondary-foreground">
                   {opportunity.map((s) => (
+                    <li key={`${s.market}-${s.ticker}`}>
+                      <StockName stock={s} /> · {Math.round(s.score * 100)}점
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/discover" onClick={onClose} className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline">
+                  종목발굴 보기 →
+                </Link>
+              </div>
+            )}
+
+            {newEntries.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  관찰 대상 · 오늘 막 진입{' '}
+                  <span className="text-accent-foreground">{newEntries.length}종목</span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  아직 매수 등급(적극검토·매수검토)에는 못 미치지만, 며칠 전부터
+                  바닥 다지기 조건을 막 만족하기 시작했습니다. 매수 신호가 아니라
+                  참고용 관찰 대상입니다.
+                </p>
+                <ul className="mt-1.5 space-y-1 text-sm text-secondary-foreground">
+                  {newEntries.map((s) => (
                     <li key={`${s.market}-${s.ticker}`}>
                       <StockName stock={s} /> · {Math.round(s.score * 100)}점
                     </li>
