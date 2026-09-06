@@ -62,3 +62,18 @@ export function isNewEntry(qualifiedSince: string | null, today?: Date): boolean
   const days = daysSinceQualified(qualifiedSince, today)
   return days !== null && days <= NEW_ENTRY_WINDOW_DAYS
 }
+
+// ── 상승 전환 신호 ──
+// qualified_since(후보 등록)와 aligned_since(이평 정배열 시작)는 서로 다른 순간이다.
+// 후보로 뜬 지는 오래됐어도(몇 달째 조용히 바닥만 다짐) 실제로 오르기 시작한 건
+// 최근 며칠일 수 있다 — "이미 2~3배 오른 뒤에야 알았다"는 불만은 결국 이 전환
+// 시점을 놓쳤다는 뜻이라, qualified_since와 별개로 이 시점 자체를 추적해 보여준다.
+
+/** 정배열 전환이 이 안이면 "막 오르기 시작"으로 강조 표시한다. */
+export const TURN_SIGNAL_WINDOW_DAYS = 5
+
+/** 정배열(상승 전환) 상태가 시작된 지 TURN_SIGNAL_WINDOW_DAYS일 이내인지. */
+export function isFreshTurnSignal(alignedSince: string | null, today?: Date): boolean {
+  const days = daysSinceQualified(alignedSince, today)
+  return days !== null && days <= TURN_SIGNAL_WINDOW_DAYS
+}

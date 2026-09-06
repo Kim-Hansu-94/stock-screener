@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from .db import ScreenerDB
-from .watchlist import MIN_DRAWDOWN, MAX_DRAWDOWN, evaluate_watch
+from .watchlist import MIN_DRAWDOWN, MAX_DRAWDOWN, detect_box_breakout, evaluate_watch
 
 # 조정폭 집계 RPC 배치 (frontend queries.ts의 OPP_DRAWDOWN_BATCH와 동일)
 DRAWDOWN_BATCH = 250
@@ -117,6 +117,12 @@ def refresh_opportunity_snapshot(
         # 어제까지 통과 상태였던 종목은 그 시작일을 이어받고, 오늘 처음 나타난
         # 종목은 오늘 날짜로 새로 시작한다 — 하드필터를 삭제 전에 미리 읽어둬야 한다.
         previous_since = db.get_opportunity_snapshot_since(market)
+        # 박스 상단 돌파가 이어지는 구간의 시작일도 같은 방식으로 이어받는다 — "며칠째
+        # 후보인지"와 별개로 "며칠째 상승 전환 상태인지"를 따로 보여주기 위함.
+        # aligned_mas(이평 정배열)가 아니라 detect_box_breakout을 쓰는 이유는
+        # watchlist.py의 detect_box_breakout 설명 참고 — 상승 이력이 없는 이
+        # 종목군에는 정배열보다 실제 박스 상단 돌파가 더 신뢰할 만한 신호다.
+        previous_breakout_since = db.get_opportunity_snapshot_breakout_since(market)
 
         rows: list[dict] = []
         for ticker, summary in in_band.items():
@@ -125,6 +131,11 @@ def refresh_opportunity_snapshot(
             if not status["qualified"]:
                 continue
             info = meta.get(ticker, {})
+            breakout_since = (
+                previous_breakout_since.get(ticker, today.isoformat())
+                if detect_box_breakout(bars)
+                else None
+            )
             rows.append({
                 "ticker": ticker,
                 "market": market,
@@ -145,6 +156,7 @@ def refresh_opportunity_snapshot(
                 "volume_trigger": status["volume_trigger"],
                 "as_of_date": bars[-1]["date"] if bars else None,
                 "qualified_since": previous_since.get(ticker, today.isoformat()),
+                "breakout_since": breakout_since,
             })
 
         # 이번 계산에서 빠진 종목(밴드 이탈·하드 필터 탈락·시총 하한 미달)은 화면에서도

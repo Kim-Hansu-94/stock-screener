@@ -97,6 +97,7 @@ function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
     qualified: true, qualified_since: '2026-08-01', reason: null, drawdown: -34, in_drawdown_band: true,
     no_new_low: true, box_ok: true, score: 0.72, days_since_low: 18,
     vcp: true, higher_lows: true, volume_dry: true, aligned_mas: true, volume_trigger: false,
+    aligned_since: '2026-08-15',
     ...over,
   }
 }
@@ -110,8 +111,12 @@ function watch(over: Partial<WatchlistStatusRow>): WatchlistStatusRow {
 const WATCHLIST: WatchlistStatusRow[] = [
   watch({}),
   watch({ ticker: '005930', name: '삼성전자', qualified: false, qualified_since: null, score: null,
-    reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null }),
-  watch({ ticker: '005380', market: 'KR', name: '현대차', qualified_since: '2026-08-19' }),
+    reason: '60일 박스폭 30% 초과', box_ok: false, higher_lows: null, vcp: null, volume_dry: null,
+    aligned_mas: null, aligned_since: null }),
+  // 매집 구간은 오늘 막 시작됐지만 정배열은 아직 — "상승 전환 감지" 배지가 안 뜨는
+  // 경우도 함께 확인한다.
+  watch({ ticker: '005380', market: 'KR', name: '현대차', qualified_since: '2026-08-19',
+    aligned_mas: false, aligned_since: null }),
 ]
 
 const WATCHLIST_TICKERS: WatchlistTickerRow[] = [

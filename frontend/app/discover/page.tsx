@@ -66,6 +66,7 @@ async function attachDetails(
       hasLongHistory: longTerm.hasLongHistory,
       fundamentals: fundamentals[row.ticker] ?? null,
       qualifiedSince: row.qualified_since,
+      breakoutSince: row.breakout_since,
     }
   })
 }

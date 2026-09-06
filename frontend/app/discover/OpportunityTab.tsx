@@ -6,7 +6,7 @@ import { translateSector, broadSector } from '@/lib/sectorMap'
 import { formatKrwAmount } from '@/lib/calculations'
 import {
   BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade,
-  daysSinceQualified, isNewEntry,
+  daysSinceQualified, isFreshTurnSignal, isNewEntry,
 } from '@/lib/buySignal'
 import {
   EARNINGS_CLASS, EARNINGS_LABEL, EARNINGS_NOTE, ONE_TIME_GAIN_LABEL, ONE_TIME_GAIN_NOTE,
@@ -60,6 +60,15 @@ export function OpportunityTab({
           최소 몇 달은 조용해야 오르는 구조라, 점수만 보면 항상 어느 정도 오른 뒤에야 눈에
           띕니다. 이 배지는 하드필터를 통과하기 시작한 날부터 며칠째인지 보여줘, 점수가
           아직 낮아도 &ldquo;오늘 막 뜬 종목&rdquo;을 미리 알아볼 수 있게 합니다.
+        </p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium">🚀 상승 전환 감지:</span> 후보로 뜬 지는 오래됐어도
+          실제로 횡보를 멈추고 오르기 시작한 건 최근 며칠일 수 있습니다. 이 배지는
+          &ldquo;박스 상단(최근 60일 고가) 돌파 + 거래량 확인&rdquo;을 막 만족한 종목을
+          따로 표시해, 이미 몇 배 오른 뒤가 아니라 오르기 시작하는 시점 자체를 알 수
+          있게 합니다. 이동평균선 정배열 대신 이 방식을 쓰는 이유는, 아직 상승 이력이
+          증명되지 않은 종목(3년 고점 대비 하락 중)에는 실제로 저항을 뚫었다는 가격
+          증거가 이평선 순서보다 더 신뢰할 만하기 때문입니다.
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           <span className="font-medium">읽을 때 주의:</span> 점수는 최근 6~12개월 가격 움직임만 봅니다.
@@ -272,6 +281,11 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
           <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${BUY_GRADE_CLASS[grade]}`}>
             매력도 {Math.round(stock.score * 100)}점 · {BUY_GRADE_LABEL[grade]}
           </span>
+          {isFreshTurnSignal(stock.breakoutSince) && (
+            <span className="rounded-full bg-up px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+              🚀 상승 전환 감지
+            </span>
+          )}
           {isNewEntry(stock.qualifiedSince) ? (
             <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
               🆕 신규 진입

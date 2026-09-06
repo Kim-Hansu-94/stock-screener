@@ -1,11 +1,12 @@
 import { Dialog } from '@base-ui/react/dialog'
 import Link from 'next/link'
-import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock } from '@/lib/types'
+import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock } from '@/lib/types'
 
 interface Props {
   pullback: AlertStock[]
   opportunity: OpportunityAlertStock[]
   newEntries: NewEntryAlertStock[]
+  turnSignals: TurnSignalAlertStock[]
   open: boolean
   onClose: () => void
 }
@@ -24,7 +25,7 @@ function StockName({ stock }: { stock: AlertStock }) {
 
 /** 사이트 진입 알림 팝업 — 실제 표시는 DailyAlertPopup(fetch 담당)이 호출하고,
  * /dev/preview에서는 이 컴포넌트에 픽스처를 직접 넘겨 렌더 확인한다. */
-export function DailyAlertModal({ pullback, opportunity, newEntries, open, onClose }: Props) {
+export function DailyAlertModal({ pullback, opportunity, newEntries, turnSignals, open, onClose }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <Dialog.Portal>
@@ -48,6 +49,30 @@ export function DailyAlertModal({ pullback, opportunity, newEntries, open, onClo
                 </ul>
                 <Link href="/pullback" onClick={onClose} className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline">
                   눌림목 종목 보기 →
+                </Link>
+              </div>
+            )}
+
+            {turnSignals.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  🚀 상승 전환 감지{' '}
+                  <span className="text-up">{turnSignals.length}종목</span>
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  후보로 뜬 지는 오래됐어도, 박스 상단(최근 60일 고가)을 거래량과
+                  함께 돌파해 횡보를 멈추고 오르기 시작한 것으로 보입니다. 이미
+                  몇 배 오른 뒤가 아니라 이 시점 자체를 알려드립니다.
+                </p>
+                <ul className="mt-1.5 space-y-1 text-sm text-secondary-foreground">
+                  {turnSignals.map((s) => (
+                    <li key={`${s.market}-${s.ticker}`}>
+                      <StockName stock={s} /> · {Math.round(s.score * 100)}점
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/discover" onClick={onClose} className="mt-1.5 inline-block text-xs font-medium text-primary hover:underline">
+                  종목발굴 보기 →
                 </Link>
               </div>
             )}

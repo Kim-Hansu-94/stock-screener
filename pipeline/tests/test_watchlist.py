@@ -2,7 +2,7 @@ import re
 from datetime import date
 
 from pipeline.src import watchlist as watchlist_module
-from pipeline.src.watchlist import MIN_BARS, evaluate_watch
+from pipeline.src.watchlist import BOX_WINDOW, MIN_BARS, detect_box_breakout, evaluate_watch
 
 
 def _bar(i: int, close: float, spread: float = 1.0, volume: float = 1000.0) -> dict:
@@ -117,6 +117,40 @@ def test_wide_box_reports_actual_percentage_in_reason():
     assert int(match.group(1)) > 30
 
 
+def _flat_bars(n: int, close: float = 100.0, volume: float = 1000.0) -> list[dict]:
+    return [_bar(i, close, spread=1.0, volume=volume) for i in range(n)]
+
+
+def test_detect_box_breakout_needs_more_than_box_window_bars():
+    bars = _flat_bars(BOX_WINDOW)
+    assert detect_box_breakout(bars) is False
+
+
+def test_detect_box_breakout_false_when_price_stays_inside_the_box():
+    bars = _flat_bars(96)
+    assert detect_box_breakout(bars) is False
+
+
+def test_detect_box_breakout_true_on_price_break_with_volume_confirmation():
+    bars = _flat_bars(95)
+    bars.append(_bar(95, close=110.0, spread=1.0, volume=3000.0))
+    assert detect_box_breakout(bars) is True
+
+
+def test_detect_box_breakout_false_without_volume_confirmation():
+    # 가격은 박스 상단을 뚫었지만 거래량이 평소 수준이면 아직 확인된 돌파가 아니다.
+    bars = _flat_bars(95)
+    bars.append(_bar(95, close=110.0, spread=1.0, volume=1000.0))
+    assert detect_box_breakout(bars) is False
+
+
+def test_detect_box_breakout_false_without_price_break():
+    # 거래량만 터지고 박스 상단은 못 넘었으면 돌파가 아니다(예: 하락 갭에 거래량 급증).
+    bars = _flat_bars(95)
+    bars.append(_bar(95, close=95.0, spread=1.0, volume=3000.0))
+    assert detect_box_breakout(bars) is False
+
+
 class _FakeTable:
     def __init__(self, sink: list[dict]):
         self._sink = sink
@@ -161,7 +195,10 @@ def test_run_watchlist_keeps_qualified_since_while_continuously_qualified(monkey
     끊기지 않고 이어져야 한다 — 매일 새로 "오늘 처음 통과했다"로 리셋되면 안 된다."""
     monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
     monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
-    monkeypatch.setattr(watchlist_module, "evaluate_watch", lambda bars: {"qualified": True, "score": 0.5})
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": True, "score": 0.5, "aligned_mas": False},
+    )
 
     db = _FakeDB(status_rows={("US", "TICK"): {"qualified": True, "qualified_since": "2024-01-10"}})
     watchlist_module.run_watchlist(db, date(2024, 1, 11))
@@ -173,7 +210,10 @@ def test_run_watchlist_starts_new_streak_when_first_qualified(monkeypatch):
     """어제까지는 미달이었다가 오늘 처음 통과했다면 오늘 날짜로 새로 시작해야 한다."""
     monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
     monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
-    monkeypatch.setattr(watchlist_module, "evaluate_watch", lambda bars: {"qualified": True, "score": 0.5})
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": True, "score": 0.5, "aligned_mas": False},
+    )
 
     db = _FakeDB(status_rows={("US", "TICK"): {"qualified": False, "qualified_since": None}})
     watchlist_module.run_watchlist(db, date(2024, 1, 11))
@@ -187,10 +227,71 @@ def test_run_watchlist_clears_qualified_since_when_no_longer_qualified(monkeypat
     monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
     monkeypatch.setattr(
         watchlist_module, "evaluate_watch",
-        lambda bars: {"qualified": False, "reason": "조정폭 미달"},
+        lambda bars: {"qualified": False, "reason": "조정폭 미달", "aligned_mas": None},
     )
 
     db = _FakeDB(status_rows={("US", "TICK"): {"qualified": True, "qualified_since": "2024-01-05"}})
     watchlist_module.run_watchlist(db, date(2024, 1, 11))
 
     assert db.upserts[-1]["qualified_since"] is None
+
+
+def test_run_watchlist_keeps_aligned_since_while_continuously_aligned(monkeypatch):
+    """qualified_since와 같은 방식: 어제도 정배열이었다면 aligned_since가 이어져야 한다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": True, "score": 0.5, "aligned_mas": True},
+    )
+
+    db = _FakeDB(status_rows={
+        ("US", "TICK"): {
+            "qualified": True, "qualified_since": "2024-01-01",
+            "aligned_mas": True, "aligned_since": "2024-01-08",
+        },
+    })
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["aligned_since"] == "2024-01-08"
+
+
+def test_run_watchlist_starts_new_aligned_streak_when_newly_aligned(monkeypatch):
+    """어제까지는 정배열이 아니었다가 오늘 막 정배열이 됐다면 오늘 날짜로 시작한다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": True, "score": 0.5, "aligned_mas": True},
+    )
+
+    db = _FakeDB(status_rows={
+        ("US", "TICK"): {
+            "qualified": True, "qualified_since": "2024-01-01",
+            "aligned_mas": False, "aligned_since": None,
+        },
+    })
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["aligned_since"] == "2024-01-11"
+
+
+def test_run_watchlist_clears_aligned_since_when_no_longer_aligned(monkeypatch):
+    """정배열이 끝나면(오늘 미충족) aligned_since는 null이어야 한다 — 안 그러면
+    전환이 끝난 뒤에도 "상승 전환" 배지가 계속 떠 있게 된다."""
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [("TICK", "US", "테스트종목")])
+    monkeypatch.setattr(watchlist_module, "_fetch_bars", lambda db, ticker, market, today: [])
+    monkeypatch.setattr(
+        watchlist_module, "evaluate_watch",
+        lambda bars: {"qualified": True, "score": 0.5, "aligned_mas": False},
+    )
+
+    db = _FakeDB(status_rows={
+        ("US", "TICK"): {
+            "qualified": True, "qualified_since": "2024-01-01",
+            "aligned_mas": True, "aligned_since": "2024-01-08",
+        },
+    })
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.upserts[-1]["aligned_since"] is None

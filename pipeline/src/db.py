@@ -137,6 +137,29 @@ class ScreenerDB:
             if r.get("qualified_since")
         }
 
+    def get_opportunity_snapshot_breakout_since(self, market: str) -> dict[str, str]:
+        """그 시장의 기존(어제까지) 스냅샷에서 ticker별 breakout_since를 가져온다.
+
+        qualified_since가 "며칠째 후보 목록에 떠 있는지"(바닥을 다지기 시작한 날)를
+        본다면, breakout_since는 "며칠째 박스 상단 돌파(상승 전환) 상태가 이어지는지"를
+        본다 — 후보가 오래 떠 있어도 대부분의 기간은 그냥 조용히 바닥을 다지는 중이고,
+        사용자가 실제로 원하는 건 "횡보를 멈추고 막 오르기 시작한 순간"을 빨리
+        아는 것이기 때문에 별도로 추적한다. watchlist_status의 aligned_since(이평
+        정배열 기준)와는 다른 신호다 — pipeline/src/watchlist.py의 detect_box_breakout
+        설명 참고.
+        """
+        try:
+            result = self.client.table("opportunity_snapshot") \
+                .select("ticker, breakout_since") \
+                .eq("market", market).execute()
+        except Exception:  # noqa: BLE001
+            return {}
+        return {
+            r["ticker"]: r["breakout_since"]
+            for r in (result.data or [])
+            if r.get("breakout_since")
+        }
+
     def save_realestate_monthly(self, rows: list[dict]) -> None:
         # PK가 (region_code, month)라 같은 달을 다시 넣으면 덮어쓴다. 실거래 신고가
         # 최대 30일 늦게 들어와 최근 달 수치가 계속 바뀌므로 upsert여야 한다.
@@ -313,12 +336,13 @@ class ScreenerDB:
     def get_watchlist_status_rows(self) -> dict[tuple[str, str], dict]:
         """감시 종목의 기존(어제까지) 평가 결과를 (market, ticker) 기준으로 돌려준다.
 
-        run_watchlist가 "매집 구간이 며칠째 이어지는지"(qualified_since)를
-        판단할 때, 오늘 갱신하기 전의 값을 참조하는 데 쓴다.
+        run_watchlist가 "매집 구간이 며칠째 이어지는지"(qualified_since)와 "며칠째
+        상승 전환 상태인지"(aligned_since)를 판단할 때, 오늘 갱신하기 전의 값을
+        참조하는 데 쓴다.
         """
         try:
             result = self.client.table("watchlist_status") \
-                .select("ticker, market, qualified, qualified_since").execute()
+                .select("ticker, market, qualified, qualified_since, aligned_mas, aligned_since").execute()
         except Exception:  # noqa: BLE001
             return {}
         return {(r["market"], r["ticker"]): r for r in (result.data or [])}

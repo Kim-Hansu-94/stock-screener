@@ -36,11 +36,16 @@ class _Client:
 
 
 class _DB:
-    def __init__(self, previous_since: dict[str, str] | None = None):
+    def __init__(
+        self,
+        previous_since: dict[str, str] | None = None,
+        previous_breakout_since: dict[str, str] | None = None,
+    ):
         self.client = _Client()
         self.saved: list[dict] = []
         self.replaced: list[str] = []
         self._previous_since = previous_since or {}
+        self._previous_breakout_since = previous_breakout_since or {}
 
     def replace_opportunity_snapshot(self, market, rows):
         # 실제 구현은 그 시장 행을 지우고 다시 넣는다. 테스트는 '무엇을 저장했는가'만 본다.
@@ -50,6 +55,9 @@ class _DB:
     def get_opportunity_snapshot_since(self, _market):
         return self._previous_since
 
+    def get_opportunity_snapshot_breakout_since(self, _market):
+        return self._previous_breakout_since
+
 
 UNIVERSE = [
     {"ticker": "AAA", "name": "A corp", "name_kr": "에이", "sector": "IT", "index_membership": "KOSPI"},
@@ -57,10 +65,14 @@ UNIVERSE = [
 ]
 
 
-def _patch(monkeypatch, *, in_band, bars, evaluate):
+def _patch(monkeypatch, *, in_band, bars, evaluate, breakout=None):
     monkeypatch.setattr(opportunities, "in_band_tickers", lambda *_a: in_band)
     monkeypatch.setattr(opportunities, "_fetch_bars_bulk", lambda *_a: bars)
     monkeypatch.setattr(opportunities, "evaluate_watch", evaluate)
+    # detect_box_breakout은 실제 봉 데이터로 계산하는 별도 함수라, 테스트에서는
+    # (연속성 로직만 검증하도록) 결과를 직접 지정한다 — 실제 계산 자체는
+    # test_watchlist.py의 detect_box_breakout 전용 테스트가 검증한다.
+    monkeypatch.setattr(opportunities, "detect_box_breakout", lambda _bars: bool(breakout))
 
 
 def _qualified(**over):
@@ -163,6 +175,54 @@ def test_continuing_ticker_keeps_its_original_qualified_since(monkeypatch):
     refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
 
     assert db.saved[0]["qualified_since"] == "2026-05-01"
+
+
+def test_no_breakout_means_no_breakout_since(monkeypatch):
+    # 박스 상단 돌파 중이 아니면 예전에 돌파했어도(과거 값이 남아있어도) 오늘은
+    # null이어야 한다 — 안 그러면 전환이 끝난 뒤에도 "상승 전환" 배지가 계속
+    # 떠 있게 된다.
+    db = _DB(previous_breakout_since={"AAA": "2026-06-01"})
+    _patch(
+        monkeypatch,
+        in_band={"AAA": {"high3y": 100.0, "current_close": 70.0, "drawdown": 30.0}},
+        bars={"AAA": [{"date": "2026-07-30", "close": 70.0}]},
+        evaluate=lambda _b: _qualified(),
+        breakout=False,
+    )
+
+    refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
+
+    assert db.saved[0]["breakout_since"] is None
+
+
+def test_breakout_newly_true_gets_breakout_since_today(monkeypatch):
+    db = _DB(previous_breakout_since={})
+    _patch(
+        monkeypatch,
+        in_band={"AAA": {"high3y": 100.0, "current_close": 70.0, "drawdown": 30.0}},
+        bars={"AAA": [{"date": "2026-07-30", "close": 70.0}]},
+        evaluate=lambda _b: _qualified(),
+        breakout=True,
+    )
+
+    refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
+
+    assert db.saved[0]["breakout_since"] == "2026-07-31"
+
+
+def test_breakout_still_true_keeps_original_breakout_since(monkeypatch):
+    db = _DB(previous_breakout_since={"AAA": "2026-07-20"})
+    _patch(
+        monkeypatch,
+        in_band={"AAA": {"high3y": 100.0, "current_close": 70.0, "drawdown": 30.0}},
+        bars={"AAA": [{"date": "2026-07-30", "close": 70.0}]},
+        evaluate=lambda _b: _qualified(),
+        breakout=True,
+    )
+
+    refresh_opportunity_snapshot(db, "KR", UNIVERSE, TODAY)
+
+    assert db.saved[0]["breakout_since"] == "2026-07-20"
 
 
 def test_survives_a_failure_without_raising(monkeypatch):

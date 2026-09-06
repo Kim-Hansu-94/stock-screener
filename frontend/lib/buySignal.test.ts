@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buyGrade, daysSinceQualified, isNewEntry, NEW_ENTRY_WINDOW_DAYS } from './buySignal'
+import {
+  buyGrade, daysSinceQualified, isFreshTurnSignal, isNewEntry,
+  NEW_ENTRY_WINDOW_DAYS, TURN_SIGNAL_WINDOW_DAYS,
+} from './buySignal'
 
 describe('buyGrade', () => {
   it('grades a fully formed base as strong', () => {
@@ -64,5 +67,28 @@ describe('isNewEntry', () => {
   it('keeps the window at 3 days', () => {
     // 이 값을 바꾸면 신규 진입 배지가 뜨는 기간이 바뀐다 — 의도적 변경이 아니면 실패해야 한다.
     expect(NEW_ENTRY_WINDOW_DAYS).toBe(3)
+  })
+})
+
+describe('isFreshTurnSignal', () => {
+  const today = new Date('2026-09-06T00:00:00Z')
+
+  it('is true right when the turn just started (inclusive of the window)', () => {
+    expect(isFreshTurnSignal('2026-09-06', today)).toBe(true)
+    expect(isFreshTurnSignal('2026-09-01', today)).toBe(true) // exactly TURN_SIGNAL_WINDOW_DAYS
+  })
+
+  it('is false once the trend has been aligned longer than the window', () => {
+    // 후보로 뜬 지는 오래됐어도(qualified_since) 정배열 자체는 예전에 이미 꺾였을 수
+    // 있다 — 그 경우 "막 전환"으로 보여주면 안 된다.
+    expect(isFreshTurnSignal('2026-08-31', today)).toBe(false)
+  })
+
+  it('is false when there is no alignment to judge freshness by', () => {
+    expect(isFreshTurnSignal(null, today)).toBe(false)
+  })
+
+  it('keeps the window at 5 days', () => {
+    expect(TURN_SIGNAL_WINDOW_DAYS).toBe(5)
   })
 })

@@ -181,10 +181,18 @@ create table if not exists opportunity_snapshot (
   -- 후보인지"를 보여줘 "이미 오래전부터 뜬 종목"과 "오늘 막 새로 뜬 종목"을
   -- 구분하는 데 쓴다.
   qualified_since   date,
+  -- 박스 상단(60거래일 최고가) 돌파 + 거래량 확인이 이어서 계속 유지 중인 구간의
+  -- 시작일(미충족 시 null). qualified_since가 "며칠째 후보인지"라면 이건 "며칠째
+  -- 횡보를 멈추고 상승 전환 상태인지" — 후보로 뜬 지 오래여도 실제로 오르기
+  -- 시작한 건 최근일 수 있어 따로 추적한다. 이평 정배열이 아니라 이 방식을 쓰는
+  -- 이유는 pipeline/src/watchlist.py의 detect_box_breakout 설명 참고 — 상승
+  -- 이력이 없는 종목군이라 정배열보다 실제 저항 돌파가 더 신뢰할 만한 신호다.
+  breakout_since    date,
   primary key (ticker, market)
 );
 -- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
 -- ALTER TABLE opportunity_snapshot ADD COLUMN IF NOT EXISTS qualified_since date;
+-- ALTER TABLE opportunity_snapshot ADD COLUMN IF NOT EXISTS breakout_since date;
 
 -- 실적 요약. "주가가 빠질 때 실적도 같이 빠졌는가"를 판정하기 위한 최소 집합으로,
 -- 가치 함정(실적 동반 하락)과 밸류에이션 조정(실적은 유지)을 구분하는 데 쓴다.
@@ -246,10 +254,16 @@ create table if not exists watchlist_status (
   -- (미통과 시 null). 분할매수 컨셉이라 "오늘 하루" 신호가 아니라 이 구간이
   -- 며칠째 이어지는지를 보여주려고 둔다.
   qualified_since   date,
+  -- 이평 정배열(aligned_mas)이 이어서 계속 유지 중인 구간의 시작일(미충족 시
+  -- null). qualified_since가 "며칠째 매집 구간인지"라면 이건 "며칠째 상승 전환
+  -- 상태인지" — 감시 종목은 이미 상승 이력이 있는 경우가 많아 opportunity_snapshot의
+  -- breakout_since(박스 상단 돌파 기준)와 달리 정배열을 그대로 쓴다.
+  aligned_since     date,
   primary key (ticker, market)
 );
 -- 기존 배포에서 컬럼 추가 시 Supabase 대시보드 SQL 에디터에서 실행:
 -- ALTER TABLE watchlist_status ADD COLUMN IF NOT EXISTS qualified_since date;
+-- ALTER TABLE watchlist_status ADD COLUMN IF NOT EXISTS aligned_since date;
 
 -- 오늘의 추천(Gold Standard 패턴 매칭) 기록. pattern_match_results가 "지금 화면에
 -- 띄울 목록"(매 실행 전체 삭제 후 재작성)인 반면, 이쪽은 "그날 무엇을 추천했는지"를
