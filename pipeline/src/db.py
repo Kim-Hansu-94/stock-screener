@@ -350,8 +350,10 @@ class ScreenerDB:
     def get_watchlist_tickers(self) -> list[tuple[str, str, str]]:
         """사용자가 사이트(/api/watchlist)에서 직접 추가한 감시 종목.
 
-        테이블이 아직 없으면(마이그레이션 전) 빈 목록을 돌려주고 파이프라인은
-        watchlist.py의 기본 WATCHLIST 상수만으로 계속 진행한다.
+        테이블이 아직 없거나 조회가 실패하면 빈 목록을 돌려준다 — 감시 종목 평가가
+        빠질 뿐 파이프라인 본체는 계속 진행한다. 다만 이 빈 목록은 "진짜 감시 종목이
+        없음"과 구분이 안 되므로, run_watchlist는 목록이 비면 정리(prune)까지
+        건너뛴다(안 그러면 조회 실패 한 번에 watchlist_status가 통째로 지워진다).
         """
         try:
             result = self.client.table("watchlist_tickers").select("ticker, market, name").execute()

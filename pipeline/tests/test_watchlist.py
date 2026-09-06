@@ -184,10 +184,28 @@ class _FakeDB:
         return []
 
     def prune_watchlist_status(self, keep: list[tuple[str, str]]) -> None:
-        pass
+        self.pruned_with = keep
 
     def get_watchlist_status_rows(self) -> dict[tuple[str, str], dict]:
         return self._status_rows
+
+
+def test_run_watchlist_does_not_prune_when_the_list_is_empty(monkeypatch):
+    """감시 목록이 비면 정리까지 건너뛴다.
+
+    prune_watchlist_status([])는 watchlist_status를 통째로 지운다. 그런데 이
+    "비었음"은 진짜 빈 것일 수도, get_watchlist_tickers가 조회에 실패해 빈 목록을
+    돌려준 것일 수도 있어(그 메서드는 예외를 삼키고 []를 반환한다) 구분이 안 된다.
+    예전엔 WATCHLIST 상수에 종목이 박혀 있어 이 경우가 없었지만, 상수를 비운 뒤로는
+    일시적 조회 실패 한 번에 전체 평가 결과가 날아갈 수 있다.
+    """
+    monkeypatch.setattr(watchlist_module, "WATCHLIST", [])
+
+    db = _FakeDB(status_rows={})
+    db.pruned_with = None
+    watchlist_module.run_watchlist(db, date(2024, 1, 11))
+
+    assert db.pruned_with is None  # prune 자체를 안 불러야 한다
 
 
 def test_run_watchlist_keeps_qualified_since_while_continuously_qualified(monkeypatch):
