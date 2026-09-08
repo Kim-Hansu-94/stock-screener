@@ -84,7 +84,7 @@ export async function GET() {
       .select('ticker, market, name, name_kr, score, qualified_since')
       .gte('qualified_since', newEntryCutoffDate)
       .lt('score', OPPORTUNITY_SCORE_THRESHOLD)
-      .order('qualified_since', { ascending: false }),
+      .order('score', { ascending: false }),
     // 95점 미만 + 최근 며칠 내 박스 상단을 돌파한 종목 — 후보로 뜬 지는
     // 오래됐어도(qualified_since와 무관) 실제로 오르기 시작한 시점 자체를 알려준다.
     supabase
