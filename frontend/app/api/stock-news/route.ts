@@ -64,12 +64,19 @@ export async function GET(req: NextRequest) {
   // 국내 종목(한글 검색어)은 네이버가 훨씬 촘촘하다. 미장 티커는 한글 기사가 드물어
   // 구글(ko-KR)이 낫고, 키가 없거나 네이버가 실패하면 어느 쪽이든 구글로 내려간다.
   const preferNaver = /[가-힣]/.test(searchQuery)
+
+  // 검색어가 종목명 그 자체라(WatchlistCard 등이 회사명을 그대로 넘김), 다른
+  // 분야와 이름이 겹치는 종목은 무관한 기사가 섞여 들어온다 — 한화(한화이글스
+  // 야구단), 롯데(롯데자이언츠), 삼성(삼성라이온즈) 등. "주가"를 붙여 증권
+  // 관련 기사로 좁힌다. 영문 티커(US 종목)는 이런 이름 충돌이 없어 그대로 둔다.
+  const effectiveQuery = preferNaver ? `${searchQuery} 주가` : searchQuery
+
   let news: ParsedNewsItem[] | null = null
   let source: 'naver' | 'google' = 'google'
 
   if (preferNaver) {
     try {
-      const naver = await fetchNaverNews(searchQuery)
+      const naver = await fetchNaverNews(effectiveQuery)
       if (naver && naver.length > 0) {
         news = naver
         source = 'naver'
@@ -80,7 +87,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    if (news === null) news = await fetchGoogleNews(searchQuery)
+    if (news === null) news = await fetchGoogleNews(effectiveQuery)
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
