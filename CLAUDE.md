@@ -33,6 +33,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |
 | `kis_auth.py` | 한국투자증권 OAuth 토큰 관리 (분당 1회 제한이라 디스크 캐싱) |
 | `indicators.py` | SMA·RSI·거래량비율 등 순수 계산 함수 |
+| `market_indices.py` | 홈 상단 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500) → `market_index_snapshot`. **국내 지수를 `fdr.DataReader('KS11')`로 받으면 안 된다** — 개별 종목과 달리 이 경로는 거래소가 아니라 제3자의 GitHub CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽어서 하루 이상 늦은 값을 **에러 없이 조용히** 준다(2026-09-09: 9/9 오후에도 마지막 행이 9/7이라 화면에 '국내 9/7 장마감 기준'이 떠 있었다). 그래서 국내도 US와 같은 yfinance(^KS11/^KQ11)를 먼저 쓰고 실패 시에만 fdr로 폴백한다. yfinance는 장중에 오늘 봉을 미완성 상태로 주므로 15:40 KST 이전 실행에서는 오늘 봉을 버린다 |
 | `sectors.py` | 주도 섹터 판정 |
 | `market_regime.py` | 상승장/하락장 판정 |
 | `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록). `in_band_tickers()`(조정폭 20~60% 판정)는 `fundamentals.py`도 대상 종목을 좁히는 데 재사용 |
@@ -52,6 +53,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | 테이블 | 쓰는 곳 | 읽는 곳 |
 |---|---|---|
 | `market_regime` | main.py | 눌림목 종목 탭 상승장/하락장 배지 |
+| `market_index_snapshot` | market_indices.py (매 실행, 지수당 1행 upsert) | 홈 상단 시황 위젯 |
 | `leading_sectors` | main.py | 눌림목 종목 탭 주도 섹터 |
 | `screened_stocks` | main.py | 눌림목 종목 탭 카드 |
 | `stock_price_history` | main.py (600일치, 매주 자동 정리) | 손익비 계산, 차트 |
@@ -204,6 +206,15 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   **같이** 쓴다 — 한쪽만 바꾸면 두 화면 기준이 갈라짐. 종목발굴은 일봉 수집 범위와
   스냅샷 계산 범위를 같은 티커 집합으로 묶어둬야 "일봉은 받았는데 화면엔 없는" 상태를 피함
 
+- **부동산 개요의 "기준월"**: 실거래 신고 기한이 30일이라 **이달 초에는 매매 신고가 0건인
+  지역이 흔하다**(전월세는 바로 들어와 행 자체는 생기고 `price_avg`만 null). 그 행을 최신월로
+  잡으면 그 지역만 매매가·전월대비가 '—'로 뜨고 목록 맨 아래로 밀려서 "업데이트 안 됨"으로
+  보인다(2026-09 서울 일부 구·광명시 사례). `realestateTrend.ts`의 `regionOverview`는 그래서
+  **매매 거래가 실제로 있던 마지막 달**을 최신월로 쓴다 — 어느 달 기준인지는 표의 '기준월'
+  열에 그대로 나오므로 숨기는 게 아니다. 지도(`mapPriceByCode`)도 이 값을 쓰므로 같이 고쳐진다
+- **부동산 페이지네이션 정렬**: `getRealestateMonthly`는 `(region_code, month, area_band)`
+  **세 개 전부로** 정렬해야 한다. 앞 두 개만 쓰면 같은 달의 구간 행 5개가 동순위라 페이지마다
+  순서가 달라질 수 있고, 그러면 1,000행 경계에 걸친 행이 조용히 빠지거나 두 번 들어온다
 - **부동산 지역코드**: 국토부 API는 `LAWD_CD`가 틀려도 **에러가 아니라 빈 결과**를 준다.
   그래서 `realestate.py`가 전 기간 0건인 지역을 따로 모아 로그에 남긴다 — 그 목록이
   `lawd_codes.py`를 고치는 근거다. 호출이 실패한 지역은 이 목록에서 빼야 한다(일시적

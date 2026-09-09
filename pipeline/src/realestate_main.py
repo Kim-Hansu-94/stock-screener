@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -22,6 +22,7 @@ from .lawd_codes import CAPITAL_AREA
 from .realestate import collect, probe_prefix
 
 _DEFAULT_MONTHS = 3
+_KST = timezone(timedelta(hours=9))
 
 
 def recent_months(today: date, count: int) -> list[tuple[int, int]]:
@@ -70,7 +71,10 @@ def main() -> None:
         _probe(args.probe, args.probe_month)
         return
 
-    months = recent_months(date.today(), args.months)
+    # date.today()는 러너의 UTC 날짜라 한국 시간으로 새 달이 시작된 직후
+    # (KST 05:10 정기 실행 = UTC 20:10 전날)에는 아직 지난달로 읽힌다 — 그러면
+    # 새로 시작된 달을 통째로 안 훑고 일주일을 그냥 넘긴다. KST 기준으로 잡는다.
+    months = recent_months(datetime.now(_KST).date(), args.months)
     print(f"부동산 실거래 수집 — 수도권 {len(CAPITAL_AREA)}개 지역 × {len(months)}개월", flush=True)
 
     # 지역 하나가 끝날 때마다 바로 저장한다. 36개월 백필은 한 시간 넘게 걸려
@@ -95,7 +99,7 @@ def _probe(prefixes: str, month: str = "") -> None:
         ym = month
     else:
         # 두 달 전 — 거래가 충분히 쌓였고 신고 기한(30일)도 지난 달.
-        target = recent_months(date.today(), 3)[-1]
+        target = recent_months(datetime.now(_KST).date(), 3)[-1]
         ym = f"{target[0]}{target[1]:02d}"
 
     for prefix in [p.strip() for p in prefixes.split(",") if p.strip()]:

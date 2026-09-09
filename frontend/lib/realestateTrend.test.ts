@@ -64,6 +64,29 @@ describe('regionOverview', () => {
     expect(trend.momPricePct).toBeCloseTo(((200000 - 180000) / 180000) * 100, 5)
   })
 
+  it('skips a latest month that has no sale data (rent-only, still-unreported month)', () => {
+    // 실거래 신고 기한이 30일이라 이달 초엔 매매 신고가 0건인 지역이 흔하다.
+    // 그 달 행(전월세만 있어 price_avg=null)을 최신으로 잡으면 화면에 '—'가 떠서
+    // 그 지역만 업데이트가 안 된 것처럼 보인다 — 마지막으로 매매가 있던 달을 쓴다.
+    const rows = [
+      row({ month: '2026-07-01', price_avg: 190000, deal_count: 12 }),
+      row({ month: '2026-08-01', price_avg: 200000, deal_count: 15 }),
+      row({ month: '2026-09-01', price_avg: null, deal_count: 0 }),
+    ]
+    const [trend] = regionOverview(rows)
+    expect(trend.latest.month).toBe('2026-08-01')
+    expect(trend.prior?.month).toBe('2026-07-01')
+    expect(trend.momPricePct).toBeCloseTo(((200000 - 190000) / 190000) * 100, 5)
+  })
+
+  it('still lists a region that has never had sale data', () => {
+    const rows = [row({ month: '2026-09-01', price_avg: null, deal_count: 0 })]
+    const [trend] = regionOverview(rows)
+    expect(trend.latest.month).toBe('2026-09-01')
+    expect(trend.latest.price_avg).toBeNull()
+    expect(trend.momPricePct).toBeNull()
+  })
+
   it('sorts by latest average sale price, highest first', () => {
     const rows = [
       row({ region_code: '11680', region_name: '서울 강남구', price_avg: 250000 }),
