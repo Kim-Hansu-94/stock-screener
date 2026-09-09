@@ -21,6 +21,27 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 - 캐시: 프론트는 `'use cache'` + `SCREENER_CACHE_TAG`로 캐시, 파이프라인이 끝나면
   `/api/revalidate`가 무효화
 
+## 외부 데이터가 필요하면 네이버부터 확인할 것
+
+새로 외부 데이터를 가져와야 할 때는 **네이버에 있는지부터 본다**. 한국어 정보가 가장 촘촘하고,
+이 저장소에서 실제로 가장 잘 버텨온 소스다 — 2026-09-09에 미국 ETF 제공사(iShares·Vanguard)·
+stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일하게 채운 것도, 구글 뉴스로
+새던 종목 뉴스를 살린 것도 네이버였다.
+
+지금 쓰고 있는 네이버 경로:
+
+| 용도 | 경로 | 키 |
+|---|---|---|
+| 뉴스 검색 (부동산·종목) | `naverapihub.apigw.ntruss.com/search/v1/news` | 필요 (NAVER API HUB) |
+| 해외주식 시총순 목록 | `api.stock.naver.com/stock/exchange/{거래소}/marketValue` | 불필요 |
+| 국장 일봉 | FinanceDataReader가 내부적으로 `fchart.stock.naver.com` 호출 | 불필요 |
+
+**다른 소스를 골랐다면 왜 네이버로는 안 되는지 한 줄 남길 것.** 단, 네이버가 만능은 아니다 —
+국내 관점 데이터에 강하고 미국 현지 세부 데이터(업종 분류·재무제표 등)는 비어 있는 경우가 있다.
+쓰기로 정하기 전에 프로브(`.github/workflows/universe_probe.yml` 방식)로 **실제로 값이 오는지
+확인**할 것. 응답 키 이름이 예고 없이 바뀌는 내부 API가 많으므로, 키를 고정하지 말고 후보 중에서
+찾고(`_rows_from_json` 참고) 실패 시 사유가 로그에 드러나게 짤 것.
+
 ## pipeline/src/ — 모듈별 역할
 
 | 파일 | 역할 |
