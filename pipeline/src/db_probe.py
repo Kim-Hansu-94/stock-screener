@@ -61,19 +61,32 @@ def main() -> None:
             shown = ", ".join(f"{d}:{n}행" for d, n in counts) or "(없음)"
             print(f"  {table}: {shown}", flush=True)
 
-        # 화면이 실제로 하는 조회를 그대로 재현한다.
-        if regime:
-            regime_date = regime.split(" ")[0]
+        # 화면이 실제로 하는 조회를 그대로 재현한다 — 화면은 **종목 쪽 최신 날짜**로
+        # 찾는다(getLatestScreenedDate). 장세 날짜로 찾던 옛 방식이 눌림목 탭을
+        # 통째로 비웠기 때문이다(2026-09-09).
+        stock_dates = _date_counts(db, "screened_stocks", market)
+        if stock_dates:
+            latest_date, _ = stock_dates[0]
             resp = (
                 db.client.table("screened_stocks")
                 .select("ticker")
                 .eq("market", market)
-                .eq("date", regime_date)
+                .eq("date", latest_date)
                 .execute()
             )
             n = len(resp.data or [])
             verdict = "정상" if n else "⚠️ 화면에 '표시할 후보가 없습니다'가 뜨는 상태"
-            print(f"  → 화면이 {regime_date}로 조회하면: {n}개 — {verdict}", flush=True)
+            print(f"  → 화면이 {latest_date}로 조회하면: {n}개 — {verdict}", flush=True)
+
+            # 장세와 종목 날짜가 다른 건 이상이 아니다 — 미장은 지수가 현지 날짜,
+            # 종목이 한국 날짜(KIS) 기준이라 구조적으로 하루 어긋난다. 참고로만 남긴다.
+            regime_date = regime.split(" ")[0] if regime else None
+            if regime_date and regime_date != latest_date:
+                print(
+                    f"     (장세 {regime_date} ≠ 종목 {latest_date} — 소스가 달라 생기는 차이로,"
+                    " 화면은 종목 날짜를 따르므로 문제되지 않는다)",
+                    flush=True,
+                )
 
 
 if __name__ == "__main__":
