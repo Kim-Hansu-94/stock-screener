@@ -2,7 +2,14 @@ import pandas as pd
 import requests
 from unittest.mock import MagicMock, patch
 
-from pipeline.src.universe_us import _backfill_missing_sectors, _YFINANCE_SECTOR_TO_GICS, get_us_universe
+from pipeline.src.universe_us import (
+    _backfill_missing_sectors,
+    _fetch_ishares_iwv,
+    _fetch_naver_world,
+    _YFINANCE_SECTOR_TO_GICS,
+    fetch_russell3000,
+    get_us_universe,
+)
 
 FAKE_SP500 = pd.DataFrame({
     "Symbol": ["AAPL", "MSFT", "BRK.B", "BF.B", "BRKB"],
@@ -90,6 +97,9 @@ def _routed_get(url, **kwargs):
     return resp
 
 
+# 픽스처는 Russell 종목이 2개뿐이라 실제 하한(1,000개)에 걸린다. 이 테스트가 보는 건
+# "지수 라벨이 제대로 붙는가"이므로 하한만 낮춰 둔다.
+@patch("pipeline.src.universe_us._MIN_RUSSELL_TICKERS", 1)
 @patch("pipeline.src.universe_us.yf.Ticker")
 @patch("pipeline.src.universe_us.requests.get", side_effect=_routed_get)
 @patch("pipeline.src.universe_us.fdr.StockListing", return_value=FAKE_SP500)
@@ -181,3 +191,162 @@ def test_backfill_is_a_noop_when_nothing_is_missing():
     result = _backfill_missing_sectors(universe)
 
     assert result.loc[0, "sector"] == "Information Technology"
+
+
+# ── Russell 3000 소스 (2026-09-09) ─────────────────────────────────────────
+# Vanguard VTHR API가 차단 페이지를 HTTP 200 + HTML로 돌려주기 시작해 몇 주 동안
+# 조용히 실패하고 있었다(로그엔 "Expecting value: line 1 column 1"만 남았다).
+# iShares IWV CSV를 1순위로 두고, 실패 사유가 로그에 드러나게 했다.
+
+FAKE_IWV_CSV = """iShares Russell 3000 ETF
+Fund Holdings as of,"Sep 08, 2026"
+Inception Date,"May 22, 2000"
+
+Ticker,Name,Sector,Asset Class,Weight (%),Price
+AAPL,APPLE INC,Information Technology,Equity,5.62,240.11
+XYZ,SMALL CAP CO,Communication,Equity,0.01,12.30
+BRK.B,BERKSHIRE HATHAWAY INC CLASS B,Financials,Equity,1.42,470.00
+XTSLA,BLK CSH FND TREASURY SL AGENCY,Cash and/or Derivatives,Cash,0.10,1.00
+-,USD CASH,-,Cash,0.02,1.00
+"""
+
+
+def _csv_response(text: str):
+    resp = MagicMock()
+    resp.text = text
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_ishares_csv_skips_preamble_and_keeps_only_equities(mock_get):
+    mock_get.return_value = _csv_response(FAKE_IWV_CSV)
+
+    df = _fetch_ishares_iwv()
+
+    # 머리말 3줄을 건너뛰고 Ticker 헤더부터 읽어야 한다(머리말 줄 수는 고정이 아니다).
+    assert list(df["ticker"]) == ["AAPL", "XYZ", "BRK.B"]
+    # 현금·파생 행은 빠진다 — 티커가 아니라서 시세 조회 때 전부 실패한다.
+    assert "XTSLA" not in list(df["ticker"])
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_ishares_csv_keeps_only_known_gics_sector_names(mock_get):
+    mock_get.return_value = _csv_response(FAKE_IWV_CSV)
+
+    df = _fetch_ishares_iwv().set_index("ticker")
+
+    assert df.loc["AAPL", "sector"] == "Information Technology"
+    # 'Communication'은 GICS 표준 이름('Communication Services')이 아니다. 그대로 두면
+    # broadSector()가 '기타'로 잘못 분류하므로 비워서 yfinance 보완에 맡긴다.
+    assert pd.isna(df.loc["XYZ", "sector"])
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_ishares_failure_message_shows_why_not_just_a_parse_error(mock_get):
+    # 봇 차단 페이지는 HTTP 200 + HTML로 온다 — 사유가 로그에 드러나야 한다.
+    mock_get.return_value = _csv_response("<html><body>Access Denied</body></html>")
+
+    try:
+        _fetch_ishares_iwv()
+    except RuntimeError as exc:
+        assert "Access Denied" in str(exc)
+    else:
+        raise AssertionError("차단 페이지인데 에러가 나지 않았다")
+
+
+def _russell_rows(n: int, prefix: str) -> pd.DataFrame:
+    return pd.DataFrame({
+        "ticker": [f"{prefix}{i}" for i in range(n)],
+        "name": ["x"] * n,
+        "sector": [None] * n,
+    })
+
+
+def test_russell_falls_back_to_next_source_when_first_one_fails():
+    sources = [
+        ("깨진 소스", MagicMock(side_effect=RuntimeError("차단됨"))),
+        ("살아있는 소스", lambda: _russell_rows(2000, "B")),
+    ]
+    with patch("pipeline.src.universe_us._RUSSELL_SOURCES", sources):
+        df, source = fetch_russell3000()
+
+    assert source == "살아있는 소스"
+    assert len(df) == 2000
+
+
+def test_russell_rejects_a_source_that_returns_far_too_few_tickers():
+    # 형식이 바뀌어 몇 줄만 파싱된 경우. 반쪽짜리를 쓰느니 다음 소스로 넘어간다.
+    sources = [
+        ("반쪽 파싱", lambda: _russell_rows(30, "A")),
+        ("정상 소스", lambda: _russell_rows(2500, "B")),
+    ]
+    with patch("pipeline.src.universe_us._RUSSELL_SOURCES", sources):
+        df, source = fetch_russell3000()
+
+    assert source == "정상 소스"
+    assert len(df) == 2500
+
+
+def test_russell_error_lists_every_source_reason_when_all_fail():
+    sources = [
+        ("소스1", MagicMock(side_effect=RuntimeError("HTML 차단 페이지"))),
+        ("소스2", MagicMock(side_effect=RuntimeError("타임아웃"))),
+    ]
+    with patch("pipeline.src.universe_us._RUSSELL_SOURCES", sources):
+        try:
+            fetch_russell3000()
+        except RuntimeError as exc:
+            assert "소스1" in str(exc) and "HTML 차단 페이지" in str(exc)
+            assert "소스2" in str(exc) and "타임아웃" in str(exc)
+        else:
+            raise AssertionError("전부 실패했는데 에러가 나지 않았다")
+
+
+# ── 네이버 해외주식 시총순 (2026-09-09 확정 소스) ──────────────────────────
+# ETF 제공사(iShares·Vanguard)와 stockanalysis가 전부 막혀서, 시총 순으로
+# 내려주는 네이버 증권 API가 유일하게 Russell 3000을 근사할 수 있는 소스다.
+
+def _naver_json(rows: list[dict]):
+    resp = MagicMock()
+    resp.json.return_value = {"stocks": rows}
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_naver_world_sorts_by_market_value_across_exchanges(mock_get):
+    by_exchange = {
+        "NASDAQ": [{"symbolCode": "NVDA", "stockName": "엔비디아", "marketValue": "5,000"}],
+        "NYSE": [{"symbolCode": "BRK-B", "stockName": "버크셔", "marketValue": "1,000"}],
+        "AMEX": [{"symbolCode": "IMO", "stockName": "임페리얼오일", "marketValue": "30"}],
+    }
+
+    def routed(url, **kwargs):
+        exchange = url.rstrip("/").split("/")[-2]
+        page = kwargs.get("params", {}).get("page", 1)
+        # 2페이지부터는 빈 응답 — 실제 API도 마지막 페이지 뒤엔 빈 배열을 준다.
+        return _naver_json(by_exchange.get(exchange, []) if page == 1 else [])
+
+    mock_get.side_effect = routed
+    df = _fetch_naver_world()
+
+    # 거래소가 달라도 하나로 합쳐 시총 내림차순이어야 한다.
+    assert list(df["ticker"]) == ["NVDA", "BRK-B", "IMO"]
+    assert list(df["name"])[0] == "엔비디아"
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_naver_world_reports_unknown_ticker_key(mock_get):
+    # 응답 스키마가 바뀌어 티커 키가 사라지면, 조용히 빈 결과를 주는 대신
+    # 어떤 키가 왔는지 알려줘야 한다(다음에 무엇을 고칠지 바로 보이도록).
+    mock_get.side_effect = lambda url, **kw: _naver_json(
+        [{"code": "NVDA", "nm": "엔비디아"}] * 20 if "NASDAQ" in url else []
+    )
+
+    try:
+        _fetch_naver_world()
+    except RuntimeError as exc:
+        assert "티커 키를 찾을 수 없음" in str(exc) and "code" in str(exc)
+    else:
+        raise AssertionError("키를 못 찾았는데 에러가 나지 않았다")

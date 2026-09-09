@@ -166,10 +166,10 @@ function OpportunityCard({ stock, usdKrwRate, owned }: {
       ([entry]) => {
         if (entry.isIntersecting) {
           setChartReady(true)
-          const newsUrl =
-            stock.market === 'KR'
-              ? `/api/stock-news?q=${encodeURIComponent(stock.name_kr || stock.name)}`
-              : `/api/stock-news?ticker=${stock.ticker}`
+          // 네이버 뉴스는 한글 기사라 미장 종목도 한글명(엔비디아)이 티커(NVDA)보다
+          // 훨씬 잘 걸린다. 한글명은 KIS 마스터에서 채워지며, 없으면 티커로 떨어진다.
+          const newsQuery = stock.name_kr || (stock.market === 'KR' ? stock.name : stock.ticker)
+          const newsUrl = `/api/stock-news?q=${encodeURIComponent(newsQuery)}`
           fetch(newsUrl)
             .then((r) => r.json())
             .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))

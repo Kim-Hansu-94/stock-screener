@@ -9,15 +9,53 @@ import io
 import re
 import time
 import zipfile
+from collections.abc import Callable
 
 import FinanceDataReader as fdr
 import pandas as pd
 import requests
 import yfinance as yf
 
+# Russell 3000 구성종목 소스. 지수 자체는 FTSE Russell이 유료로만 배포하므로 이를
+# 추종하는 ETF의 공개 보유종목 파일에서 얻는다. 한 곳이 막혀도 나머지로 이어가도록
+# 두 곳을 순서대로 시도한다(2026-09-09: Vanguard 단일 소스가 조용히 막혀 있었다).
+#
+# 1순위 iShares IWV — CSV 파일이라 봇 차단이 덜하고 형식이 오래 안정적이다.
+# 2순위 Vanguard VTHR — 원래 쓰던 내부 JSON API. HTML 차단 페이지를 HTTP 200으로
+#       돌려주기 시작해 json() 파싱이 깨졌다(아래 _require_json 참고).
+# stockanalysis.com의 지수 구성종목 목록 — Russell 3000 = Russell 1000 + Russell 2000
+# 이라 두 장을 합쳐 만든다. 이 사이트는 NASDAQ100 수집에도 이미 쓰고 있어 형식·가용성이
+# 검증돼 있다(_fetch_nasdaq100).
+# 네이버 증권 앱이 쓰는 해외주식 API. 시가총액 내림차순으로 페이지 단위로 준다 —
+# "시총 상위 N개"를 그대로 받을 수 있어 Russell 3000 근사에 가장 잘 맞는다.
+NAVER_WORLD_URL = "https://api.stock.naver.com/stock/exchange/{exchange}/marketValue"
+_NAVER_EXCHANGES = ("NASDAQ", "NYSE", "AMEX")
+_NAVER_PAGE_SIZE = 100
+ISHARES_IWV_URL = (
+    "https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/"
+    "1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund"
+)
 VANGUARD_VTHR_BASE = (
     "https://investor.vanguard.com/investment-products/etfs/profile/api/VTHR/portfolio-holding/stock"
 )
+
+# iShares CSV의 sector는 GICS 이름이지만 표기가 미묘하게 다른 값이 섞여 들어올 수
+# 있다(예: 'Communication'). 모르는 이름을 그대로 저장하면 broadSector()에서 조용히
+# '기타'로 빠지므로, 아는 GICS 이름만 통과시키고 나머지는 비워 둔다 —
+# _backfill_missing_sectors가 필요할 때 yfinance로 채운다.
+_GICS_SECTORS: frozenset[str] = frozenset({
+    "Information Technology",
+    "Health Care",
+    "Financials",
+    "Consumer Discretionary",
+    "Consumer Staples",
+    "Communication Services",
+    "Industrials",
+    "Energy",
+    "Utilities",
+    "Real Estate",
+    "Materials",
+})
 
 _KIS_MASTER_BASE = "https://new.real.download.dws.co.kr/common/master/"
 _KIS_MASTER_FILES = {"NAS": "nasmst.cod", "NYS": "nysmst.cod", "AMS": "amsmst.cod"}
@@ -35,7 +73,6 @@ _HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/125.0.0.0 Safari/537.36"
     ),
-    "Referer": "https://www.ishares.com/us/",
 }
 
 
@@ -54,6 +91,145 @@ def _read_html(url: str) -> list[pd.DataFrame]:
     return pd.read_html(io.StringIO(resp.text))
 
 
+def _body_snippet(resp: requests.Response) -> str:
+    """응답 앞부분을 한 줄로. 차단 페이지인지 빈 응답인지 로그만 보고 알 수 있게."""
+    return " ".join(resp.text.split())[:160] or "(빈 응답)"
+
+
+def _require_json(resp: requests.Response) -> dict:
+    """JSON이 아닌 응답을 사유가 드러나는 에러로 바꾼다.
+
+    봇 차단 페이지는 HTTP 200 + HTML로 오기 때문에 raise_for_status()를 통과한다.
+    그대로 .json()을 부르면 'Expecting value: line 1 column 1 (char 0)'만 남아서,
+    로그를 봐도 왜 실패했는지 알 수 없다(실제로 이 상태로 며칠 방치됐다).
+    """
+    try:
+        return resp.json()
+    except ValueError:
+        raise RuntimeError(
+            f"JSON이 아닌 응답 (content-type={resp.headers.get('content-type')}): {_body_snippet(resp)}"
+        ) from None
+
+
+def _rows_from_json(payload) -> list[dict]:
+    """응답 어딘가에 있는 '딕셔너리들의 리스트'를 찾아 돌려준다.
+
+    내부 API라 감싸는 키 이름이 예고 없이 바뀐다(data.data / data / result ...).
+    키 이름을 고정하면 그때마다 조용히 빈 결과가 되므로 구조로 찾는다.
+    """
+    if isinstance(payload, list):
+        return [r for r in payload if isinstance(r, dict)]
+    if isinstance(payload, dict):
+        # 가장 긴 후보를 고른다 — 개수로 자르면(예: 10개 초과) 마지막 페이지처럼
+        # 몇 건 안 되는 정상 응답을 통째로 버리게 된다.
+        best: list[dict] = []
+        for value in payload.values():
+            rows = _rows_from_json(value)
+            if len(rows) > len(best):
+                best = rows
+        return best
+    return []
+
+
+def _naver_page(exchange: str, page: int) -> list[dict]:
+    resp = requests.get(
+        NAVER_WORLD_URL.format(exchange=exchange),
+        params={"page": page, "pageSize": _NAVER_PAGE_SIZE},
+        headers=_HEADERS,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return _rows_from_json(_require_json(resp))
+
+
+def _fetch_naver_world() -> pd.DataFrame:
+    """네이버 해외주식 시총 상위 목록(나스닥·뉴욕·아멕스)을 합쳐 상위 3,000개.
+
+    시총 내림차순으로 내려오므로 목표 개수만 채우면 멈춘다 — 전체를 훑을 필요가 없다.
+    """
+    rows: list[dict] = []
+    for exchange in _NAVER_EXCHANGES:
+        got = 0
+        for page in range(1, 40):
+            try:
+                page_rows = _naver_page(exchange, page)
+            except Exception as exc:  # noqa: BLE001
+                print(f"    {exchange} p{page} 실패: {exc}", flush=True)
+                break
+            if not page_rows:
+                break
+            rows.extend(page_rows)
+            got += len(page_rows)
+            # 거래소별로 넉넉히 받아 두고 마지막에 시총으로 다시 줄 세운다.
+            if got >= _RUSSELL_TARGET_SIZE:
+                break
+        print(f"    {exchange}: {got}개", flush=True)
+
+    if not rows:
+        raise RuntimeError("네이버 해외주식 목록에서 한 건도 받지 못함")
+
+    sample = rows[0]
+    ticker_key = next(
+        (k for k in ("symbolCode", "reutersCode", "symbol", "itemCode") if k in sample), None
+    )
+    if ticker_key is None:
+        raise RuntimeError(f"티커 키를 찾을 수 없음 (키: {list(sample)[:12]})")
+    name_key = next((k for k in ("stockName", "stockNameEng", "name") if k in sample), ticker_key)
+    cap_key = next((k for k in ("marketValue", "marketCap", "amount") if k in sample), None)
+
+    df = pd.DataFrame({
+        "ticker": [str(r.get(ticker_key, "")) for r in rows],
+        "name": [str(r.get(name_key, "")) for r in rows],
+        "sector": None,
+        "_cap": [_naver_number(r.get(cap_key)) if cap_key else None for r in rows],
+    })
+    df = df.drop_duplicates(subset="ticker")
+    if cap_key and df["_cap"].notna().any():
+        df = df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False)
+    # 시총 필드를 못 찾아도 응답이 이미 시총 내림차순이라 앞에서부터 자르면 된다.
+    return df.head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
+
+
+def _naver_number(value) -> float | None:
+    """'1,234,567' 또는 숫자 → float. 네이버는 금액을 콤마 문자열로 주기도 한다."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def _fetch_ishares_iwv() -> pd.DataFrame:
+    """iShares IWV(Russell 3000 ETF) 보유종목 CSV에서 티커 목록 반환.
+
+    CSV 앞에 펀드명·기준일 같은 머리말이 몇 줄 붙어 오므로 'Ticker,'로 시작하는
+    실제 헤더 줄을 찾아 거기서부터 읽는다(머리말 줄 수는 고정이 아니다).
+    """
+    resp = requests.get(ISHARES_IWV_URL, headers=_HEADERS, timeout=30)
+    resp.raise_for_status()
+    lines = resp.text.splitlines()
+    header_i = next((i for i, line in enumerate(lines) if line.lstrip('"').startswith("Ticker")), None)
+    if header_i is None:
+        raise RuntimeError(f"CSV 헤더('Ticker,...')를 찾을 수 없음: {_body_snippet(resp)}")
+
+    df = pd.read_csv(io.StringIO("\n".join(lines[header_i:])))
+    if "Ticker" not in df.columns:
+        raise RuntimeError(f"CSV에 Ticker 컬럼 없음 (컬럼: {list(df.columns)[:8]})")
+
+    # 현금·선물 같은 비주식 행을 뺀다(Asset Class 컬럼이 없으면 티커 정리로만 거른다).
+    if "Asset Class" in df.columns:
+        df = df[df["Asset Class"].astype(str).str.strip() == "Equity"]
+
+    sector = df["Sector"].astype(str).str.strip() if "Sector" in df.columns else None
+    return pd.DataFrame({
+        "ticker": df["Ticker"].astype(str),
+        "name": df["Name"].astype(str) if "Name" in df.columns else "",
+        # 아는 GICS 이름만 통과 — 모르는 표기를 그대로 두면 '기타'로 잘못 분류된다.
+        "sector": sector.where(sector.isin(_GICS_SECTORS)) if sector is not None else None,
+    })
+
+
 def _fetch_vthr_holdings() -> pd.DataFrame:
     """Vanguard VTHR (Russell 3000 ETF) API에서 미국 주식 티커 목록 반환."""
     all_entities: list[dict] = []
@@ -66,7 +242,7 @@ def _fetch_vthr_holdings() -> pd.DataFrame:
             timeout=20,
         )
         resp.raise_for_status()
-        data = resp.json()
+        data = _require_json(resp)
         if total_size is None:
             total_size = data.get("size", 0)
         entities = data.get("fund", {}).get("entity", [])
@@ -86,6 +262,52 @@ def _fetch_vthr_holdings() -> pd.DataFrame:
     result["ticker"] = result["ticker"].str.replace(".", "-", regex=False)
     result = result[result["ticker"].notna() & ~result["ticker"].isin(["-", "", "nan"])]
     return result
+
+
+# Russell 3000인데 이보다 적게 왔다면 형식이 바뀌어 반쪽만 파싱된 것으로 본다.
+# (실제 구성종목은 2,500~3,000개 선)
+_MIN_RUSSELL_TICKERS = 1000
+
+# Russell 3000을 근사할 때 남길 종목 수. 지수 이름 그대로 3,000개.
+_RUSSELL_TARGET_SIZE = 3000
+
+# (소스 이름, 수집 함수) — 앞에서부터 시도한다.
+_RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+    ("네이버 해외주식 시총순", _fetch_naver_world),
+    # 아래 둘은 2026-09-09 기준 죽어 있다(각각 마케팅 페이지·앱 셸 HTML을 200으로
+    # 돌려준다). 원래 정석 소스라 복구되면 자동으로 다시 잡히도록 남겨 둔다 —
+    # 앞 소스가 성공하면 호출조차 되지 않으므로 비용은 0이다.
+    ("iShares IWV", _fetch_ishares_iwv),
+    ("Vanguard VTHR", _fetch_vthr_holdings),
+]
+
+
+def _clean_russell(df: pd.DataFrame) -> pd.DataFrame:
+    """티커 표기를 통일하고 빈 행을 버린다(소스마다 형식이 달라 여기서 한 번에)."""
+    df = df.copy()
+    df["ticker"] = df["ticker"].astype(str).str.strip().str.replace(".", "-", regex=False)
+    return df[~df["ticker"].isin(["-", "", "nan", "None"])]
+
+
+def fetch_russell3000() -> tuple[pd.DataFrame, str]:
+    """Russell 3000 구성종목을 소스 순서대로 시도해 처음 성공한 것을 돌려준다.
+
+    반환은 (행, 사용한 소스 이름). 전부 실패하면 마지막 사유를 담아 RuntimeError.
+    """
+    errors: list[str] = []
+    for name, fetch in _RUSSELL_SOURCES:
+        try:
+            df = _clean_russell(fetch())
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{name}: {exc}")
+            continue
+        # 3,000 종목짜리 지수인데 몇십 개만 왔다면 형식이 바뀐 것이다 — 조용히
+        # 반쪽짜리를 쓰느니 다음 소스로 넘어간다.
+        if len(df) < _MIN_RUSSELL_TICKERS:
+            errors.append(f"{name}: 종목 수가 비정상적으로 적음({len(df)}개)")
+            continue
+        return df, name
+    raise RuntimeError(" | ".join(errors) if errors else "시도할 소스 없음")
 
 
 def _fetch_sp_index(wiki_url: str, membership_label: str) -> pd.DataFrame:
@@ -258,14 +480,17 @@ def get_us_universe() -> pd.DataFrame:
         except Exception as e:
             print(f"  {label} 실패: {e}")
 
-    # 3. Russell 3000 (Vanguard VTHR) – 패턴 매칭용 커버리지 확장 (스크리너 대상 아님)
+    # 3. Russell 3000 – 패턴 매칭용 커버리지 확장 (스크리너 대상 아님)
     try:
-        vthr = _fetch_vthr_holdings()
-        vthr["index_membership"] = "Russell3000"
-        parts.append(vthr)
-        print(f"  Russell 3000 (Vanguard VTHR): {len(vthr)}개")
+        russell, source = fetch_russell3000()
+        russell["index_membership"] = "Russell3000"
+        parts.append(russell)
+        print(f"  Russell 3000 ({source}): {len(russell)}개")
     except Exception as e:
-        print(f"  Russell 3000 수집 실패 ({e})")
+        # 실패해도 파이프라인은 계속 간다(S&P1500+NASDAQ100만으로도 스크리너는 돈다).
+        # 다만 초록불 실행 로그에 한 줄로 묻히면 며칠씩 모르고 지나가므로, GitHub
+        # Actions가 실행 요약에 띄우는 ::warning:: 으로 올린다.
+        print(f"::warning::Russell 3000 수집 실패 — 패턴 매칭 커버리지가 좁아집니다 ({e})")
 
     if not parts:
         raise RuntimeError("유니버스 수집 완전 실패")
@@ -286,3 +511,39 @@ def get_us_universe() -> pd.DataFrame:
     print(f"  → 한글명 매핑: {matched}개 / {len(universe)}개", flush=True)
 
     return universe[["ticker", "name", "name_kr", "sector", "index_membership"]]
+
+
+def _probe_russell_sources() -> int:
+    """소스별로 따로 두드려 보고 결과를 출력한다 — `python -m src.universe_us`.
+
+    작업용 컨테이너는 ETF·시세 사이트 네트워크가 막혀 있어 여기서 확인할 수 없다.
+    .github/workflows/universe_probe.yml로 Actions에서 1분 만에 돌려본다 —
+    22분짜리 본 파이프라인을 돌려가며 소스를 고르지 않아도 된다.
+    """
+    results: list[str] = []
+    ok = 0
+    for name, fetch in _RUSSELL_SOURCES:
+        try:
+            df = _clean_russell(fetch())
+        except Exception as exc:  # noqa: BLE001
+            results.append(f"  x {name}: {exc}")
+            continue
+        sectors = int(df["sector"].notna().sum()) if "sector" in df.columns else 0
+        results.append(
+            f"  o {name}: {len(df)}개 (업종 있는 행 {sectors}개) 예: {list(df['ticker'][:5])}"
+        )
+        ok += 1
+
+    # 소스 하나가 진행률 표시줄을 수백 줄 쏟아내면 앞선 결과가 로그에서 밀려난다.
+    # 그래서 마지막에 전부 모아 한 번 더 찍는다.
+    print("\n=== 소스별 결과 ===", flush=True)
+    for line in results:
+        print(line, flush=True)
+    return ok
+
+
+if __name__ == "__main__":
+    import sys
+
+    print("Russell 3000 소스 점검...", flush=True)
+    sys.exit(0 if _probe_russell_sources() else 1)

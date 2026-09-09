@@ -165,7 +165,12 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
       ([entry]) => {
         if (entry.isIntersecting) {
           setChartReady(true)
-          fetch(`/api/stock-news?ticker=${stock.ticker}`)
+          // 한글명이 있으면 그걸로 검색한다(네이버 뉴스 기준으로 적중률이 높다).
+          fetch(
+            stock.name_kr
+              ? `/api/stock-news?q=${encodeURIComponent(stock.name_kr)}`
+              : `/api/stock-news?ticker=${stock.ticker}`,
+          )
             .then((r) => r.json())
             .then((d: { news?: NewsArticle[] }) => setNews(d.news ?? []))
             .catch(() => setNews([]))

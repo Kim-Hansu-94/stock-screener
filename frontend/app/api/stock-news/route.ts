@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { parseNaverItems, parseRssItems, type NaverNewsItem, type ParsedNewsItem } from '@/lib/news'
+import { parseNaverItems, type NaverNewsItem, type ParsedNewsItem } from '@/lib/news'
 
 // 카드에 한 번에 보여줄 기사 수. 감시 종목 카드는 이 개수를 그대로 노출한다.
 const NEWS_LIMIT = 5
@@ -7,12 +7,14 @@ const NEWS_LIMIT = 5
 // 뉴스 재검증 주기 — 프론트의 자동 갱신 주기(1시간)와 같게 둔다.
 const REVALIDATE_SEC = 3600
 
-/**
- * 네이버 뉴스 검색 API. 키가 없으면 null을 돌려주고 호출부가 구글로 넘어간다.
- *
- * 네이버는 뉴스 검색 RSS를 제공하지 않아 개발자센터에서 발급한 Client ID/Secret이 필요하다
- * (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET). 미설정이어도 화면은 구글 뉴스로 그대로 돈다.
- */
+// 네이버 뉴스검색 — 파이프라인의 부동산 뉴스 수집(realestate_media.py)과 **같은
+// 엔드포인트·같은 헤더**를 쓴다. 2026-09 기준 구 개발자센터(openapi.naver.com)는
+// 신규 발급이 막히고 NAVER API HUB로 이관됐는데, 이 라우트만 옛 주소·옛 헤더에
+// 남아 있어서 HUB 키로는 인증이 깨졌고 → 조용히 구글 뉴스로 내려가고 있었다.
+// 종목과 무관한 기사가 뜨던 원인이 이것이다(2026-09-09).
+const NAVER_NEWS_URL = 'https://naverapihub.apigw.ntruss.com/search/v1/news'
+
+/** 네이버 뉴스 검색 API. 키가 없으면 null(호출부가 "키 미설정"으로 응답한다). */
 async function fetchNaverNews(query: string): Promise<ParsedNewsItem[] | null> {
   const clientId = process.env.NAVER_CLIENT_ID
   const clientSecret = process.env.NAVER_CLIENT_SECRET
@@ -20,32 +22,19 @@ async function fetchNaverNews(query: string): Promise<ParsedNewsItem[] | null> {
 
   // sort=date: 최신순. 정확도순(sim)으로 받으면 몇 달 전 기사가 섞여 "최신 뉴스"가 아니게 된다.
   const url =
-    `https://openapi.naver.com/v1/search/news.json` +
-    `?query=${encodeURIComponent(query)}&display=${NEWS_LIMIT}&sort=date`
+    `${NAVER_NEWS_URL}?query=${encodeURIComponent(query)}&display=${NEWS_LIMIT}&sort=date`
 
   const resp = await fetch(url, {
-    headers: { 'X-Naver-Client-Id': clientId, 'X-Naver-Client-Secret': clientSecret },
+    headers: {
+      'X-NCP-APIGW-API-KEY-ID': clientId,
+      'X-NCP-APIGW-API-KEY': clientSecret,
+    },
     next: { revalidate: REVALIDATE_SEC },
   })
   if (!resp.ok) throw new Error(`Naver News ${resp.status}`)
 
   const data: { items?: NaverNewsItem[] } = await resp.json()
   return parseNaverItems(data.items ?? [])
-}
-
-async function fetchGoogleNews(query: string): Promise<ParsedNewsItem[]> {
-  const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ko&gl=KR&ceid=KR:ko`
-  const resp = await fetch(rssUrl, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-      Accept: 'application/rss+xml, application/xml, text/xml, */*',
-    },
-    next: { revalidate: REVALIDATE_SEC },
-  })
-  if (!resp.ok) throw new Error(`Google News RSS ${resp.status}`)
-
-  return parseRssItems(await resp.text())
 }
 
 export async function GET(req: NextRequest) {
@@ -61,39 +50,31 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: '유효하지 않은 파라미터' }, { status: 400 })
   }
 
-  // 국내 종목(한글 검색어)은 네이버가 훨씬 촘촘하다. 미장 티커는 한글 기사가 드물어
-  // 구글(ko-KR)이 낫고, 키가 없거나 네이버가 실패하면 어느 쪽이든 구글로 내려간다.
-  const preferNaver = /[가-힣]/.test(searchQuery)
+  // 검색어가 종목명 그 자체라(카드가 회사명을 그대로 넘김), 다른 분야와 이름이 겹치는
+  // 종목은 무관한 기사가 섞여 들어온다 — 한화(한화이글스 야구단), 롯데(롯데자이언츠) 등.
+  // "주가"를 붙여 증권 관련 기사로 좁힌다. 미장 티커(NVDA 등)도 마찬가지로 붙인다 —
+  // 국내 기사는 보통 "엔비디아(NVDA) 주가..." 형태라 이 조합이 잘 맞고, 안 붙이면
+  // 티커와 같은 약어를 쓰는 엉뚱한 기사가 걸린다.
+  const effectiveQuery = `${searchQuery} 주가`
 
-  // 검색어가 종목명 그 자체라(WatchlistCard 등이 회사명을 그대로 넘김), 다른
-  // 분야와 이름이 겹치는 종목은 무관한 기사가 섞여 들어온다 — 한화(한화이글스
-  // 야구단), 롯데(롯데자이언츠), 삼성(삼성라이온즈) 등. "주가"를 붙여 증권
-  // 관련 기사로 좁힌다. 영문 티커(US 종목)는 이런 이름 충돌이 없어 그대로 둔다.
-  const effectiveQuery = preferNaver ? `${searchQuery} 주가` : searchQuery
-
-  let news: ParsedNewsItem[] | null = null
-  let source: 'naver' | 'google' = 'google'
-
-  if (preferNaver) {
-    try {
-      const naver = await fetchNaverNews(effectiveQuery)
-      if (naver && naver.length > 0) {
-        news = naver
-        source = 'naver'
-      }
-    } catch {
-      // 네이버 장애·쿼터 초과(하루 25,000건)면 조용히 구글로 내려간다.
-    }
+  let news: ParsedNewsItem[] | null
+  try {
+    news = await fetchNaverNews(effectiveQuery)
+  } catch (err) {
+    return Response.json({ error: String(err) }, { status: 502 })
   }
 
-  try {
-    if (news === null) news = await fetchGoogleNews(effectiveQuery)
-  } catch (err) {
-    return Response.json({ error: String(err) }, { status: 500 })
+  // 키가 없으면 기사 0건이 아니라 사유를 돌려준다 — 조용히 빈 목록을 주면
+  // "이 종목은 뉴스가 없구나"로 오해하게 된다.
+  if (news === null) {
+    return Response.json(
+      { ticker, source: 'naver', news: [], error: 'NAVER_CLIENT_ID/SECRET 미설정' },
+      { status: 200 },
+    )
   }
 
   return Response.json(
-    { ticker, source, news: news.slice(0, NEWS_LIMIT) },
+    { ticker, source: 'naver', news: news.slice(0, NEWS_LIMIT) },
     { headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=600' } },
   )
 }
