@@ -23,6 +23,13 @@ import yfinance as yf
 # 1순위 iShares IWV — CSV 파일이라 봇 차단이 덜하고 형식이 오래 안정적이다.
 # 2순위 Vanguard VTHR — 원래 쓰던 내부 JSON API. HTML 차단 페이지를 HTTP 200으로
 #       돌려주기 시작해 json() 파싱이 깨졌다(아래 _require_json 참고).
+# stockanalysis.com의 지수 구성종목 목록 — Russell 3000 = Russell 1000 + Russell 2000
+# 이라 두 장을 합쳐 만든다. 이 사이트는 NASDAQ100 수집에도 이미 쓰고 있어 형식·가용성이
+# 검증돼 있다(_fetch_nasdaq100).
+STOCKANALYSIS_RUSSELL_URLS = (
+    "https://stockanalysis.com/list/russell-1000-stocks/",
+    "https://stockanalysis.com/list/russell-2000-stocks/",
+)
 ISHARES_IWV_URL = (
     "https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/"
     "1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund"
@@ -103,6 +110,66 @@ def _require_json(resp: requests.Response) -> dict:
         ) from None
 
 
+def _table_tickers(url: str) -> pd.DataFrame:
+    """티커·종목명 컬럼을 가진 표를 찾아 뽑는다(stockanalysis.com 목록 페이지용)."""
+    for t in _read_html(url):
+        ticker_col = next(
+            (c for c in t.columns if "symbol" in str(c).lower() or "ticker" in str(c).lower()), None
+        )
+        name_col = next(
+            (c for c in t.columns if "company" in str(c).lower() or "name" in str(c).lower()), None
+        )
+        if ticker_col is not None and name_col is not None:
+            return pd.DataFrame({
+                "ticker": t[ticker_col].astype(str),
+                "name": t[name_col].astype(str),
+                "sector": None,
+            })
+    raise RuntimeError(f"{url} 에서 구성종목 표를 찾을 수 없음")
+
+
+def _fetch_stockanalysis_russell() -> pd.DataFrame:
+    """Russell 1000 + Russell 2000 목록을 합쳐 Russell 3000을 만든다."""
+    parts = [_table_tickers(url) for url in STOCKANALYSIS_RUSSELL_URLS]
+    return pd.concat(parts, ignore_index=True)
+
+
+def _fetch_fdr_us_listings() -> pd.DataFrame:
+    """미국 3개 거래소 상장 목록에서 시총 상위 3,000개.
+
+    Russell 3000은 정의상 "미국 상장 시가총액 상위 3,000개"라 이렇게 근사할 수 있다.
+    ETF 제공사(iShares·Vanguard)가 막혀도 쓸 수 있는 마지막 경로다.
+
+    시총 컬럼이 없으면 이 소스를 포기한다 — 상위를 못 자르면 6,000개 가까이가
+    통째로 들어와 일봉 수집 시간이 두 배로 뛴다(현재 1,521개에 12분).
+    """
+    frames = []
+    for market in ("NASDAQ", "NYSE", "AMEX"):
+        try:
+            frames.append(fdr.StockListing(market))
+        except Exception as exc:  # noqa: BLE001
+            print(f"    {market} 상장 목록 실패: {exc}", flush=True)
+    if not frames:
+        raise RuntimeError("3개 거래소 상장 목록을 하나도 못 받음")
+
+    df = pd.concat(frames, ignore_index=True)
+    cols = {str(c).lower().replace(" ", ""): c for c in df.columns}
+    symbol_col = cols.get("symbol") or cols.get("ticker")
+    cap_col = cols.get("marketcap") or cols.get("marcap")
+    if symbol_col is None:
+        raise RuntimeError(f"티커 컬럼 없음 (컬럼: {list(df.columns)[:8]})")
+    if cap_col is None:
+        raise RuntimeError(f"시총 컬럼이 없어 상위 3,000개를 자를 수 없음 (컬럼: {list(df.columns)[:8]})")
+
+    df = df.dropna(subset=[cap_col]).sort_values(cap_col, ascending=False).head(3000)
+    name_col = cols.get("name") or symbol_col
+    return pd.DataFrame({
+        "ticker": df[symbol_col].astype(str),
+        "name": df[name_col].astype(str),
+        "sector": None,
+    })
+
+
 def _fetch_ishares_iwv() -> pd.DataFrame:
     """iShares IWV(Russell 3000 ETF) 보유종목 CSV에서 티커 목록 반환.
 
@@ -173,6 +240,8 @@ _MIN_RUSSELL_TICKERS = 1000
 
 # (소스 이름, 수집 함수) — 앞에서부터 시도한다.
 _RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+    ("stockanalysis R1000+R2000", _fetch_stockanalysis_russell),
+    ("FDR 상장목록 시총상위", _fetch_fdr_us_listings),
     ("iShares IWV", _fetch_ishares_iwv),
     ("Vanguard VTHR", _fetch_vthr_holdings),
 ]
