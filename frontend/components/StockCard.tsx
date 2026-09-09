@@ -115,7 +115,8 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
   const [newsLoading, setNewsLoading] = useState(false)
   const changePercent = calculateChangePercent(history.map((row) => row.close))
 
-  const newsQuery = market === 'KR' ? (stock.name_kr || stock.name) : stock.ticker
+  // 미장도 한글명이 있으면 그걸로 — 네이버 뉴스는 한글 기사라 티커보다 잘 걸린다.
+  const newsQuery = stock.name_kr || (market === 'KR' ? stock.name : stock.ticker)
 
   // 하락장 날은 시장 조건 1개가 더해져 분모가 9, 평상시엔 8.
   const totalCriteria =

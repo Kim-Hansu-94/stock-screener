@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseNaverItems, parseRssItems, publisherFromUrl, stripMarkup, toIsoDate } from './news'
+import { parseNaverItems, publisherFromUrl, stripMarkup, toIsoDate } from './news'
 
 describe('stripMarkup', () => {
   it('네이버 제목의 강조 태그와 엔티티를 걷어낸다', () => {
@@ -53,24 +53,3 @@ describe('parseNaverItems', () => {
   })
 })
 
-describe('parseRssItems', () => {
-  const xml = `<rss><channel>
-    <item>
-      <title>SK하이닉스 &amp; HBM</title>
-      <link>https://news.google.com/articles/abc</link>
-      <pubDate>Tue, 19 Aug 2026 14:30:00 GMT</pubDate>
-      <source url="https://www.hankyung.com">한국경제</source>
-    </item>
-    <item>
-      <title>링크 없는 기사</title>
-    </item>
-  </channel></rss>`
-
-  it('링크가 없는 항목은 건너뛴다', () => {
-    const items = parseRssItems(xml)
-    expect(items).toHaveLength(1)
-    expect(items[0].title).toBe('SK하이닉스 & HBM')
-    expect(items[0].publisher).toBe('한국경제')
-    expect(items[0].publishedAt).toBe('2026-08-19T14:30:00.000Z')
-  })
-})

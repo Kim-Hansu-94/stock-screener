@@ -136,7 +136,7 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
 | `api/daily-report` | 저점 매집 후보 API (Gold Standard 패턴 매칭, 구 "오늘의 추천") |
 | `api/similar` | 패턴 유사도 검색 API |
-| `api/stock-news` | 종목 뉴스 조회 |
+| `api/stock-news` | 종목 뉴스 조회 — **네이버 뉴스검색만 쓴다**(2026-09-09, 구글 뉴스 제거). 엔드포인트·인증 헤더는 `realestate_media.py`와 동일한 NAVER API HUB다 — 이 라우트만 구 주소(`openapi.naver.com` + `X-Naver-Client-Id`)에 남아 있어서 HUB 키로는 인증이 깨졌고, 조용히 구글로 내려가 종목과 무관한 기사가 뜨고 있었다. 검색어에는 항상 "주가"를 붙이고, 미장 종목도 한글명(`name_kr`, KIS 마스터에서 옴)이 있으면 티커 대신 그걸로 검색한다 — 네이버는 한글 기사라 '엔비디아'가 'NVDA'보다 훨씬 잘 걸린다. **`NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`는 GitHub Actions 시크릿과 별개로 Vercel 환경변수에도 있어야 한다** — 없으면 기사가 0건이 아니라 `error: 'NAVER_CLIENT_ID/SECRET 미설정'`으로 응답한다(조용히 비면 '뉴스 없는 종목'으로 오해하므로) |
 | `api/revalidate` | 파이프라인이 갱신 후 캐시 무효화 호출 |
 | `api/trades` | 가상 매수(POST)·매도(PATCH). **가격은 클라이언트에서 받지 않고 서버가 최신 종가를 직접 읽는다** — 브라우저 값을 믿으면 수익률 조작 가능. PIN(`TRADE_PIN`) 검증 |
 
@@ -219,6 +219,11 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   새 소스를 찾으면 `_RUSSELL_SOURCES`에 한 줄 추가하고 프로브를 돌려 1분 만에 확인할
   것. 소스를 새로 쓸 때 **시총 컬럼이 있는지 먼저 볼 것** — 없으면 6,000개가 통째로
   들어와 일봉 수집 시간이 두 배가 된다
+- **네이버 뉴스 엔드포인트는 두 곳이 같이 움직인다**: `pipeline/src/realestate_media.py`(부동산
+  뉴스)와 `frontend/app/api/stock-news/route.ts`(종목 뉴스)가 같은 NAVER API HUB 주소·헤더를
+  쓴다. 한쪽만 고치면 다른 쪽이 조용히 인증 실패한다 — 실제로 종목 뉴스가 구 주소에 남아
+  몇 주간 구글 뉴스로 내려가 있었다(2026-09-09 발견). 키를 바꾸거나 이관되면 **두 파일 + Vercel
+  환경변수 + GitHub 시크릿을 한 번에** 맞출 것
 - **부동산 개요의 "기준월"**: 실거래 신고 기한이 30일이라 **이달 초에는 매매 신고가 0건인
   지역이 흔하다**(전월세는 바로 들어와 행 자체는 생기고 `price_avg`만 null). 그 행을 최신월로
   잡으면 그 지역만 매매가·전월대비가 '—'로 뜨고 목록 맨 아래로 밀려서 "업데이트 안 됨"으로

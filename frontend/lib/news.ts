@@ -59,31 +59,6 @@ export function toIsoDate(raw: string): string {
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString()
 }
 
-/** 구글 뉴스 RSS(XML) → 기사 목록 */
-export function parseRssItems(xml: string): ParsedNewsItem[] {
-  const items: ParsedNewsItem[] = []
-  for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
-    const content = match[1]
-
-    const titleRaw = content.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/)?.[1]?.trim()
-    if (!titleRaw) continue
-
-    const url = content.match(/<link>\s*(https?:\/\/[^\s<]+)\s*<\/link>/)?.[1]?.trim() ?? ''
-    if (!url) continue
-
-    const pubDate = content.match(/<pubDate>([\s\S]*?)<\/pubDate>/)?.[1]?.trim() ?? ''
-    const source = content.match(/<source[^>]*>([\s\S]*?)<\/source>/)?.[1]?.trim()
-
-    items.push({
-      title: stripMarkup(titleRaw),
-      url,
-      publisher: source || '구글뉴스',
-      publishedAt: toIsoDate(pubDate),
-    })
-  }
-  return items
-}
-
 export interface NaverNewsItem {
   title?: string
   link?: string
