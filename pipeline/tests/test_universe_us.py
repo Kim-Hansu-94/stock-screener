@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 from pipeline.src.universe_us import (
     _backfill_missing_sectors,
     _fetch_ishares_iwv,
-    _fetch_stockanalysis_all_stocks,
-    _parse_cap,
+    _fetch_naver_world,
     _YFINANCE_SECTOR_TO_GICS,
     fetch_russell3000,
     get_us_universe,
@@ -304,59 +303,50 @@ def test_russell_error_lists_every_source_reason_when_all_fail():
             raise AssertionError("전부 실패했는데 에러가 나지 않았다")
 
 
-# ── 전체 종목 목록 페이지네이션 ────────────────────────────────────────────
-# 한 페이지에 500개씩만 렌더된다. 1페이지만 읽으면 알파벳 앞쪽(A~)만 들어와
-# NVDA·MSFT 같은 대형주가 통째로 빠진다 — 실제로 첫 시도가 그렇게 나왔다.
+# ── 네이버 해외주식 시총순 (2026-09-09 확정 소스) ──────────────────────────
+# ETF 제공사(iShares·Vanguard)와 stockanalysis가 전부 막혀서, 시총 순으로
+# 내려주는 네이버 증권 API가 유일하게 Russell 3000을 근사할 수 있는 소스다.
 
-def _stocks_page_html(rows: list[tuple[str, str, str]]) -> str:
-    body = "".join(f"<tr><td>{t}</td><td>{n}</td><td>{c}</td></tr>" for t, n, c in rows)
-    return (
-        "<html><body><table>"
-        "<tr><th>Symbol</th><th>Company Name</th><th>Market Cap</th></tr>"
-        f"{body}</table></body></html>"
-    )
-
-
-def test_parse_cap_reads_unit_suffixes():
-    assert _parse_cap("1.5T") == 1.5e12
-    assert _parse_cap("$920.4B") == 920.4e9
-    assert _parse_cap("35M") == 35e6
-    assert _parse_cap("-") is None   # 시총 미상 행
-    assert _parse_cap("1234") is None  # 단위 없는 값은 신뢰하지 않는다
+def _naver_json(rows: list[dict]):
+    resp = MagicMock()
+    resp.json.return_value = {"stocks": rows}
+    resp.raise_for_status.return_value = None
+    return resp
 
 
 @patch("pipeline.src.universe_us.requests.get")
-def test_all_stocks_pages_through_and_sorts_by_market_cap(mock_get):
-    pages = {
-        1: _stocks_page_html([("AAPL", "Apple", "4T"), ("ABBV", "AbbVie", "350B")]),
-        2: _stocks_page_html([("NVDA", "Nvidia", "5T"), ("ZM", "Zoom", "20B")]),
+def test_naver_world_sorts_by_market_value_across_exchanges(mock_get):
+    by_exchange = {
+        "NASDAQ": [{"symbolCode": "NVDA", "stockName": "엔비디아", "marketValue": "5,000"}],
+        "NYSE": [{"symbolCode": "BRK-B", "stockName": "버크셔", "marketValue": "1,000"}],
+        "AMEX": [{"symbolCode": "IMO", "stockName": "임페리얼오일", "marketValue": "30"}],
     }
 
     def routed(url, **kwargs):
-        page = int(url.split("?p=")[1]) if "?p=" in url else 1
-        resp = MagicMock()
-        resp.text = pages.get(page, _stocks_page_html([]))
-        resp.raise_for_status.return_value = None
-        return resp
+        exchange = url.rstrip("/").split("/")[-2]
+        page = kwargs.get("params", {}).get("page", 1)
+        # 2페이지부터는 빈 응답 — 실제 API도 마지막 페이지 뒤엔 빈 배열을 준다.
+        return _naver_json(by_exchange.get(exchange, []) if page == 1 else [])
 
     mock_get.side_effect = routed
-    df = _fetch_stockanalysis_all_stocks()
+    df = _fetch_naver_world()
 
-    # 2페이지의 NVDA가 빠지지 않아야 하고, 시총 내림차순이어야 한다.
-    assert list(df["ticker"]) == ["NVDA", "AAPL", "ABBV", "ZM"]
+    # 거래소가 달라도 하나로 합쳐 시총 내림차순이어야 한다.
+    assert list(df["ticker"]) == ["NVDA", "BRK-B", "IMO"]
+    assert list(df["name"])[0] == "엔비디아"
 
 
 @patch("pipeline.src.universe_us.requests.get")
-def test_all_stocks_stops_when_page_param_is_ignored(mock_get):
-    # ?p= 가 안 먹으면 같은 500개가 무한히 온다 — 같은 티커만 오면 멈춰야 한다.
-    same = _stocks_page_html([("AAPL", "Apple", "4T")])
-    resp = MagicMock()
-    resp.text = same
-    resp.raise_for_status.return_value = None
-    mock_get.return_value = resp
+def test_naver_world_reports_unknown_ticker_key(mock_get):
+    # 응답 스키마가 바뀌어 티커 키가 사라지면, 조용히 빈 결과를 주는 대신
+    # 어떤 키가 왔는지 알려줘야 한다(다음에 무엇을 고칠지 바로 보이도록).
+    mock_get.side_effect = lambda url, **kw: _naver_json(
+        [{"code": "NVDA", "nm": "엔비디아"}] * 20 if "NASDAQ" in url else []
+    )
 
-    df = _fetch_stockanalysis_all_stocks()
-
-    assert list(df["ticker"]) == ["AAPL"]
-    # 1페이지 + 중복임을 확인한 2페이지에서 멈춘다(15페이지를 다 돌지 않는다).
-    assert mock_get.call_count == 2
+    try:
+        _fetch_naver_world()
+    except RuntimeError as exc:
+        assert "티커 키를 찾을 수 없음" in str(exc) and "code" in str(exc)
+    else:
+        raise AssertionError("키를 못 찾았는데 에러가 나지 않았다")

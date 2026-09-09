@@ -26,15 +26,6 @@ import yfinance as yf
 # stockanalysis.com의 지수 구성종목 목록 — Russell 3000 = Russell 1000 + Russell 2000
 # 이라 두 장을 합쳐 만든다. 이 사이트는 NASDAQ100 수집에도 이미 쓰고 있어 형식·가용성이
 # 검증돼 있다(_fetch_nasdaq100).
-# stockanalysis.com 내부 스크리너 API. 시총 내림차순으로 원하는 개수만 받을 수 있어
-# "미국 상장 시총 상위 3,000개"(= Russell 3000의 정의)를 그대로 만들 수 있다.
-STOCKANALYSIS_SCREENER_URL = (
-    "https://stockanalysis.com/api/screener/s/f"
-    "?m=marketCap&s=desc&c=s,n,marketCap&cn=3000&i=stocks"
-)
-# 전체 종목 목록 페이지(시총 컬럼 포함).
-STOCKANALYSIS_ALL_STOCKS_URL = "https://stockanalysis.com/stocks/"
-
 # 네이버 증권 앱이 쓰는 해외주식 API. 시가총액 내림차순으로 페이지 단위로 준다 —
 # "시총 상위 N개"를 그대로 받을 수 있어 Russell 3000 근사에 가장 잘 맞는다.
 NAVER_WORLD_URL = "https://api.stock.naver.com/stock/exchange/{exchange}/marketValue"
@@ -129,92 +120,15 @@ def _rows_from_json(payload) -> list[dict]:
     if isinstance(payload, list):
         return [r for r in payload if isinstance(r, dict)]
     if isinstance(payload, dict):
+        # 가장 긴 후보를 고른다 — 개수로 자르면(예: 10개 초과) 마지막 페이지처럼
+        # 몇 건 안 되는 정상 응답을 통째로 버리게 된다.
+        best: list[dict] = []
         for value in payload.values():
             rows = _rows_from_json(value)
-            if len(rows) > 10:  # 메타데이터 몇 개짜리 리스트와 구분
-                return rows
+            if len(rows) > len(best):
+                best = rows
+        return best
     return []
-
-
-def _fetch_stockanalysis_screener() -> pd.DataFrame:
-    """stockanalysis.com 스크리너 API에서 시총 상위 종목."""
-    resp = requests.get(STOCKANALYSIS_SCREENER_URL, headers=_HEADERS, timeout=30)
-    resp.raise_for_status()
-    rows = _rows_from_json(_require_json(resp))
-    if not rows:
-        raise RuntimeError(f"종목 배열을 찾을 수 없음: {_body_snippet(resp)}")
-
-    sample = rows[0]
-    ticker_key = next((k for k in ("s", "symbol", "ticker") if k in sample), None)
-    if ticker_key is None:
-        raise RuntimeError(f"티커 키를 찾을 수 없음 (키: {list(sample)[:8]})")
-    name_key = next((k for k in ("n", "name", "companyName") if k in sample), ticker_key)
-    return pd.DataFrame({
-        "ticker": [str(r.get(ticker_key, "")) for r in rows],
-        "name": [str(r.get(name_key, "")) for r in rows],
-        "sector": None,
-    })
-
-
-def _stockanalysis_page(page: int) -> pd.DataFrame | None:
-    """전체 종목 목록의 한 페이지(티커·종목명·시총). 표를 못 찾으면 None."""
-    url = STOCKANALYSIS_ALL_STOCKS_URL if page == 1 else f"{STOCKANALYSIS_ALL_STOCKS_URL}?p={page}"
-    for t in _read_html(url):
-        cols = {str(c).lower().replace(" ", ""): c for c in t.columns}
-        symbol_col = cols.get("symbol") or cols.get("ticker")
-        cap_col = cols.get("marketcap")
-        if symbol_col is None or cap_col is None:
-            continue
-        name_col = cols.get("companyname") or cols.get("name") or symbol_col
-        return pd.DataFrame({
-            "ticker": t[symbol_col].astype(str),
-            "name": t[name_col].astype(str),
-            "sector": None,
-            "_cap": t[cap_col].map(_parse_cap),
-        })
-    return None
-
-
-def _parse_cap(value) -> float | None:
-    """'1.23B' → 1.23e9. 시총 컬럼이 단위 접미사가 붙은 문자열로 온다."""
-    units = {"T": 1e12, "B": 1e9, "M": 1e6, "K": 1e3}
-    text = str(value).replace(",", "").replace("$", "").strip()
-    if not text or text[-1] not in units:
-        return None
-    try:
-        return float(text[:-1]) * units[text[-1]]
-    except ValueError:
-        return None
-
-
-def _fetch_stockanalysis_all_stocks() -> pd.DataFrame:
-    """전체 종목 목록을 페이지를 넘겨가며 모아 시총 상위 3,000개를 돌려준다.
-
-    한 페이지에 500개씩만 렌더된다(알파벳 순). 1페이지만 읽으면 A로 시작하는
-    종목만 들어와 NVDA·MSFT 같은 대형주가 통째로 빠진다 — 실제로 첫 시도가
-    그렇게 500개짜리 반쪽 결과를 냈다.
-    """
-    frames: list[pd.DataFrame] = []
-    seen: set[str] = set()
-    for page in range(1, _STOCKANALYSIS_MAX_PAGES + 1):
-        df = _stockanalysis_page(page)
-        if df is None or df.empty:
-            break
-        new = df[~df["ticker"].isin(seen)]
-        print(f"    p{page}: {len(df)}개 (신규 {len(new)}개)", flush=True)
-        # 페이지 파라미터가 안 먹으면 같은 500개가 계속 온다 — 그때는 멈춘다.
-        if new.empty:
-            break
-        seen.update(new["ticker"])
-        frames.append(new)
-
-    if not frames:
-        raise RuntimeError(f"{STOCKANALYSIS_ALL_STOCKS_URL} 에서 시총이 있는 표를 찾을 수 없음")
-
-    df = pd.concat(frames, ignore_index=True)
-    # 시총을 못 읽은 행은 상위 3,000개를 자르는 기준이 없으니 뺀다.
-    df = df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False)
-    return df.head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
 
 
 def _naver_page(exchange: str, page: int) -> list[dict]:
@@ -284,63 +198,6 @@ def _naver_number(value) -> float | None:
         return float(str(value).replace(",", "").strip())
     except ValueError:
         return None
-
-
-def _fetch_kis_master_universe() -> pd.DataFrame:
-    """한국투자증권 해외주식 마스터 파일에서 시총 상위 3,000개.
-
-    파이프라인이 한글 종목명을 얻으려고 이미 받는 파일이라 새 의존이 없다.
-    다만 이 파일에 시총 필드가 있는지는 배포본마다 다르므로, 없으면 필드 배치를
-    에러 메시지에 담아 알려준다(그래야 다음에 어느 칸을 쓸지 정할 수 있다).
-    """
-    records: list[list[str]] = []
-    for exchange, filename in _KIS_MASTER_FILES.items():
-        try:
-            resp = requests.get(f"{_KIS_MASTER_BASE}{filename}.zip", timeout=60)
-            resp.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-                raw = zf.read(zf.namelist()[0])
-        except Exception as exc:  # noqa: BLE001
-            print(f"    {exchange} 마스터 실패: {exc}", flush=True)
-            continue
-        for line in raw.split(b"\n"):
-            line = line.rstrip(b"\r")
-            if not line:
-                continue
-            parts = line.decode("euc-kr", errors="replace").split("\t")
-            if len(parts) >= 7:
-                records.append(parts)
-
-    if not records:
-        raise RuntimeError("마스터 파일을 하나도 못 받음")
-
-    # 티커 칸(4)은 기존 한글명 매핑에서 검증된 위치다. 시총 후보 칸을 찾는다:
-    # 숫자로 읽히면서 값의 폭이 큰(대형주~소형주) 칸이 시총일 가능성이 높다.
-    width = min(len(r) for r in records)
-    best_col, best_span = None, 0.0
-    for col in range(width):
-        values = [_naver_number(r[col]) for r in records[:2000]]
-        nums = [v for v in values if v and v > 0]
-        if len(nums) < len(records[:2000]) * 0.8:
-            continue
-        span = max(nums) / min(nums)
-        # 시총은 최대/최소 비율이 수천 배 이상 벌어진다(주가·주식수 칸과 구분).
-        if span > best_span and max(nums) > 1e8:
-            best_col, best_span = col, span
-
-    if best_col is None:
-        layout = " | ".join(f"[{i}]{v[:14]}" for i, v in enumerate(records[0][:width]))
-        raise RuntimeError(f"시총으로 볼 만한 칸이 없음 ({width}칸): {layout}")
-
-    df = pd.DataFrame({
-        "ticker": [r[4].strip() for r in records],
-        "name": [r[6].strip() for r in records],
-        "sector": None,
-        "_cap": [_naver_number(r[best_col]) for r in records],
-    })
-    df = df[df["ticker"].str.match(r"^[A-Z]{1,5}(-[A-Z])?$", na=False)].drop_duplicates(subset="ticker")
-    print(f"    시총 추정 칸=[{best_col}] (최대/최소 {best_span:,.0f}배)", flush=True)
-    return df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False).head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
 
 
 def _fetch_ishares_iwv() -> pd.DataFrame:
@@ -413,16 +270,13 @@ _MIN_RUSSELL_TICKERS = 1000
 
 # Russell 3000을 근사할 때 남길 종목 수. 지수 이름 그대로 3,000개.
 _RUSSELL_TARGET_SIZE = 3000
-# 전체 목록은 한 페이지 500개라 3,000개를 채우려면 6장이면 되지만, 페이지당
-# 개수가 줄어도 목표를 채우도록 여유를 둔다.
-_STOCKANALYSIS_MAX_PAGES = 15
 
 # (소스 이름, 수집 함수) — 앞에서부터 시도한다.
 _RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
     ("네이버 해외주식 시총순", _fetch_naver_world),
-    ("KIS 마스터 시총상위", _fetch_kis_master_universe),
-    ("stockanalysis 전체목록", _fetch_stockanalysis_all_stocks),
-    ("stockanalysis 스크리너API", _fetch_stockanalysis_screener),
+    # 아래 둘은 2026-09-09 기준 죽어 있다(각각 마케팅 페이지·앱 셸 HTML을 200으로
+    # 돌려준다). 원래 정석 소스라 복구되면 자동으로 다시 잡히도록 남겨 둔다 —
+    # 앞 소스가 성공하면 호출조차 되지 않으므로 비용은 0이다.
     ("iShares IWV", _fetch_ishares_iwv),
     ("Vanguard VTHR", _fetch_vthr_holdings),
 ]

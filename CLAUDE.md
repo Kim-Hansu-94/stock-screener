@@ -206,24 +206,21 @@ pipeline/ (Python)              supabase/ (Postgres)        frontend/ (Next.js)
   **같이** 쓴다 — 한쪽만 바꾸면 두 화면 기준이 갈라짐. 종목발굴은 일봉 수집 범위와
   스냅샷 계산 범위를 같은 티커 집합으로 묶어둬야 "일봉은 받았는데 화면엔 없는" 상태를 피함
 
-- **US 유니버스의 Russell 3000은 2026-09-09 기준 채울 수 없다**: 지수 자체는 FTSE
-  Russell이 유료로만 배포해서 이를 추종하는 ETF의 공개 보유종목 파일에 의존해 왔는데,
-  그게 전부 막혔다. 프로브(`.github/workflows/universe_probe.yml`, `python -m
-  src.universe_us`)로 7종을 두드려 본 결과 — iShares IWV: 마케팅 페이지, Vanguard
-  VTHR: 앱 셸 HTML(둘 다 HTTP 200이라 조용히 실패), stockanalysis 러셀 목록·스크리너
-  API: 404, 위키백과 Russell 1000: 표 없음, FDR 상장목록: 받아지지만 시총 컬럼이 없어
-  상위 3,000개를 못 자름, stockanalysis 전체목록: 서버가 500개만 렌더(그것도 알파벳
-  앞쪽이라 NVDA·MSFT가 빠진다 — `_MIN_RUSSELL_TICKERS` 가드가 이걸 걸러낸다).
-  **그래서 US 유니버스는 S&P1500+NASDAQ100 = 1,521종목으로 돌고 있다**(눌림목
-  스크리너는 원래 이 범위라 영향 없고, 저점 매집 후보·횡보/조정의 발굴 폭만 좁다).
-  새 소스를 찾으면 `_RUSSELL_SOURCES`에 한 줄 추가하고 프로브를 돌려 1분 만에 확인할
-  것. 소스를 새로 쓸 때 **시총 컬럼이 있는지 먼저 볼 것** — 없으면 6,000개가 통째로
-  들어와 일봉 수집 시간이 두 배가 된다
-- **네이버 뉴스 엔드포인트는 두 곳이 같이 움직인다**: `pipeline/src/realestate_media.py`(부동산
-  뉴스)와 `frontend/app/api/stock-news/route.ts`(종목 뉴스)가 같은 NAVER API HUB 주소·헤더를
-  쓴다. 한쪽만 고치면 다른 쪽이 조용히 인증 실패한다 — 실제로 종목 뉴스가 구 주소에 남아
-  몇 주간 구글 뉴스로 내려가 있었다(2026-09-09 발견). 키를 바꾸거나 이관되면 **두 파일 + Vercel
-  환경변수 + GitHub 시크릿을 한 번에** 맞출 것
+- **US 유니버스의 Russell 3000은 네이버 증권 API에서 온다**(2026-09-09 교체). 지수 자체는
+  FTSE Russell이 유료로만 배포해서 이를 추종하는 ETF의 공개 보유종목 파일에 의존해 왔는데
+  그게 전부 막혔다 — 프로브(`.github/workflows/universe_probe.yml`, `python -m
+  src.universe_us`)로 7종을 두드려 본 결과: iShares IWV는 마케팅 페이지, Vanguard VTHR은
+  앱 셸 HTML(둘 다 HTTP 200이라 조용히 실패했다), stockanalysis 러셀 목록·스크리너 API는
+  404, 위키백과 Russell 1000은 표 없음, FDR 상장목록과 KIS 마스터는 받아지지만 **시총 칸이
+  없어** 상위 3,000개를 못 자름, stockanalysis 전체목록은 서버가 500개만 렌더(알파벳 앞쪽이라
+  NVDA·MSFT가 빠진다).
+  **유일하게 통한 건 네이버 증권 앱의 해외주식 API**(`api.stock.naver.com/stock/exchange/
+  {NASDAQ|NYSE|AMEX}/marketValue`)다 — 시가총액 내림차순으로 페이지 단위로 주므로 "미국 상장
+  시총 상위 3,000개"(= Russell 3000의 정의)를 그대로 만들 수 있다. 키가 필요 없다.
+  ADR(TSM 등)이 섞이지만 이 목록의 용도가 패턴 발굴 커버리지 확장이라 문제되지 않는다.
+  소스를 새로 쓸 때 **시총 칸이 있는지 먼저 볼 것** — 없으면 상위를 못 잘라 6,000개가 통째로
+  들어와 일봉 수집 시간이 두 배가 된다. `_RUSSELL_SOURCES`에 한 줄 추가하고 프로브를 돌리면
+  1분 만에 확인된다(universe_us.py를 건드리면 자동 실행된다)
 - **부동산 개요의 "기준월"**: 실거래 신고 기한이 30일이라 **이달 초에는 매매 신고가 0건인
   지역이 흔하다**(전월세는 바로 들어와 행 자체는 생기고 `price_avg`만 null). 그 행을 최신월로
   잡으면 그 지역만 매매가·전월대비가 '—'로 뜨고 목록 맨 아래로 밀려서 "업데이트 안 됨"으로
