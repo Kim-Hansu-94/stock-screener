@@ -7,6 +7,7 @@ import { PositionCard } from '@/components/PositionCard'
 import { fetchUsdKrwRate } from '@/lib/queries/shared'
 import {
   getLatestRegime,
+  getLatestScreenedDate,
   getLeadingSectors,
   getPriceHistoryByTicker,
   getScreenedStocks,
@@ -44,9 +45,14 @@ async function loadMarketSection(market: Market, label: string, universe: string
       return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, riskMap: {}, error: null }
     }
 
+    // 종목은 **종목 쪽 최신 날짜**로 찾는다. 장세(regimeRow.date)는 지수 시계열에서,
+    // 종목 날짜는 개별 일봉에서 나오므로 하루 어긋날 수 있는데, 장세 날짜로 종목을 찾으면
+    // 그때 결과가 0건이 되어 탭이 통째로 빈다(2026-09-09 실제 사고).
+    // 주도 섹터는 장세와 같은 날짜로 저장되므로 그대로 regimeRow.date를 쓴다.
+    const screenedDate = await getLatestScreenedDate(market)
     const [sectors, stocks] = await Promise.all([
       getLeadingSectors(market, regimeRow.date),
-      getScreenedStocks(market, regimeRow.date),
+      screenedDate ? getScreenedStocks(market, screenedDate) : Promise.resolve([]),
     ])
     const priceHistory = await getPriceHistoryByTicker(market, stocks.map((stock) => stock.ticker))
 
@@ -58,11 +64,12 @@ async function loadMarketSection(market: Market, label: string, universe: string
 
     const riskMap: Record<string, RiskInfo> = {}
     for (const stock of enrichedStocks) {
-      const barsAsOfEntry = filterBarsAsOf(priceHistory[stock.ticker] ?? [], regimeRow.date)
+      const barsAsOfEntry = filterBarsAsOf(priceHistory[stock.ticker] ?? [], stock.date)
       riskMap[stock.ticker] = computeStopTarget(barsAsOfEntry, stock.close)
     }
 
-    return { market, label, universe, date: regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }
+    // 화면의 "기준:"은 카드에 실제로 보이는 종목의 날짜여야 한다.
+    return { market, label, universe, date: screenedDate ?? regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }
   } catch (cause) {
     return {
       market,
