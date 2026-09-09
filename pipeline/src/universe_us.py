@@ -130,7 +130,12 @@ def _table_tickers(url: str) -> pd.DataFrame:
 
 def _fetch_stockanalysis_russell() -> pd.DataFrame:
     """Russell 1000 + Russell 2000 목록을 합쳐 Russell 3000을 만든다."""
-    parts = [_table_tickers(url) for url in STOCKANALYSIS_RUSSELL_URLS]
+    parts = []
+    for url in STOCKANALYSIS_RUSSELL_URLS:
+        df = _table_tickers(url)
+        # 목록 페이지가 일부만 렌더하는 경우를 알아채려면 장별 개수가 필요하다.
+        print(f"    {url.rstrip('/').rsplit('/', 1)[-1]}: {len(df)}개", flush=True)
+        parts.append(df)
     return pd.concat(parts, ignore_index=True)
 
 
@@ -485,19 +490,25 @@ def _probe_russell_sources() -> int:
     .github/workflows/universe_probe.yml로 Actions에서 1분 만에 돌려본다 —
     22분짜리 본 파이프라인을 돌려가며 소스를 고르지 않아도 된다.
     """
+    results: list[str] = []
     ok = 0
     for name, fetch in _RUSSELL_SOURCES:
         try:
             df = _clean_russell(fetch())
         except Exception as exc:  # noqa: BLE001
-            print(f"  x {name}: {exc}", flush=True)
+            results.append(f"  x {name}: {exc}")
             continue
         sectors = int(df["sector"].notna().sum()) if "sector" in df.columns else 0
-        print(
-            f"  o {name}: {len(df)}개 (업종 있는 행 {sectors}개) 예: {list(df['ticker'][:5])}",
-            flush=True,
+        results.append(
+            f"  o {name}: {len(df)}개 (업종 있는 행 {sectors}개) 예: {list(df['ticker'][:5])}"
         )
         ok += 1
+
+    # 소스 하나가 진행률 표시줄을 수백 줄 쏟아내면 앞선 결과가 로그에서 밀려난다.
+    # 그래서 마지막에 전부 모아 한 번 더 찍는다.
+    print("\n=== 소스별 결과 ===", flush=True)
+    for line in results:
+        print(line, flush=True)
     return ok
 
 

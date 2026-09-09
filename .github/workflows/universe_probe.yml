@@ -38,4 +38,8 @@ jobs:
 
       - name: Probe Russell 3000 sources
         working-directory: pipeline
+        # FinanceDataReader가 진행률 표시줄을 수백 줄 쏟아내 앞선 소스 결과를
+        # 로그에서 밀어낸다. 진단 실행에서는 꺼 둔다.
+        env:
+          TQDM_DISABLE: '1'
         run: python -m src.universe_us
