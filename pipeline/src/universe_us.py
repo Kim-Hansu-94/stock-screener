@@ -32,8 +32,14 @@ STOCKANALYSIS_SCREENER_URL = (
     "https://stockanalysis.com/api/screener/s/f"
     "?m=marketCap&s=desc&c=s,n,marketCap&cn=3000&i=stocks"
 )
-# 전체 종목 목록 페이지(시총 컬럼 포함) — 현재 유일하게 살아 있는 소스.
+# 전체 종목 목록 페이지(시총 컬럼 포함).
 STOCKANALYSIS_ALL_STOCKS_URL = "https://stockanalysis.com/stocks/"
+
+# 네이버 증권 앱이 쓰는 해외주식 API. 시가총액 내림차순으로 페이지 단위로 준다 —
+# "시총 상위 N개"를 그대로 받을 수 있어 Russell 3000 근사에 가장 잘 맞는다.
+NAVER_WORLD_URL = "https://api.stock.naver.com/stock/exchange/{exchange}/marketValue"
+_NAVER_EXCHANGES = ("NASDAQ", "NYSE", "AMEX")
+_NAVER_PAGE_SIZE = 100
 ISHARES_IWV_URL = (
     "https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/"
     "1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund"
@@ -211,6 +217,132 @@ def _fetch_stockanalysis_all_stocks() -> pd.DataFrame:
     return df.head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
 
 
+def _naver_page(exchange: str, page: int) -> list[dict]:
+    resp = requests.get(
+        NAVER_WORLD_URL.format(exchange=exchange),
+        params={"page": page, "pageSize": _NAVER_PAGE_SIZE},
+        headers=_HEADERS,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    return _rows_from_json(_require_json(resp))
+
+
+def _fetch_naver_world() -> pd.DataFrame:
+    """네이버 해외주식 시총 상위 목록(나스닥·뉴욕·아멕스)을 합쳐 상위 3,000개.
+
+    시총 내림차순으로 내려오므로 목표 개수만 채우면 멈춘다 — 전체를 훑을 필요가 없다.
+    """
+    rows: list[dict] = []
+    for exchange in _NAVER_EXCHANGES:
+        got = 0
+        for page in range(1, 40):
+            try:
+                page_rows = _naver_page(exchange, page)
+            except Exception as exc:  # noqa: BLE001
+                print(f"    {exchange} p{page} 실패: {exc}", flush=True)
+                break
+            if not page_rows:
+                break
+            rows.extend(page_rows)
+            got += len(page_rows)
+            # 거래소별로 넉넉히 받아 두고 마지막에 시총으로 다시 줄 세운다.
+            if got >= _RUSSELL_TARGET_SIZE:
+                break
+        print(f"    {exchange}: {got}개", flush=True)
+
+    if not rows:
+        raise RuntimeError("네이버 해외주식 목록에서 한 건도 받지 못함")
+
+    sample = rows[0]
+    ticker_key = next(
+        (k for k in ("symbolCode", "reutersCode", "symbol", "itemCode") if k in sample), None
+    )
+    if ticker_key is None:
+        raise RuntimeError(f"티커 키를 찾을 수 없음 (키: {list(sample)[:12]})")
+    name_key = next((k for k in ("stockName", "stockNameEng", "name") if k in sample), ticker_key)
+    cap_key = next((k for k in ("marketValue", "marketCap", "amount") if k in sample), None)
+
+    df = pd.DataFrame({
+        "ticker": [str(r.get(ticker_key, "")) for r in rows],
+        "name": [str(r.get(name_key, "")) for r in rows],
+        "sector": None,
+        "_cap": [_naver_number(r.get(cap_key)) if cap_key else None for r in rows],
+    })
+    df = df.drop_duplicates(subset="ticker")
+    if cap_key and df["_cap"].notna().any():
+        df = df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False)
+    # 시총 필드를 못 찾아도 응답이 이미 시총 내림차순이라 앞에서부터 자르면 된다.
+    return df.head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
+
+
+def _naver_number(value) -> float | None:
+    """'1,234,567' 또는 숫자 → float. 네이버는 금액을 콤마 문자열로 주기도 한다."""
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except ValueError:
+        return None
+
+
+def _fetch_kis_master_universe() -> pd.DataFrame:
+    """한국투자증권 해외주식 마스터 파일에서 시총 상위 3,000개.
+
+    파이프라인이 한글 종목명을 얻으려고 이미 받는 파일이라 새 의존이 없다.
+    다만 이 파일에 시총 필드가 있는지는 배포본마다 다르므로, 없으면 필드 배치를
+    에러 메시지에 담아 알려준다(그래야 다음에 어느 칸을 쓸지 정할 수 있다).
+    """
+    records: list[list[str]] = []
+    for exchange, filename in _KIS_MASTER_FILES.items():
+        try:
+            resp = requests.get(f"{_KIS_MASTER_BASE}{filename}.zip", timeout=60)
+            resp.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                raw = zf.read(zf.namelist()[0])
+        except Exception as exc:  # noqa: BLE001
+            print(f"    {exchange} 마스터 실패: {exc}", flush=True)
+            continue
+        for line in raw.split(b"\n"):
+            line = line.rstrip(b"\r")
+            if not line:
+                continue
+            parts = line.decode("euc-kr", errors="replace").split("\t")
+            if len(parts) >= 7:
+                records.append(parts)
+
+    if not records:
+        raise RuntimeError("마스터 파일을 하나도 못 받음")
+
+    # 티커 칸(4)은 기존 한글명 매핑에서 검증된 위치다. 시총 후보 칸을 찾는다:
+    # 숫자로 읽히면서 값의 폭이 큰(대형주~소형주) 칸이 시총일 가능성이 높다.
+    width = min(len(r) for r in records)
+    best_col, best_span = None, 0.0
+    for col in range(width):
+        values = [_naver_number(r[col]) for r in records[:2000]]
+        nums = [v for v in values if v and v > 0]
+        if len(nums) < len(records[:2000]) * 0.8:
+            continue
+        span = max(nums) / min(nums)
+        # 시총은 최대/최소 비율이 수천 배 이상 벌어진다(주가·주식수 칸과 구분).
+        if span > best_span and max(nums) > 1e8:
+            best_col, best_span = col, span
+
+    if best_col is None:
+        layout = " | ".join(f"[{i}]{v[:14]}" for i, v in enumerate(records[0][:width]))
+        raise RuntimeError(f"시총으로 볼 만한 칸이 없음 ({width}칸): {layout}")
+
+    df = pd.DataFrame({
+        "ticker": [r[4].strip() for r in records],
+        "name": [r[6].strip() for r in records],
+        "sector": None,
+        "_cap": [_naver_number(r[best_col]) for r in records],
+    })
+    df = df[df["ticker"].str.match(r"^[A-Z]{1,5}(-[A-Z])?$", na=False)].drop_duplicates(subset="ticker")
+    print(f"    시총 추정 칸=[{best_col}] (최대/최소 {best_span:,.0f}배)", flush=True)
+    return df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False).head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
+
+
 def _fetch_ishares_iwv() -> pd.DataFrame:
     """iShares IWV(Russell 3000 ETF) 보유종목 CSV에서 티커 목록 반환.
 
@@ -287,6 +419,8 @@ _STOCKANALYSIS_MAX_PAGES = 15
 
 # (소스 이름, 수집 함수) — 앞에서부터 시도한다.
 _RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+    ("네이버 해외주식 시총순", _fetch_naver_world),
+    ("KIS 마스터 시총상위", _fetch_kis_master_universe),
     ("stockanalysis 전체목록", _fetch_stockanalysis_all_stocks),
     ("stockanalysis 스크리너API", _fetch_stockanalysis_screener),
     ("iShares IWV", _fetch_ishares_iwv),
