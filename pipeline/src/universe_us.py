@@ -32,16 +32,8 @@ STOCKANALYSIS_SCREENER_URL = (
     "https://stockanalysis.com/api/screener/s/f"
     "?m=marketCap&s=desc&c=s,n,marketCap&cn=3000&i=stocks"
 )
-# 전체 종목 목록 페이지(시총 컬럼 포함). 스크리너 API가 막히면 여기서 상위를 자른다.
+# 전체 종목 목록 페이지(시총 컬럼 포함) — 현재 유일하게 살아 있는 소스.
 STOCKANALYSIS_ALL_STOCKS_URL = "https://stockanalysis.com/stocks/"
-# Russell 1000은 위키백과에 구성종목 표가 있다(S&P400/600과 같은 방식으로 읽는다).
-# 3000 전체는 아니지만, 다른 소스가 다 막혔을 때 대형·중형주만이라도 채운다.
-WIKI_RUSSELL_1000_URL = "https://en.wikipedia.org/wiki/Russell_1000_Index"
-
-STOCKANALYSIS_RUSSELL_URLS = (
-    "https://stockanalysis.com/list/russell-1000-stocks/",
-    "https://stockanalysis.com/list/russell-2000-stocks/",
-)
 ISHARES_IWV_URL = (
     "https://www.ishares.com/us/products/239714/ishares-russell-3000-etf/"
     "1467271812596.ajax?fileType=csv&fileName=IWV_holdings&dataType=fund"
@@ -122,24 +114,6 @@ def _require_json(resp: requests.Response) -> dict:
         ) from None
 
 
-def _table_tickers(url: str) -> pd.DataFrame:
-    """티커·종목명 컬럼을 가진 표를 찾아 뽑는다(stockanalysis.com 목록 페이지용)."""
-    for t in _read_html(url):
-        ticker_col = next(
-            (c for c in t.columns if "symbol" in str(c).lower() or "ticker" in str(c).lower()), None
-        )
-        name_col = next(
-            (c for c in t.columns if "company" in str(c).lower() or "name" in str(c).lower()), None
-        )
-        if ticker_col is not None and name_col is not None:
-            return pd.DataFrame({
-                "ticker": t[ticker_col].astype(str),
-                "name": t[name_col].astype(str),
-                "sector": None,
-            })
-    raise RuntimeError(f"{url} 에서 구성종목 표를 찾을 수 없음")
-
-
 def _rows_from_json(payload) -> list[dict]:
     """응답 어딘가에 있는 '딕셔너리들의 리스트'를 찾아 돌려준다.
 
@@ -176,81 +150,65 @@ def _fetch_stockanalysis_screener() -> pd.DataFrame:
     })
 
 
-def _fetch_stockanalysis_all_stocks() -> pd.DataFrame:
-    """전체 종목 목록 페이지에서 시총 상위 3,000개."""
-    for t in _read_html(STOCKANALYSIS_ALL_STOCKS_URL):
+def _stockanalysis_page(page: int) -> pd.DataFrame | None:
+    """전체 종목 목록의 한 페이지(티커·종목명·시총). 표를 못 찾으면 None."""
+    url = STOCKANALYSIS_ALL_STOCKS_URL if page == 1 else f"{STOCKANALYSIS_ALL_STOCKS_URL}?p={page}"
+    for t in _read_html(url):
         cols = {str(c).lower().replace(" ", ""): c for c in t.columns}
         symbol_col = cols.get("symbol") or cols.get("ticker")
         cap_col = cols.get("marketcap")
         if symbol_col is None or cap_col is None:
             continue
         name_col = cols.get("companyname") or cols.get("name") or symbol_col
-        # 시총이 '1.23B' 같은 문자열이라 정렬용 숫자로 바꾼다.
-        units = {"T": 1e12, "B": 1e9, "M": 1e6, "K": 1e3}
-        caps = (
-            t[cap_col].astype(str).str.replace(",", "", regex=False).str.strip()
-            .map(lambda v: float(v[:-1]) * units[v[-1]] if v[-1:] in units and v[:-1].replace(".", "", 1).isdigit() else None)
-        )
-        df = pd.DataFrame({
+        return pd.DataFrame({
             "ticker": t[symbol_col].astype(str),
             "name": t[name_col].astype(str),
             "sector": None,
-            "_cap": caps,
+            "_cap": t[cap_col].map(_parse_cap),
         })
-        return df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False).head(3000).drop(columns="_cap")
-    raise RuntimeError(f"{STOCKANALYSIS_ALL_STOCKS_URL} 에서 시총이 있는 표를 찾을 수 없음")
+    return None
 
 
-def _fetch_wiki_russell1000() -> pd.DataFrame:
-    """위키백과 Russell 1000 구성종목(3,000 전체는 아니지만 대형·중형주는 채운다)."""
-    return _table_tickers(WIKI_RUSSELL_1000_URL)
+def _parse_cap(value) -> float | None:
+    """'1.23B' → 1.23e9. 시총 컬럼이 단위 접미사가 붙은 문자열로 온다."""
+    units = {"T": 1e12, "B": 1e9, "M": 1e6, "K": 1e3}
+    text = str(value).replace(",", "").replace("$", "").strip()
+    if not text or text[-1] not in units:
+        return None
+    try:
+        return float(text[:-1]) * units[text[-1]]
+    except ValueError:
+        return None
 
 
-def _fetch_stockanalysis_russell() -> pd.DataFrame:
-    """Russell 1000 + Russell 2000 목록을 합쳐 Russell 3000을 만든다."""
-    parts = []
-    for url in STOCKANALYSIS_RUSSELL_URLS:
-        df = _table_tickers(url)
-        # 목록 페이지가 일부만 렌더하는 경우를 알아채려면 장별 개수가 필요하다.
-        print(f"    {url.rstrip('/').rsplit('/', 1)[-1]}: {len(df)}개", flush=True)
-        parts.append(df)
-    return pd.concat(parts, ignore_index=True)
+def _fetch_stockanalysis_all_stocks() -> pd.DataFrame:
+    """전체 종목 목록을 페이지를 넘겨가며 모아 시총 상위 3,000개를 돌려준다.
 
-
-def _fetch_fdr_us_listings() -> pd.DataFrame:
-    """미국 3개 거래소 상장 목록에서 시총 상위 3,000개.
-
-    Russell 3000은 정의상 "미국 상장 시가총액 상위 3,000개"라 이렇게 근사할 수 있다.
-    ETF 제공사(iShares·Vanguard)가 막혀도 쓸 수 있는 마지막 경로다.
-
-    시총 컬럼이 없으면 이 소스를 포기한다 — 상위를 못 자르면 6,000개 가까이가
-    통째로 들어와 일봉 수집 시간이 두 배로 뛴다(현재 1,521개에 12분).
+    한 페이지에 500개씩만 렌더된다(알파벳 순). 1페이지만 읽으면 A로 시작하는
+    종목만 들어와 NVDA·MSFT 같은 대형주가 통째로 빠진다 — 실제로 첫 시도가
+    그렇게 500개짜리 반쪽 결과를 냈다.
     """
-    frames = []
-    for market in ("NASDAQ", "NYSE", "AMEX"):
-        try:
-            frames.append(fdr.StockListing(market))
-        except Exception as exc:  # noqa: BLE001
-            print(f"    {market} 상장 목록 실패: {exc}", flush=True)
+    frames: list[pd.DataFrame] = []
+    seen: set[str] = set()
+    for page in range(1, _STOCKANALYSIS_MAX_PAGES + 1):
+        df = _stockanalysis_page(page)
+        if df is None or df.empty:
+            break
+        new = df[~df["ticker"].isin(seen)]
+        print(f"    p{page}: {len(df)}개 (신규 {len(new)}개)", flush=True)
+        # 페이지 파라미터가 안 먹으면 같은 500개가 계속 온다 — 그때는 멈춘다.
+        if new.empty:
+            break
+        seen.update(new["ticker"])
+        frames.append(new)
+
     if not frames:
-        raise RuntimeError("3개 거래소 상장 목록을 하나도 못 받음")
+        raise RuntimeError(f"{STOCKANALYSIS_ALL_STOCKS_URL} 에서 시총이 있는 표를 찾을 수 없음")
 
     df = pd.concat(frames, ignore_index=True)
-    cols = {str(c).lower().replace(" ", ""): c for c in df.columns}
-    symbol_col = cols.get("symbol") or cols.get("ticker")
-    cap_col = cols.get("marketcap") or cols.get("marcap")
-    if symbol_col is None:
-        raise RuntimeError(f"티커 컬럼 없음 (컬럼: {list(df.columns)[:8]})")
-    if cap_col is None:
-        raise RuntimeError(f"시총 컬럼이 없어 상위 3,000개를 자를 수 없음 (컬럼: {list(df.columns)[:8]})")
-
-    df = df.dropna(subset=[cap_col]).sort_values(cap_col, ascending=False).head(3000)
-    name_col = cols.get("name") or symbol_col
-    return pd.DataFrame({
-        "ticker": df[symbol_col].astype(str),
-        "name": df[name_col].astype(str),
-        "sector": None,
-    })
+    # 시총을 못 읽은 행은 상위 3,000개를 자르는 기준이 없으니 뺀다.
+    df = df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False)
+    return df.head(_RUSSELL_TARGET_SIZE).drop(columns="_cap")
 
 
 def _fetch_ishares_iwv() -> pd.DataFrame:
@@ -321,13 +279,16 @@ def _fetch_vthr_holdings() -> pd.DataFrame:
 # (실제 구성종목은 2,500~3,000개 선)
 _MIN_RUSSELL_TICKERS = 1000
 
+# Russell 3000을 근사할 때 남길 종목 수. 지수 이름 그대로 3,000개.
+_RUSSELL_TARGET_SIZE = 3000
+# 전체 목록은 한 페이지 500개라 3,000개를 채우려면 6장이면 되지만, 페이지당
+# 개수가 줄어도 목표를 채우도록 여유를 둔다.
+_STOCKANALYSIS_MAX_PAGES = 15
+
 # (소스 이름, 수집 함수) — 앞에서부터 시도한다.
 _RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
-    ("stockanalysis 스크리너API", _fetch_stockanalysis_screener),
     ("stockanalysis 전체목록", _fetch_stockanalysis_all_stocks),
-    ("위키 Russell1000", _fetch_wiki_russell1000),
-    ("stockanalysis R1000+R2000", _fetch_stockanalysis_russell),
-    ("FDR 상장목록 시총상위", _fetch_fdr_us_listings),
+    ("stockanalysis 스크리너API", _fetch_stockanalysis_screener),
     ("iShares IWV", _fetch_ishares_iwv),
     ("Vanguard VTHR", _fetch_vthr_holdings),
 ]
