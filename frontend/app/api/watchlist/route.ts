@@ -13,7 +13,17 @@ import type { Market, WatchlistCategory } from '@/lib/types'
  */
 
 // 파이프라인 1회 실행 시간이 과도하게 늘어나지 않도록 거는 안전장치.
-const MAX_WATCHLIST_SIZE = 30
+//
+// 30 → 40 (2026-09-09). AI 전력 인프라 12종목을 넣으려니 23종목이 차 있어
+// 상한에 걸렸다. 근거 없이 올린 게 아니라 실행 로그 실측이다 — 감시 종목 평가
+// (run_watchlist)가 23종목에 약 10초라 종목당 0.4초 남짓이고, 40종목이어도
+// 20초를 안 넘는다. 파이프라인 전체가 20분대인 것에 비하면 무시할 수 있다.
+// 더 올리고 싶다면 그때도 로그의 "감시 종목 평가 중..." 구간 실측을 근거로 할 것.
+//
+// 상한을 올리는 대신 pipeline/src/watchlist.py의 WATCHLIST 상수에 박는 방법도
+// 있지만(상수는 이 상한을 안 탄다) 그러면 사이트에서 삭제할 수 없게 되므로
+// 쓰지 않는다 — 그 상수를 비워 둔 이유가 그것이다.
+const MAX_WATCHLIST_SIZE = 40
 
 function parseMarket(value: unknown): Market | null {
   return value === 'KR' || value === 'US' ? value : null
