@@ -29,6 +29,11 @@ export async function getRealestateMonthly(): Promise<RealestateMonthlyRow[]> {
       .select(COLUMNS)
       .order('region_code', { ascending: true })
       .order('month', { ascending: true })
+      // area_band까지 넣어야 정렬 키가 PK와 같아져 순서가 유일하게 정해진다.
+      // (region_code, month)만으로 정렬하면 같은 달의 구간 행 5개가 동순위라
+      // 페이지마다 그 안의 순서가 달라질 수 있고, 그러면 페이지 경계에 걸친 행이
+      // 조용히 빠지거나 두 번 들어온다.
+      .order('area_band', { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) return rows
     rows.push(...((data ?? []) as RealestateMonthlyRow[]))

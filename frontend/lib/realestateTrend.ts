@@ -29,7 +29,15 @@ export interface RegionTrend {
   momPricePct: number | null
 }
 
-/** ALL 구간만 골라 지역별 최신월 + 직전월 대비 매매가 변동률을 낸다 (지역 목록 화면). */
+/** ALL 구간만 골라 지역별 최신월 + 직전월 대비 매매가 변동률을 낸다 (지역 목록 화면).
+ *
+ * "최신월"은 **매매 거래가 실제로 있던 마지막 달**이다. 그냥 달력상 최신 행을 쓰면
+ * 안 된다 — 실거래 신고 기한이 30일이라 이달 초에는 매매 신고가 아직 한 건도 안
+ * 들어온 지역이 흔한데(전월세는 바로 들어와 행 자체는 생긴다), 그 행은 price_avg가
+ * null이라 화면에 매매가·전월대비가 '—'로 뜨고 목록 맨 아래로 밀린다. 사용자 눈에는
+ * 그 지역만 "업데이트가 안 된" 것으로 보인다(2026-09 서울 일부 구·광명시 사례).
+ * 신고가 덜 찬 달을 건너뛰고 마지막으로 매매가 있던 달을 보여주는 편이 정확하다 —
+ * 어느 달 기준인지는 표의 '기준월' 열에 그대로 나온다. */
 export function regionOverview(rows: RealestateMonthlyRow[]): RegionTrend[] {
   const byRegion = new Map<string, RealestateMonthlyRow[]>()
   for (const row of rows) {
@@ -42,8 +50,12 @@ export function regionOverview(rows: RealestateMonthlyRow[]): RegionTrend[] {
   const result: RegionTrend[] = []
   for (const list of byRegion.values()) {
     const sorted = [...list].sort((a, b) => a.month.localeCompare(b.month))
-    const latest = sorted[sorted.length - 1]
-    const prior = sorted.length > 1 ? sorted[sorted.length - 2] : null
+    // 매매가 있던 달만 추린다. 한 달도 없으면(전월세만 수집된 지역) 그냥 최신 행을
+    // 써서 지역 자체가 목록에서 사라지지는 않게 한다.
+    const priced = sorted.filter((r) => r.price_avg != null)
+    const ranked = priced.length > 0 ? priced : sorted
+    const latest = ranked[ranked.length - 1]
+    const prior = ranked.length > 1 ? ranked[ranked.length - 2] : null
     result.push({
       region_code: latest.region_code,
       region_name: latest.region_name,
