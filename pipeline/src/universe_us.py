@@ -26,6 +26,18 @@ import yfinance as yf
 # stockanalysis.com의 지수 구성종목 목록 — Russell 3000 = Russell 1000 + Russell 2000
 # 이라 두 장을 합쳐 만든다. 이 사이트는 NASDAQ100 수집에도 이미 쓰고 있어 형식·가용성이
 # 검증돼 있다(_fetch_nasdaq100).
+# stockanalysis.com 내부 스크리너 API. 시총 내림차순으로 원하는 개수만 받을 수 있어
+# "미국 상장 시총 상위 3,000개"(= Russell 3000의 정의)를 그대로 만들 수 있다.
+STOCKANALYSIS_SCREENER_URL = (
+    "https://stockanalysis.com/api/screener/s/f"
+    "?m=marketCap&s=desc&c=s,n,marketCap&cn=3000&i=stocks"
+)
+# 전체 종목 목록 페이지(시총 컬럼 포함). 스크리너 API가 막히면 여기서 상위를 자른다.
+STOCKANALYSIS_ALL_STOCKS_URL = "https://stockanalysis.com/stocks/"
+# Russell 1000은 위키백과에 구성종목 표가 있다(S&P400/600과 같은 방식으로 읽는다).
+# 3000 전체는 아니지만, 다른 소스가 다 막혔을 때 대형·중형주만이라도 채운다.
+WIKI_RUSSELL_1000_URL = "https://en.wikipedia.org/wiki/Russell_1000_Index"
+
 STOCKANALYSIS_RUSSELL_URLS = (
     "https://stockanalysis.com/list/russell-1000-stocks/",
     "https://stockanalysis.com/list/russell-2000-stocks/",
@@ -126,6 +138,72 @@ def _table_tickers(url: str) -> pd.DataFrame:
                 "sector": None,
             })
     raise RuntimeError(f"{url} 에서 구성종목 표를 찾을 수 없음")
+
+
+def _rows_from_json(payload) -> list[dict]:
+    """응답 어딘가에 있는 '딕셔너리들의 리스트'를 찾아 돌려준다.
+
+    내부 API라 감싸는 키 이름이 예고 없이 바뀐다(data.data / data / result ...).
+    키 이름을 고정하면 그때마다 조용히 빈 결과가 되므로 구조로 찾는다.
+    """
+    if isinstance(payload, list):
+        return [r for r in payload if isinstance(r, dict)]
+    if isinstance(payload, dict):
+        for value in payload.values():
+            rows = _rows_from_json(value)
+            if len(rows) > 10:  # 메타데이터 몇 개짜리 리스트와 구분
+                return rows
+    return []
+
+
+def _fetch_stockanalysis_screener() -> pd.DataFrame:
+    """stockanalysis.com 스크리너 API에서 시총 상위 종목."""
+    resp = requests.get(STOCKANALYSIS_SCREENER_URL, headers=_HEADERS, timeout=30)
+    resp.raise_for_status()
+    rows = _rows_from_json(_require_json(resp))
+    if not rows:
+        raise RuntimeError(f"종목 배열을 찾을 수 없음: {_body_snippet(resp)}")
+
+    sample = rows[0]
+    ticker_key = next((k for k in ("s", "symbol", "ticker") if k in sample), None)
+    if ticker_key is None:
+        raise RuntimeError(f"티커 키를 찾을 수 없음 (키: {list(sample)[:8]})")
+    name_key = next((k for k in ("n", "name", "companyName") if k in sample), ticker_key)
+    return pd.DataFrame({
+        "ticker": [str(r.get(ticker_key, "")) for r in rows],
+        "name": [str(r.get(name_key, "")) for r in rows],
+        "sector": None,
+    })
+
+
+def _fetch_stockanalysis_all_stocks() -> pd.DataFrame:
+    """전체 종목 목록 페이지에서 시총 상위 3,000개."""
+    for t in _read_html(STOCKANALYSIS_ALL_STOCKS_URL):
+        cols = {str(c).lower().replace(" ", ""): c for c in t.columns}
+        symbol_col = cols.get("symbol") or cols.get("ticker")
+        cap_col = cols.get("marketcap")
+        if symbol_col is None or cap_col is None:
+            continue
+        name_col = cols.get("companyname") or cols.get("name") or symbol_col
+        # 시총이 '1.23B' 같은 문자열이라 정렬용 숫자로 바꾼다.
+        units = {"T": 1e12, "B": 1e9, "M": 1e6, "K": 1e3}
+        caps = (
+            t[cap_col].astype(str).str.replace(",", "", regex=False).str.strip()
+            .map(lambda v: float(v[:-1]) * units[v[-1]] if v[-1:] in units and v[:-1].replace(".", "", 1).isdigit() else None)
+        )
+        df = pd.DataFrame({
+            "ticker": t[symbol_col].astype(str),
+            "name": t[name_col].astype(str),
+            "sector": None,
+            "_cap": caps,
+        })
+        return df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False).head(3000).drop(columns="_cap")
+    raise RuntimeError(f"{STOCKANALYSIS_ALL_STOCKS_URL} 에서 시총이 있는 표를 찾을 수 없음")
+
+
+def _fetch_wiki_russell1000() -> pd.DataFrame:
+    """위키백과 Russell 1000 구성종목(3,000 전체는 아니지만 대형·중형주는 채운다)."""
+    return _table_tickers(WIKI_RUSSELL_1000_URL)
 
 
 def _fetch_stockanalysis_russell() -> pd.DataFrame:
@@ -245,6 +323,9 @@ _MIN_RUSSELL_TICKERS = 1000
 
 # (소스 이름, 수집 함수) — 앞에서부터 시도한다.
 _RUSSELL_SOURCES: list[tuple[str, Callable[[], pd.DataFrame]]] = [
+    ("stockanalysis 스크리너API", _fetch_stockanalysis_screener),
+    ("stockanalysis 전체목록", _fetch_stockanalysis_all_stocks),
+    ("위키 Russell1000", _fetch_wiki_russell1000),
     ("stockanalysis R1000+R2000", _fetch_stockanalysis_russell),
     ("FDR 상장목록 시총상위", _fetch_fdr_us_listings),
     ("iShares IWV", _fetch_ishares_iwv),
