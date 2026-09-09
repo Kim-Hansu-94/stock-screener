@@ -67,6 +67,30 @@ export async function getLeadingSectors(market: Market, date: string): Promise<L
   return (data ?? []) as LeadingSectorRow[]
 }
 
+/** 그 시장의 스크리닝 결과가 저장된 **가장 최근 날짜**. 없으면 null.
+ *
+ * 장세(market_regime)의 날짜로 종목을 찾으면 안 된다 — 두 날짜가 서로 다른 소스에서
+ * 나오기 때문이다. 장세·주도섹터는 지수 시계열의 마지막 날짜를, 종목은 그 종목 일봉의
+ * 마지막 날짜를 쓴다. 지수 쪽이 하루라도 늦으면(2026-09-09: 코스피 지수가 fdr 캐시라
+ * 9/7에 멈춰 있었다) 종목이 멀쩡히 저장돼 있어도 조회가 0건이 되어 눌림목 탭이 통째로
+ * 비었다. 화면은 "가장 최근 스크리닝 결과"를 보여주면 되므로 종목 쪽 날짜를 기준으로 삼는다. */
+export async function getLatestScreenedDate(market: Market): Promise<string | null> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+  const supabase = createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('screened_stocks')
+    .select('date')
+    .eq('market', market)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return (data as { date: string } | null)?.date ?? null
+}
+
 export async function getScreenedStocks(market: Market, date: string): Promise<ScreenedStockRow[]> {
   'use cache'
   cacheLife('hours')

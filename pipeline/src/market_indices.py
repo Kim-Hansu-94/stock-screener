@@ -73,7 +73,7 @@ def _fdr_closes(ticker: str, start: date, end: date) -> tuple[list[str], list[fl
     return [d.date().isoformat() for d in closes.index], [float(c) for c in closes]
 
 
-def _drop_unfinished_bar(
+def drop_unfinished_kr_bar(
     dates: list[str], closes: list[float], now_kst: datetime
 ) -> tuple[list[str], list[float]]:
     """아직 안 끝난 오늘 봉을 떼어낸다.
@@ -99,7 +99,7 @@ def _kr_snapshot(
     try:
         # end가 배타적이라 하루를 더해야 오늘 종가가 들어온다(저녁 16:30 실행용).
         dates, closes = _yahoo_closes(yahoo_ticker, start, today + timedelta(days=1))
-        dates, closes = _drop_unfinished_bar(dates, closes, now_kst)
+        dates, closes = drop_unfinished_kr_bar(dates, closes, now_kst)
     except Exception as exc:  # noqa: BLE001
         print(f"  시황 지수 실시간 조회 실패 ({name}): {exc}", flush=True)
 

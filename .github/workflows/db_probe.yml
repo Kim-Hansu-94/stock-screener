@@ -1,0 +1,43 @@
+name: DB State Probe
+
+# 수동 실행 전용 진단. 작업용 컨테이너에는 Supabase 자격증명도 사이트 접속도 없어서
+# "파이프라인은 저장했다는데 화면엔 안 뜬다"를 거기서 확인할 수 없다. 여기서 1분이면
+# 어느 테이블이 어느 날짜로 몇 행 들어가 있는지 보인다(universe_probe.yml과 같은 방식).
+on:
+  workflow_dispatch:
+  # 진단 코드를 고치면 바로 한 번 돌려 본다(universe_probe.yml과 같은 이유).
+  push:
+    paths:
+      - 'pipeline/src/db_probe.py'
+      - '.github/workflows/db_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+
+      - name: Probe DB state
+        working-directory: pipeline
+        run: python -m src.db_probe
