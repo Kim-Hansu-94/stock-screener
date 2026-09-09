@@ -184,6 +184,17 @@ def _fetch_naver_world() -> pd.DataFrame:
         "_cap": [_naver_number(r.get(cap_key)) if cap_key else None for r in rows],
     })
     df = df.drop_duplicates(subset="ticker")
+
+    # 우선주·특수 클래스를 뺀다. 네이버 목록엔 'MS PRP'(모건스탠리 우선주 P),
+    # 'T PRA', 'MKC V' 같은 항목이 섞여 오는데 야후에는 그 표기가 없어 시세를
+    # 통째로 못 받는다(2026-09-09 첫 실행 로그에 'possibly delisted'로 수십 건).
+    # 자르기 **전에** 걸러야 그만큼 진짜 종목이 상위 3,000개 안으로 들어온다.
+    before = len(df)
+    df = df[df["ticker"].str.fullmatch(r"[A-Z]{1,5}(-[A-Z])?")]
+    dropped = before - len(df)
+    if dropped:
+        print(f"    보통주 아닌 표기 제외: {dropped}개", flush=True)
+
     if cap_key and df["_cap"].notna().any():
         df = df.dropna(subset=["_cap"]).sort_values("_cap", ascending=False)
     # 시총 필드를 못 찾아도 응답이 이미 시총 내림차순이라 앞에서부터 자르면 된다.

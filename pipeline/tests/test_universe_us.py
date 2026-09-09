@@ -350,3 +350,21 @@ def test_naver_world_reports_unknown_ticker_key(mock_get):
         assert "티커 키를 찾을 수 없음" in str(exc) and "code" in str(exc)
     else:
         raise AssertionError("키를 못 찾았는데 에러가 나지 않았다")
+
+
+@patch("pipeline.src.universe_us.requests.get")
+def test_naver_world_drops_preferred_and_special_class_tickers(mock_get):
+    # 네이버 목록엔 우선주('MS PRP')·특수 클래스('MKC V')가 섞여 오는데 야후엔 그
+    # 표기가 없어 시세를 못 받는다. 상위 3,000개를 자르기 전에 빼야 그만큼 진짜
+    # 종목이 안으로 들어온다.
+    rows = [
+        {"symbolCode": "MS PRP", "stockName": "모건스탠리 우선주", "marketValue": "9,000"},
+        {"symbolCode": "MKC V", "stockName": "맥코믹 V", "marketValue": "8,000"},
+        {"symbolCode": "NVDA", "stockName": "엔비디아", "marketValue": "5,000"},
+        {"symbolCode": "BRK-B", "stockName": "버크셔 B", "marketValue": "1,000"},
+    ]
+    mock_get.side_effect = lambda url, **kw: _naver_json(rows if "NASDAQ" in url else [])
+
+    df = _fetch_naver_world()
+
+    assert list(df["ticker"]) == ["NVDA", "BRK-B"]
