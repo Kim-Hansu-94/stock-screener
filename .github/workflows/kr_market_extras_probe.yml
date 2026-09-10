@@ -14,6 +14,9 @@ on:
       - 'pipeline/src/consensus.py'
       - 'pipeline/src/buyback.py'
       - 'pipeline/src/naver_api.py'
+      # 프로브 자체를 고쳤을 때도 돌아야 한다 — 이게 빠져 있어서 진단을
+      # 보강하고 푸시했는데 아무 것도 실행되지 않았다(2026-09-10).
+      - 'pipeline/src/kr_market_extras_probe.py'
       - '.github/workflows/kr_market_extras_probe.yml'
 
 jobs:
