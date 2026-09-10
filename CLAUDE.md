@@ -132,9 +132,9 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비, 매매가 내림차순)·지역 상세(월별+전월대비)·지도 색상(`priceMapColor`, 매매가 → 단일색조 연속 스케일) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
 | `data/capital-sigungu.json` | 수도권 77개 시군구 SVG 지도 좌표(사전 계산). 통계청 SGIS(2018, 공공누리 1유형) 경계를 `southkorea/southkorea-maps`에서 받아 LAWD_CD로 매핑하고 d3-geo로 투영해 만들었다(재현 스크립트는 저장 안 함 — 경계 자체가 거의 안 바뀌어 일회성). 옹진군은 원양 도서 때문에 투영 기준(fitSize)에서 뺐다 |
 | `averageCost.ts` | 분할매수 평단 계산 — 차수별(단가·수량) 매수를 수량 가중 평균으로 합쳐 평단가·평가손익·본전 가격을 낸다. 매도 비용(KR 0.165% = 거래세·농특세 0.15% + 수수료, US 0.07%)을 평가손익에서 차감할 수 있고, 그래서 **본전 가격 ≠ 평단가**다(비용만큼 위). `simulateAddBuy()`는 물타기 시뮬레이션(지금 N주 더 사면 평단이 얼마). 순수 함수라 `averageCost.test.ts`로 검증. 라오니(raoni.xyz/calc)의 평단 손익계산기를 벤치마킹 |
-| `investorFlow.ts` | 수급 요약(누적 순매매·연속 일수·매수일 수)과 금액 한국식 축약(`1.2조`/`3,400억`). **판정하지 않는다** — "외국인이 사니 좋다" 같은 결론은 내지 않고 값만 낸다(supportSignals.ts와 같은 원칙). `investorFlow.test.ts`로 검증 |
+| `investorFlow.ts` | 수급 요약(누적 순매매·연속 일수·매수일 수)과 금액 한국식 축약(`1.2조`/`3,400억`). **판정하지 않는다** — "외국인이 사니 좋다" 같은 결론은 내지 않고 값만 낸다(supportSignals.ts와 같은 원칙). `investorFlow.test.ts`로 검증. 입력 타입은 `FlowLike`(필요한 열만 있는 최소 형태)라 배지용 축소 조회도 같은 함수를 쓴다 — **연속 일수 규칙이 두 곳으로 갈라지면 배지와 상세가 다른 숫자를 말하게 된다** |
 | `useLazyPriceHistory.ts` | 카드를 펼쳤을 때만 그 종목 일봉을 `/api/price-history`로 받아오는 훅. 한 번 받으면 다시 안 받고, 접으면 진행 중 요청을 취소한다 |
-| `queries/krExtras.ts` | 수급·컨센서스·자사주 조회. **조회 실패·표 없음이 정상 상태**다(별도 워크플로가 처음 돌기 전까지) — 예외를 던지지 않고 빈 값을 돌려주며, 화면은 그 섹션만 숨긴다 |
+| `queries/krExtras.ts` | 수급·컨센서스·자사주 조회. `getKrExtrasSummaries()`는 **접힌 카드 배지용 요약**(종목당 숫자 서너 개)을 서버에서 미리 낸다 — 상세는 펼쳤을 때 `/api/kr-extras`가 맡는다. 자사주 진행률의 근거 우선순위(확정→추정→기간)를 `MarketExtrasPanel`과 **똑같이** 골라야 배지와 상세가 같은 숫자를 말한다. **조회 실패·표 없음이 정상 상태**다(별도 워크플로가 처음 돌기 전까지) — 예외를 던지지 않고 빈 값을 돌려주며, 화면은 그 섹션만 숨긴다 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -180,7 +180,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 
 ## frontend/components/
 
-`MarketExtrasPanel.tsx`(수급·컨센서스·자사주 — 카드를 펼치면 `/api/kr-extras`로 받아 그린다. **국내 종목 전용**이고, 세 값 모두 기존 판정·점수에 넣지 않고 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수인지 알 수 없게 되고 지금까지 쌓인 스크리너 성적과 기준이 갈라진다) · `LazyStockChart.tsx`(펼쳤을 때 일봉을 받아 그리는 차트) · `AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
+`KrExtrasBadges.tsx`(접힌 카드의 요약 배지 — 외국인 수급·목표가·자사주를 한 줄로. 새 정보가 전부 '펼쳐야 보이는' 곳에 있으면 매일 보는 화면에서 없는 기능이나 마찬가지라 만들었다. 상태 없는 서버 컴포넌트라 클라이언트 카드 안에서도 그대로 쓴다) · `MarketExtrasPanel.tsx`(수급·컨센서스·자사주 — 카드를 펼치면 `/api/kr-extras`로 받아 그린다. **국내 종목 전용**이고, 세 값 모두 기존 판정·점수에 넣지 않고 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수인지 알 수 없게 되고 지금까지 쌓인 스크리너 성적과 기준이 갈라진다) · `LazyStockChart.tsx`(펼쳤을 때 일봉을 받아 그리는 차트) · `AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
 `WatchlistCard.tsx`(매집 감시 카드) · `PositionCard.tsx`(포지션 관리 카드 — 보유 종목 지지 신호 점검,
 `supportSignals.ts` 사용) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
@@ -238,7 +238,11 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
   500봉). 지금은 `/api/price-history` + `useLazyPriceHistory`/`LazyStockChart`로 펼친
   종목만 받는다. **카드에 새 데이터를 붙일 때 같은 실수를 반복하지 말 것** — 펼쳐야
   보이는 정보는 펼쳤을 때 받는다(`/api/kr-extras`도 같은 이유로 라우트다). 서버에서만
-  필요한 계산(등락률·손익비)은 서버에서 끝내고 숫자만 내려보낸다
+  필요한 계산(등락률·손익비)은 서버에서 끝내고 숫자만 내려보낸다.
+  **다만 "다 보내지 말라"는 교훈이지 "아무것도 보내지 말라"가 아니다** — 종목당
+  숫자 몇 개짜리 요약(`getKrExtrasSummaries`)은 미리 보내는 게 맞다. 실제로 새
+  기능 3종을 전부 펼침 안에 넣었더니 "사이트가 그대로인데?"라는 말을 들었다
+  (2026-09-10). 무거운 건 펼쳤을 때, 요약은 접힌 채로
 - **자사주 진행률은 세 종류이고 절대 합치지 않는다 (2026-09-10)**: ①
   `amount_progress_pct`(취득 금액 확정, 결과보고서 기반) ② `estimated_progress_pct`
   (위탁증권사 창구 누적 순매수 기반 **추정**) ③ `period_progress_pct`(취득 기간

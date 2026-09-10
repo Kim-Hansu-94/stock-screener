@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { DailyReport } from './DailyReport'
 import { SimilaritySearch } from './SimilaritySearch'
 import { OpportunityTab } from './OpportunityTab'
+import type { KrExtrasSummary } from '@/lib/queries/krExtras'
 import { WatchlistCard } from '@/components/WatchlistCard'
 import type {
   OpportunityStockRow,
@@ -30,6 +31,7 @@ export function DiscoverTabs({
   ownedTickers,
   watchlistRows,
   watchlistTickers,
+  watchlistKrExtras,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
@@ -37,6 +39,7 @@ export function DiscoverTabs({
   ownedTickers: string[]
   watchlistRows: WatchlistStatusRow[]
   watchlistTickers: WatchlistTickerRow[]
+  watchlistKrExtras: Record<string, KrExtrasSummary>
 }) {
   const [tab, setTab] = useState<Tab>('opportunity')
 
@@ -69,7 +72,7 @@ export function DiscoverTabs({
       )}
 
       {tab === 'watchlist' && (
-        <WatchlistCard rows={watchlistRows} tickers={watchlistTickers} />
+        <WatchlistCard rows={watchlistRows} tickers={watchlistTickers} krExtras={watchlistKrExtras} />
       )}
 
       {tab === 'report' && (
