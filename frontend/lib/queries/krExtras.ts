@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'
 import type { BuybackRow, ConsensusRow, InvestorFlowRow } from '../types'
 import { summarizeFlow } from '../investorFlow'
+import { buybackProgress } from '../buybackProgress'
 
 /**
  * 국내 시장 부가 데이터 3종 조회 — 수급 · 목표주가 컨센서스 · 자사주 매입.
@@ -109,6 +110,8 @@ export type KrExtrasSummary = {
   /** 자사주 진행률과 그 근거 — 근거를 같이 넘겨야 배지에 "추정"을 표시할 수 있다 */
   buybackPct: number | null
   buybackBasis: 'amount' | 'estimated' | 'period' | null
+  /** 창구 추정치가 있는데 관측이 모자라 대표로 못 쓴 상태. 배지가 이를 밝혀야 한다. */
+  buybackUnderObserved: boolean
 }
 
 function emptySummary(): KrExtrasSummary {
@@ -122,6 +125,7 @@ function emptySummary(): KrExtrasSummary {
     buyback: null,
     buybackPct: null,
     buybackBasis: null,
+    buybackUnderObserved: false,
   }
 }
 
@@ -171,11 +175,14 @@ export async function getKrExtrasSummaries(
       amount_progress_pct: number | null
       estimated_progress_pct: number | null
       period_progress_pct: number | null
+      period_start: string | null
+      observed_days: number | null
+      broker: string | null
     }>(() =>
       supabase
         .from('stock_buyback')
         .select(
-          'ticker, is_disposal, amount_progress_pct, estimated_progress_pct, period_progress_pct',
+          'ticker, is_disposal, amount_progress_pct, estimated_progress_pct, period_progress_pct, period_start, observed_days, broker',
         )
         .eq('market', 'KR')
         .in('ticker', tickers),
@@ -211,21 +218,16 @@ export async function getKrExtrasSummaries(
     summary.targetUpsidePct = row.upside_pct
   }
 
+  const today = new Date().toISOString().slice(0, 10)
   for (const row of buybackRows) {
     const summary = ensure(row.ticker)
     summary.buyback = row.is_disposal ? 'sell' : 'buy'
-    // 상세 화면(MarketExtrasPanel)과 **같은 우선순위**로 고른다 — 배지와 상세가
-    // 다른 숫자를 말하면 안 된다.
-    if (row.amount_progress_pct != null) {
-      summary.buybackPct = row.amount_progress_pct
-      summary.buybackBasis = 'amount'
-    } else if (row.estimated_progress_pct != null) {
-      summary.buybackPct = row.estimated_progress_pct
-      summary.buybackBasis = 'estimated'
-    } else if (row.period_progress_pct != null) {
-      summary.buybackPct = row.period_progress_pct
-      summary.buybackBasis = 'period'
-    }
+    // 근거를 고르는 규칙은 상세 화면과 **같은 함수**를 쓴다(buybackProgress).
+    // 각자 고르면 같은 종목인데 배지와 상세가 다른 숫자를 말하게 된다.
+    const progress = buybackProgress(row, today)
+    summary.buybackPct = progress.basis?.pct ?? null
+    summary.buybackBasis = progress.basis?.kind ?? null
+    summary.buybackUnderObserved = progress.estimateUnderObserved
   }
 
   return result

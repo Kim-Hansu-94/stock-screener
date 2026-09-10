@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { changeTextClass, formatSignedPercent } from '@/lib/marketColors'
 import { flowScale, formatKrwCompact, summarizeFlow, type FlowSide } from '@/lib/investorFlow'
+import { buybackProgress } from '@/lib/buybackProgress'
 import type { BuybackRow, ConsensusRow, InvestorFlowRow, Market } from '@/lib/types'
 
 /**
@@ -114,22 +115,10 @@ function ConsensusBlock({ consensus, close }: { consensus: ConsensusRow; close: 
 }
 
 function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
-  // 진행률이 세 종류라 무엇을 보여줄지가 중요하다. 우선순위는 근거의 강도 순이다:
-  //   1) 취득 금액 확정 (결과보고서) — 지금은 DART에 정형 API가 없어 거의 안 채워진다
-  //   2) 위탁증권사 창구 누적 순매수 (추정) — 진행 중에 따라갈 수 있는 유일한 값
-  //   3) 취득 기간 경과율 (근사) — 아무것도 없을 때의 마지막 수단
-  // 셋을 하나로 합치지 않는다. 합치면 화면에서 어느 근거인지 알 수 없게 된다.
-  const basis =
-    buyback.amount_progress_pct != null
-      ? { pct: buyback.amount_progress_pct, label: '취득 금액 기준 (공시 확정)' }
-      : buyback.estimated_progress_pct != null
-        ? {
-            pct: buyback.estimated_progress_pct,
-            label: `${buyback.broker ?? '위탁 증권사'} 창구 순매수 기준 (추정)`,
-          }
-        : buyback.period_progress_pct != null
-          ? { pct: buyback.period_progress_pct, label: '취득 기간 기준 (실제 매입량 아님)' }
-          : null
+  // 어느 근거를 대표로 쓸지는 buybackProgress 한 곳에서 정한다 — 접힌 카드의
+  // 배지도 같은 함수를 쓰므로 두 곳이 다른 숫자를 말할 일이 없다.
+  const progress = buybackProgress(buyback, new Date().toISOString().slice(0, 10))
+  const basis = progress.basis
 
   return (
     <div>
@@ -165,8 +154,9 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
         </p>
       )}
 
-      {/* 창구 추정치는 별도 줄로 근거를 다 드러낸다 — 어느 증권사인지, 며칠 관측했는지,
-          왜 확정치가 아닌지. 숫자만 보여주면 확정 진행률과 구분이 안 된다. */}
+      {/* 창구 관측치는 별도 줄로 근거를 다 드러낸다 — 어느 증권사인지, 며칠
+          관측했는지, 왜 확정치가 아닌지. 숫자만 보여주면 확정 진행률과 구분이 안 되고,
+          관측이 모자란 상태를 안 밝히면 "회사가 3%만 샀다"로 정반대로 읽힌다. */}
       {buyback.estimated_amount != null && buyback.estimated_amount > 0 && (
         <p className="mt-1 rounded-md bg-accent/60 px-2 py-1.5 text-xs leading-relaxed text-accent-foreground">
           <b>{buyback.broker ?? '위탁 증권사'}</b> 창구에서{' '}
@@ -178,10 +168,22 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
           순매수
           {buyback.observed_days != null && ` · ${buyback.observed_days}일 관측`}.
           <span className="text-accent-foreground/70">
-            {' '}
-            회사가 자사주를 이 창구로 사겠다고 공시했기 때문에 매입 진행을 가늠하는 데 쓰지만, 그
-            창구 매수가 전부 자사주는 아닙니다(같은 증권사의 다른 주문이 섞입니다). 확정 수치는
-            취득이 끝난 뒤 결과보고서로 공시됩니다.
+            {progress.estimateUnderObserved ? (
+              <>
+                {' '}
+                <b>취득 시작({buyback.period_start})부터의 일부만 관측한 값입니다.</b> 거래원은
+                과거 소급이 안 돼 수집을 시작한 날부터 하루씩 쌓이므로, 이 금액은 실제 매입량보다
+                작습니다 — 진행률로 환산하지 않는 이유입니다.
+              </>
+            ) : (
+              <>
+                {' '}
+                회사가 자사주를 이 창구로 사겠다고 공시했기 때문에 매입 진행을 가늠하는 데
+                쓰지만, 그 창구 매수가 전부 자사주는 아닙니다(같은 증권사의 다른 주문이
+                섞입니다).
+              </>
+            )}{' '}
+            확정 수치는 취득이 끝난 뒤 결과보고서로 공시됩니다.
           </span>
         </p>
       )}
