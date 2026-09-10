@@ -1,0 +1,59 @@
+name: KR Market Extras (수급 · 컨센서스 · 자사주)
+
+# 주식 본 파이프라인과 분리된 별도 워크플로.
+# 여기가 실패했다고 매일 도는 스크리닝이 죽으면 안 되고, 갱신 주기도 다르다
+# (부동산·US 재무건전성과 같은 이유·같은 구조).
+#
+# 17:30 KST = 08:30 UTC — 국내 장 마감(15:30) 후 수급이 확정되고, 저녁 KR 전용
+# 파이프라인(16:30)이 종목을 갱신한 뒤에 돈다. 순서가 중요하다: 대상 종목을
+# screened_stocks·opportunity_snapshot에서 읽으므로 그게 먼저 채워져 있어야 한다.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 8 * * 1-5'
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Collect KR market extras
+        working-directory: pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # 자사주만 이 키를 쓴다. 없으면 자사주 수집만 건너뛰고 수급·컨센서스는 정상.
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TQDM_DISABLE: '1'
+        run: python -m src.kr_market_extras_main
+
+      - name: Revalidate site cache
+        # 새 데이터가 화면에 바로 반영되게 캐시 태그를 무효화한다.
+        # 수집이 실패해도 이건 무해하므로 always()로 둔다.
+        if: always()
+        env:
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+        run: |
+          if [ -n "$REVALIDATE_URL" ]; then
+            curl -sS -X POST "$REVALIDATE_URL" -H "x-revalidate-secret: $REVALIDATE_SECRET" || true
+          else
+            echo "REVALIDATE_URL 미설정 — 캐시 무효화 건너뜀"
+          fi

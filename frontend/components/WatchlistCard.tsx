@@ -1,18 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import dynamic from 'next/dynamic'
-import type { Market, PriceHistoryRow, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
+import type { Market, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
 import { BUY_GRADE_CLASS, BUY_GRADE_CRITERIA, BUY_GRADE_LABEL, buyGrade, isFreshTurnSignal } from '@/lib/buySignal'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
-import { LoadingFallback } from '@/components/LoadingFallback'
 
-// lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다(StockCard와 동일 패턴).
-const StockChart = dynamic(
-  () => import('./StockChart').then((mod) => mod.StockChart),
-  { ssr: false, loading: () => <LoadingFallback label="차트 로딩 중..." className="py-8" /> },
-)
+import { LazyStockChart } from '@/components/LazyStockChart'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
 // 감시 종목은 분할매수 판단에 장기 추세까지 보고 싶다는 요청으로 120일선을 추가한 세트.
 // 다른 화면(StockCard 등)의 기본 5/20/60일선과는 별개로 이 카드에서만 쓴다.
@@ -64,12 +59,9 @@ interface CombinedEntry {
 export function WatchlistCard({
   rows,
   tickers,
-  history,
 }: {
   rows: WatchlistStatusRow[]
   tickers: WatchlistTickerRow[]
-  /** `${market}-${ticker}` 키의 일봉 — 종목을 펼쳤을 때 차트를 그리는 데 쓴다. */
-  history: Record<string, PriceHistoryRow[]>
 }) {
   // 종목 수가 늘면서 뉴스를 다 펼쳐 두면 스크롤이 너무 길어져, 이름을 눌러야만
   // 그 종목 뉴스가 펼쳐지게 바꿨다(기본은 접힘). 펼치기 전엔 뉴스를 아예 불러오지도
@@ -229,21 +221,22 @@ export function WatchlistCard({
           {entry.status && <p className="mt-1 text-xs text-muted-foreground/70">평가일: {entry.status.date}</p>}
           {expanded.has(entry.key) ? (
             <>
-              {(history[entry.key]?.length ?? 0) > 0 ? (
-                <div className="mt-3 border-t border-border pt-3">
-                  <StockChart
-                    history={history[entry.key]}
-                    volume
-                    ichimoku
-                    boxRange
-                    movingAverages={WATCHLIST_MOVING_AVERAGES}
-                  />
-                </div>
-              ) : (
-                <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
-                  차트를 그릴 시세 데이터가 아직 없습니다.
-                </p>
-              )}
+              <div className="mt-3 border-t border-border pt-3">
+                <LazyStockChart
+                  market={entry.market}
+                  ticker={entry.ticker}
+                  expanded
+                  volume
+                  ichimoku
+                  boxRange
+                  movingAverages={WATCHLIST_MOVING_AVERAGES}
+                />
+              </div>
+              <MarketExtrasPanel
+                market={entry.market}
+                ticker={entry.ticker}
+                className="mt-3 border-t border-border pt-3"
+              />
               <StockNewsFeed
                 query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
                 className="mt-3 border-t border-border pt-3"

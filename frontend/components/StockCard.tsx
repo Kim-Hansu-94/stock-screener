@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { calculateChangePercent, formatKrwAmount, formatRelativeTime } from '@/lib/calculations'
-import type { Market, NewsArticle, PriceHistoryRow, ScreenedStockRow } from '@/lib/types'
+import { formatKrwAmount, formatRelativeTime } from '@/lib/calculations'
+import type { Market, NewsArticle, ScreenedStockRow } from '@/lib/types'
 import type { RiskFrame, RiskReason, TargetBasis } from '@/lib/risk'
 import { RISK_FRAME_LABEL, RISK_GRADE_CLASS, riskGrade } from '@/lib/riskGrade'
 import { changeTintClass, signedPercentBetween } from '@/lib/marketColors'
@@ -13,6 +13,8 @@ import { MARKET_BEAR_CRITERION, STOCK_CRITERIA_COUNT } from '@/lib/screenerCrite
 import { BuyButton } from '@/components/TradeButton'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { Spinner } from '@/components/Spinner'
+import { useLazyPriceHistory } from '@/lib/useLazyPriceHistory'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
@@ -23,7 +25,9 @@ const StockChart = dynamic(
 
 interface StockCardProps {
   stock: ScreenedStockRow
-  history: PriceHistoryRow[]
+  /** 전일 대비 등락률(%). 예전엔 일봉 전체를 받아 카드에서 계산했는데, 그 한 줄
+   *  때문에 종목마다 150봉이 통째로 클라이언트까지 따라왔다. 서버에서 계산해 넘긴다. */
+  changePercent: number | null
   market: Market
   usdKrwRate: number
   stop: number | null
@@ -109,11 +113,12 @@ function RiskRewardBar({
   )
 }
 
-export function StockCard({ stock, history, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, targetBasis, owned = false }: StockCardProps) {
+export function StockCard({ stock, changePercent, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, targetBasis, owned = false }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
-  const changePercent = calculateChangePercent(history.map((row) => row.close))
+  // 차트에 쓸 일봉은 카드를 펼쳤을 때만 받아온다.
+  const { history, loading: historyLoading } = useLazyPriceHistory(market, stock.ticker, isExpanded)
 
   // 미장도 한글명이 있으면 그걸로 — 네이버 뉴스는 한글 기사라 티커보다 잘 걸린다.
   const newsQuery = stock.name_kr || (market === 'KR' ? stock.name : stock.ticker)
@@ -275,12 +280,21 @@ export function StockCard({ stock, history, market, usdKrwRate, stop, target, ri
 
         {isExpanded && (
           <div>
-            <StockChart
-              history={history}
-              bollinger
-              rsi
-              stopPrice={stop ?? undefined}
-              targetPrice={target ?? undefined}
+            {historyLoading && <LoadingFallback label="차트 로딩 중..." className="py-8" />}
+            {!historyLoading && history.length > 0 && (
+              <StockChart
+                history={history}
+                bollinger
+                rsi
+                stopPrice={stop ?? undefined}
+                targetPrice={target ?? undefined}
+              />
+            )}
+            <MarketExtrasPanel
+              market={market}
+              ticker={stock.ticker}
+              close={stock.close}
+              className="mt-4 border-t border-border pt-3"
             />
             {newsLoading && (
               <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">

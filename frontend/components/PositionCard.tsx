@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import dynamic from 'next/dynamic'
 import type { Market, PriceHistoryRow, WatchlistTickerRow } from '@/lib/types'
 import {
   assessSupportSignals,
@@ -12,13 +11,10 @@ import {
 import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
-import { LoadingFallback } from '@/components/LoadingFallback'
+import { AverageCostCalculator } from '@/components/AverageCostCalculator'
+import { LazyStockChart } from '@/components/LazyStockChart'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
-// 감시 카드와 같은 이유로 차트는 펼쳤을 때만 불러온다.
-const StockChart = dynamic(
-  () => import('./StockChart').then((mod) => mod.StockChart),
-  { ssr: false, loading: () => <LoadingFallback label="차트 로딩 중..." className="py-8" /> },
-)
 
 // 지지 신호 점검에 쓰는 120일선을 차트에도 같이 그린다. 박스 구간(회색 점선)은
 // 일부러 뺐다 — 그건 "조용히 매집 중인가"를 보는 지표라 포지션 관리 목적과 안 맞는다.
@@ -198,16 +194,34 @@ export function PositionCard({
 
             {expanded.has(key) ? (
               <>
-                {bars.length > 0 && (
+                {latest && (
                   <div className="mt-3 border-t border-border pt-3">
-                    <StockChart
-                      history={bars}
-                      volume
-                      ichimoku
-                      movingAverages={POSITION_MOVING_AVERAGES}
+                    <AverageCostCalculator
+                      market={entry.market}
+                      ticker={entry.ticker}
+                      currentPrice={latest.close}
+                      savedAvgCost={entry.avg_cost}
                     />
                   </div>
                 )}
+                <MarketExtrasPanel
+                  market={entry.market}
+                  ticker={entry.ticker}
+                  close={latest?.close ?? null}
+                  className="mt-3 border-t border-border pt-3"
+                />
+                <div className="mt-3 border-t border-border pt-3">
+                  {/* 지지 신호 판정에 쓰는 일봉(180봉)과 달리, 차트는 더 긴 구간을
+                      보고 싶은 자리라 펼쳤을 때 500봉을 따로 받아온다. */}
+                  <LazyStockChart
+                    market={entry.market}
+                    ticker={entry.ticker}
+                    expanded
+                    volume
+                    ichimoku
+                    movingAverages={POSITION_MOVING_AVERAGES}
+                  />
+                </div>
                 <StockNewsFeed
                   query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
                   className="mt-3 border-t border-border pt-3"
@@ -226,7 +240,7 @@ export function PositionCard({
                 onClick={() => toggle(key)}
                 className="mt-2 text-xs text-muted-foreground hover:text-primary"
               >
-                차트·뉴스 보기 ▾
+                평단 계산기·차트·뉴스 보기 ▾
               </button>
             )}
           </div>

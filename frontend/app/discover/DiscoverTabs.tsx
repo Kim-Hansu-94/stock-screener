@@ -7,7 +7,6 @@ import { OpportunityTab } from './OpportunityTab'
 import { WatchlistCard } from '@/components/WatchlistCard'
 import type {
   OpportunityStockRow,
-  PriceHistoryRow,
   WatchlistStatusRow,
   WatchlistTickerRow,
 } from '@/lib/types'
@@ -31,7 +30,6 @@ export function DiscoverTabs({
   ownedTickers,
   watchlistRows,
   watchlistTickers,
-  watchlistHistory,
 }: {
   opportunities: OpportunityStockRow[]
   opportunityError: string | null
@@ -39,7 +37,6 @@ export function DiscoverTabs({
   ownedTickers: string[]
   watchlistRows: WatchlistStatusRow[]
   watchlistTickers: WatchlistTickerRow[]
-  watchlistHistory: Record<string, PriceHistoryRow[]>
 }) {
   const [tab, setTab] = useState<Tab>('opportunity')
 
@@ -72,7 +69,7 @@ export function DiscoverTabs({
       )}
 
       {tab === 'watchlist' && (
-        <WatchlistCard rows={watchlistRows} tickers={watchlistTickers} history={watchlistHistory} />
+        <WatchlistCard rows={watchlistRows} tickers={watchlistTickers} />
       )}
 
       {tab === 'report' && (

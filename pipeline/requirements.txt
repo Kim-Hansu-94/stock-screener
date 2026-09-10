@@ -3,6 +3,9 @@ finance-datareader==0.9.202
 yfinance==1.4.1
 supabase==2.31.0
 requests==2.34.2
+# pandas.read_html(수급 표 파싱, investor_flow.py)이 쓰는 파서. FinanceDataReader가
+# 전이 의존성으로 끌어오긴 하지만, 그쪽 버전이 바뀌면 조용히 사라질 수 있어 직접 건다.
+lxml>=5.2.0
 python-dotenv==1.2.2
 pytest==9.1.1
 scipy>=1.13.0

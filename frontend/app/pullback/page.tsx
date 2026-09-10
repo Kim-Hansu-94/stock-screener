@@ -16,6 +16,7 @@ import {
 import { getUniverseNameMap } from '@/lib/queries/universe'
 import type { LeadingSectorRow, Market, PriceHistoryRow, Regime, ScreenedStockRow } from '@/lib/types'
 import { computeStopTarget, filterBarsAsOf, type RiskResult } from '@/lib/risk'
+import { calculateChangePercent } from '@/lib/calculations'
 import { getOpenTickers } from '@/lib/queries/trades'
 
 const MARKETS: { market: Market; label: string; universe: string }[] = [
@@ -25,6 +26,9 @@ const MARKETS: { market: Market; label: string; universe: string }[] = [
 
 type RiskInfo = RiskResult
 
+// 포지션 관리 카드의 지지 신호(supportSignals)가 보는 최대 구간(120일선)에 여유를 둔 값.
+const SIGNAL_BARS_DAYS = 180
+
 interface MarketSectionData {
   market: Market
   label: string
@@ -33,7 +37,8 @@ interface MarketSectionData {
   regime: Regime | null
   sectors: LeadingSectorRow[]
   stocks: ScreenedStockRow[]
-  priceHistory: Record<string, PriceHistoryRow[]>
+  /** 종목별 전일 대비 등락률 — 일봉 배열 대신 이 숫자만 카드로 내려간다 */
+  changeMap: Record<string, number | null>
   riskMap: Record<string, RiskInfo>
   error: string | null
 }
@@ -42,7 +47,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
   try {
     const regimeRow = await getLatestRegime(market)
     if (!regimeRow) {
-      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], priceHistory: {}, riskMap: {}, error: null }
+      return { market, label, universe, date: null, regime: null, sectors: [], stocks: [], changeMap: {}, riskMap: {}, error: null }
     }
 
     // 종목은 **종목 쪽 최신 날짜**로 찾는다. 장세(regimeRow.date)는 지수 시계열에서,
@@ -63,13 +68,20 @@ async function loadMarketSection(market: Market, label: string, universe: string
     }
 
     const riskMap: Record<string, RiskInfo> = {}
+    // 등락률은 서버에서 내고 숫자 하나만 카드로 넘긴다. 예전에는 일봉 배열을 통째로
+    // 넘겨 카드가 직접 계산했는데, 그 한 줄 때문에 종목마다 150봉이 RSC 페이로드에
+    // 실려 탭 전환이 눈에 띄게 느렸다(차트는 펼쳐야 뜨는데도).
+    const changeMap: Record<string, number | null> = {}
     for (const stock of enrichedStocks) {
       const barsAsOfEntry = filterBarsAsOf(priceHistory[stock.ticker] ?? [], stock.date)
       riskMap[stock.ticker] = computeStopTarget(barsAsOfEntry, stock.close)
+      changeMap[stock.ticker] = calculateChangePercent(
+        (priceHistory[stock.ticker] ?? []).map((row) => row.close),
+      )
     }
 
     // 화면의 "기준:"은 카드에 실제로 보이는 종목의 날짜여야 한다.
-    return { market, label, universe, date: screenedDate ?? regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, priceHistory, riskMap, error: null }
+    return { market, label, universe, date: screenedDate ?? regimeRow.date, regime: regimeRow.regime, sectors, stocks: enrichedStocks, changeMap, riskMap, error: null }
   } catch (cause) {
     return {
       market,
@@ -79,7 +91,7 @@ async function loadMarketSection(market: Market, label: string, universe: string
       regime: null,
       sectors: [],
       stocks: [],
-      priceHistory: {},
+      changeMap: {},
       riskMap: {},
       error: cause instanceof Error ? cause.message : '데이터를 불러오지 못했습니다.',
     }
@@ -150,9 +162,12 @@ async function PositionSection() {
   // 등록된 보유 종목이 없어도 카드는 그린다 — 종목을 추가하는 폼이 이 카드 안에 있다.
   const tickers = (await getWatchlistTickers()).filter((t) => t.category === 'position')
 
+  // 지지 신호 판정에 필요한 최대 구간은 120일선이다(일목 선행스팬 52+26=78, 저점
+  // 높이기 40). 여유를 둬 180봉만 받는다 — 예전엔 500봉을 받아 그대로 클라이언트까지
+  // 내려보냈는데, 그중 320봉은 차트를 펼쳐야만 쓰이는 데이터였다.
   const [krHistory, usHistory] = await Promise.all([
-    getPriceHistoryByTicker('KR', tickers.filter((t) => t.market === 'KR').map((t) => t.ticker), 500),
-    getPriceHistoryByTicker('US', tickers.filter((t) => t.market === 'US').map((t) => t.ticker), 500),
+    getPriceHistoryByTicker('KR', tickers.filter((t) => t.market === 'KR').map((t) => t.ticker), SIGNAL_BARS_DAYS),
+    getPriceHistoryByTicker('US', tickers.filter((t) => t.market === 'US').map((t) => t.ticker), SIGNAL_BARS_DAYS),
   ])
   const history: Record<string, PriceHistoryRow[]> = {}
   for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
@@ -207,7 +222,7 @@ async function MarketSection({ market, label, universe }: { market: Market; labe
                   <StockCard
                     key={stock.ticker}
                     stock={stock}
-                    history={section.priceHistory[stock.ticker] ?? []}
+                    changePercent={section.changeMap[stock.ticker] ?? null}
                     market={section.market}
                     usdKrwRate={usdKrwRate}
                     stop={section.riskMap[stock.ticker]?.stop ?? null}
