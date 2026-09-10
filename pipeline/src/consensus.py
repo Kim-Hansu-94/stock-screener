@@ -40,12 +40,6 @@ _OPINION_KEYS = ("investmentOpinion", "opinion", "consensusOpinion", "invOpinion
 _COUNT_KEYS = ("estimateCount", "consensusCount", "reportCount", "analystCount")
 _EPS_KEYS = ("consensusEps", "estimateEps", "eps")
 
-# HTML 표에서 찾을 항목 이름. 표 구조(행/열 위치)를 고정하면 개편 한 번에 죽으므로
-# 이름으로 찾는다.
-_TARGET_LABELS = ("목표주가",)
-_OPINION_LABELS = ("투자의견",)
-_EPS_LABELS = ("EPS",)
-
 # 목표주가가 이 범위를 벗어나면 엉뚱한 칸을 읽은 것이다(예: 시가총액, 상장주식수).
 # 국내 주식은 액면가 100원짜리도 있고 삼성전자 우선주도 있어 하한을 낮게 잡는다.
 _MIN_TARGET = 100
@@ -65,37 +59,66 @@ def _is_valid_target(value: float | None) -> bool:
     return value is not None and _MIN_TARGET <= value <= _MAX_TARGET
 
 
-def _value_near_label(
-    tables: list[pd.DataFrame],
-    labels: tuple[str, ...],
-    accept=lambda v: v is not None,
-) -> str | None:
-    """라벨 칸을 찾아 그 **오른쪽(가로형)** 또는 **아래쪽(세로형)** 값을 돌려준다.
+# 투자의견은 1~5 점수로 온다(에프앤가이드 표준: 5=적극매수 … 1=매도). 네이버 화면도
+# 숫자를 그대로 보여주지만, 사이트에서는 무슨 뜻인지 바로 읽히게 한글을 같이 붙인다.
+_OPINION_LABELS_BY_SCORE = (
+    (4.5, "적극매수"),
+    (3.5, "매수"),
+    (2.5, "중립"),
+    (1.5, "비중축소"),
+    (0.0, "매도"),
+)
 
-    2026-09-10 프로브에서 확인한 것: WISEreport 기업개요의 컨센서스 표는 세로형이라
-    '목표주가'가 헤더 행에 있고 값은 그 아래 행에 있다. 오른쪽만 보던 첫 구현은
-    옆 칸 헤더인 'EPS(원)'을 읽어 왔다.
 
-    어느 방향이 맞는지 표마다 다르므로 둘 다 시도하고, `accept`를 통과하는 값을
-    고른다 — 방향을 고정하면 표 개편 한 번에 또 엉뚱한 칸을 읽는다.
+def opinion_label(score: float | None) -> str | None:
+    """투자의견 점수 → 한글 라벨. 점수도 같이 남긴다(예: '매수 4.05')."""
+    if score is None:
+        return None
+    for threshold, label in _OPINION_LABELS_BY_SCORE:
+        if score >= threshold:
+            return f"{label} {score:.2f}"
+    return None
+
+
+def _consensus_from_table(table: pd.DataFrame) -> dict | None:
+    """컨센서스 표 하나에서 값을 뽑는다. 그 표가 아니면 None.
+
+    2026-09-10 프로브가 찍어 준 실제 구조(WISEreport 기업개요, 표 11번):
+
+        ['4.05', '투자의견', '목표주가(원)', 'EPS(원)', 'PER(배)', '추정기관수']
+        ['4.05', '4.05',    '488409',      '48239',  '5.59',   '22']
+
+    즉 **헤더가 행이고 값은 바로 아래 행**이다. 처음에는 라벨 오른쪽 칸을 읽어
+    옆 헤더인 'EPS(원)'을 투자의견으로 집었다. 표를 '투자의견'과 '목표주가'가
+    함께 있는 것으로 한정하고, 열 위치를 헤더 이름으로 찾는다 — 열 순서를
+    고정하면 항목이 하나 추가되는 순간 전부 밀린다.
     """
-    for table in tables:
-        values = table.astype(str).values
-        for r, row in enumerate(values):
-            for c, cell in enumerate(row):
-                text = str(cell).replace(" ", "")
-                if not any(label.replace(" ", "") in text for label in labels):
-                    continue
-                candidates: list[str] = []
-                # 가로형: 같은 행의 오른쪽 칸들
-                candidates.extend(str(v).strip() for v in row[c + 1 :])
-                # 세로형: 같은 열의 아래 행들
-                candidates.extend(str(values[rr][c]).strip() for rr in range(r + 1, len(values)))
-                for candidate in candidates:
-                    if not candidate or candidate.lower() == "nan":
-                        continue
-                    if accept(to_number(candidate)) or accept(candidate):
-                        return candidate
+    values = table.astype(str).values
+    for r, row in enumerate(values):
+        headers = [str(cell).replace(" ", "") for cell in row]
+        if not (any("목표주가" in h for h in headers) and any("투자의견" in h for h in headers)):
+            continue
+        if r + 1 >= len(values):
+            continue
+        data_row = values[r + 1]
+
+        found: dict = {}
+        for c, header in enumerate(headers):
+            raw = str(data_row[c]).strip()
+            if raw.lower() in ("", "nan", "-"):
+                continue
+            number = to_number(raw)
+            if "목표주가" in header:
+                found["target_price"] = number
+            elif "투자의견" in header:
+                found["opinion_score"] = number
+            elif header.upper().startswith("EPS"):
+                found["consensus_eps"] = number
+            elif "추정기관" in header:
+                found["report_count"] = number
+
+        if _is_valid_target(found.get("target_price")):
+            return found
     return None
 
 
@@ -105,34 +128,17 @@ def _from_wise(url: str, code: str) -> dict:
         raise RuntimeError("'목표주가'가 응답에 없음 (페이지 개편 또는 차단)")
 
     tables = pd.read_html(io.StringIO(html))
-    raw_target = _value_near_label(tables, _TARGET_LABELS, accept=_is_valid_target_any)
-    target = to_number(raw_target)
-    if not _is_valid_target(target):
-        raise RuntimeError(f"목표주가 칸을 못 읽음 (표 {len(tables)}개, 읽은 값={raw_target!r})")
-
-    # 투자의견은 "4.00매수"처럼 점수와 의견이 붙어 오거나 한글만 오기도 한다.
-    # 숫자만 있는 칸(옆 열의 EPS 등)을 잘못 집지 않도록 한글이 들어간 값만 받는다.
-    opinion_raw = _value_near_label(tables, _OPINION_LABELS, accept=_has_korean)
-    opinion = None
-    if opinion_raw:
-        korean = "".join(re.findall(r"[가-힣]+", str(opinion_raw)))
-        opinion = (korean or str(opinion_raw).strip())[:40] or None
-
-    return {
-        "target_price": target,
-        "opinion": opinion,
-        "report_count": None,
-        "consensus_eps": to_number(_value_near_label(tables, _EPS_LABELS, accept=lambda v: isinstance(v, float))),
-    }
-
-
-def _is_valid_target_any(value) -> bool:
-    """_value_near_label이 숫자·문자열을 모두 넘겨 오므로 숫자일 때만 판정한다."""
-    return isinstance(value, float) and _is_valid_target(value)
-
-
-def _has_korean(value) -> bool:
-    return isinstance(value, str) and bool(re.search(r"[가-힣]", value))
+    for table in tables:
+        found = _consensus_from_table(table)
+        if found is None:
+            continue
+        return {
+            "target_price": found["target_price"],
+            "opinion": opinion_label(found.get("opinion_score")),
+            "report_count": found.get("report_count"),
+            "consensus_eps": found.get("consensus_eps"),
+        }
+    raise RuntimeError(f"컨센서스 표를 못 찾음 (표 {len(tables)}개)")
 
 
 def _from_integration(code: str) -> dict:

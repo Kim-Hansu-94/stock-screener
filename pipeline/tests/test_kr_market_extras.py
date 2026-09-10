@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pandas as pd
+
 import pytest
 
 from src import buyback, consensus, investor_flow
@@ -94,15 +96,64 @@ class TestInvestorFlow:
 
 
 class TestConsensus:
+    def test_실제_WISEreport_표에서_값을_뽑는다(self):
+        # 2026-09-10 프로브가 찍어 준 삼성전자 실제 응답 구조 그대로다.
+        table = pd.DataFrame(
+            [
+                ["4.05", "투자의견", "목표주가(원)", "EPS(원)", "PER(배)", "추정기관수"],
+                ["4.05", "4.05", "488409", "48239", "5.59", "22"],
+            ]
+        )
+        found = consensus._consensus_from_table(table)
+        assert found["target_price"] == 488409
+        assert found["opinion_score"] == pytest.approx(4.05)
+        assert found["consensus_eps"] == 48239
+        assert found["report_count"] == 22
+
+    def test_열_순서가_바뀌어도_헤더_이름으로_찾는다(self):
+        table = pd.DataFrame(
+            [
+                ["추정기관수", "목표주가(원)", "투자의견"],
+                ["22", "488409", "4.05"],
+            ]
+        )
+        found = consensus._consensus_from_table(table)
+        assert found["target_price"] == 488409
+        assert found["opinion_score"] == pytest.approx(4.05)
+
+    def test_투자의견이_없는_표는_컨센서스_표가_아니다(self):
+        # '목표주가'라는 글자는 페이지 곳곳에 나온다. 그것만 보고 집으면
+        # 엉뚱한 표의 숫자를 읽는다.
+        table = pd.DataFrame([["목표주가", "EPS(원)"], ["488409", "48239"]])
+        assert consensus._consensus_from_table(table) is None
+
+    def test_목표주가가_비상식적이면_그_표가_아니라고_본다(self):
+        table = pd.DataFrame([["투자의견", "목표주가(원)"], ["4.05", "3"]])
+        assert consensus._consensus_from_table(table) is None
+
+    @pytest.mark.parametrize(
+        "score,expected",
+        [(4.8, "적극매수"), (4.05, "매수"), (3.0, "중립"), (2.0, "비중축소"), (1.0, "매도")],
+    )
+    def test_투자의견_점수를_한글로_옮긴다(self, score, expected):
+        # 네이버는 숫자만 보여 주지만, 사이트에서는 무슨 뜻인지 바로 읽혀야 한다.
+        label = consensus.opinion_label(score)
+        assert label.startswith(expected)
+        assert f"{score:.2f}" in label  # 점수도 같이 남긴다
+
+    def test_투자의견이_없으면_None(self):
+        assert consensus.opinion_label(None) is None
+
     def test_build_row_상승여력을_종가_대비로_낸다(self, monkeypatch):
         monkeypatch.setattr(
             consensus,
             "fetch_consensus",
-            lambda t: ({"target_price": 110000.0, "opinion": "매수", "report_count": 12.0, "consensus_eps": 5000.0}, "테스트"),
+            lambda t: ({"target_price": 110000.0, "opinion": "매수 4.05", "report_count": 12.0, "consensus_eps": 5000.0}, "테스트"),
         )
         row = consensus.build_row("005930", "삼성전자", "2026-09-10", 100000.0)
         assert row["upside_pct"] == pytest.approx(10.0)
         assert row["report_count"] == 12  # 정수로 저장
+        assert row["opinion"] == "매수 4.05"
 
     def test_build_row_종가가_없으면_상승여력은_비운다(self, monkeypatch):
         monkeypatch.setattr(

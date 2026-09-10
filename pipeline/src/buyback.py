@@ -260,6 +260,17 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
         # 하루짜리 프로그램(당일 처분 등)은 시작=종료다. 0으로 나누지 않는다.
         period_progress = 100.0 if date.today() >= end else 0.0
 
+    # 공시 목록에서도 **선택된 프로그램과 같은 방향**의 최신 건을 고른다.
+    # 안 그러면 카드 제목은 '자사주 매입'인데 링크는 처분 공시로 걸린다
+    # (SK하이닉스: 최신 결의는 8월 취득결정, 최신 공시는 8월 처분결과보고서).
+    if program is not None and disclosures:
+        same_direction = [
+            d
+            for d in disclosures
+            if any(k in str(d.get("report_nm", "")) for k in _DISPOSAL_KEYWORDS) == is_disposal
+        ]
+        if same_direction:
+            disclosures = same_direction
     latest = disclosures[-1] if disclosures else None
     latest_name = str(latest.get("report_nm", "")).strip() if latest else (detail_kind or "")
     latest_date = _parse_date(latest.get("rcept_dt")) if latest else None
