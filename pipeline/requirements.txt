@@ -3,9 +3,14 @@ finance-datareader==0.9.202
 yfinance==1.4.1
 supabase==2.31.0
 requests==2.34.2
-# pandas.read_html(수급 표 파싱, investor_flow.py)이 쓰는 파서. FinanceDataReader가
-# 전이 의존성으로 끌어오긴 하지만, 그쪽 버전이 바뀌면 조용히 사라질 수 있어 직접 건다.
+# pandas.read_html(수급·거래원 표 파싱)이 쓰는 파서. FinanceDataReader가 전이
+# 의존성으로 끌어오긴 하지만, 그쪽 버전이 바뀌면 조용히 사라질 수 있어 직접 건다.
 lxml>=5.2.0
+# lxml이 못 읽는 HTML에 대한 대체 파서. 네이버 종목 페이지는 시간대에 따라 구조가
+# 달라지는데(2026-09-10 실측: 밤에는 lxml이 실패하고 html5lib을 요구했다), 이게
+# 없으면 그때 "Missing optional dependency" 한 줄만 남고 표를 통째로 놓친다.
+html5lib>=1.1
+beautifulsoup4>=4.12.0
 python-dotenv==1.2.2
 pytest==9.1.1
 scipy>=1.13.0

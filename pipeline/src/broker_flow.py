@@ -62,8 +62,18 @@ def _fetch_html(url: str) -> str:
 
 
 def _broker_table(html: str) -> pd.DataFrame | None:
+    """거래원 표를 찾는다. 없으면 **왜 없는지가 드러나는 에러**를 낸다.
+
+    2026-09-10 실측: 같은 URL이 17:07 KST에는 거래원 표를 주고(191,475자)
+    21:57 KST에는 안 줬다(117,909자, '매수상위' 문구 자체가 없음). 시간대에 따라
+    페이지가 달라진다는 뜻이다. 수집은 17:30에 돌아 지금은 맞지만, "표가 없다"와
+    "표는 있는데 못 읽었다"를 구분해 두지 않으면 나중에 원인을 못 찾는다.
+    """
     if not all(marker in html for marker in _TABLE_MARKERS):
-        return None
+        raise RuntimeError(
+            f"거래원 섹션이 응답에 없음 ({len(html):,}자) — 이 페이지는 시간대에 따라 "
+            "거래원을 주지 않는다(장 마감 직후에는 나온다)"
+        )
     for table in pd.read_html(io.StringIO(html)):
         if table.shape[1] < 4:
             continue
@@ -77,7 +87,7 @@ def parse_brokers(html: str) -> dict[str, dict[str, float]]:
     """증권사 → {buy_qty, sell_qty, net_qty}. 상위 5개 창구만 들어 있다."""
     table = _broker_table(html)
     if table is None:
-        raise RuntimeError("거래원 표를 찾지 못함")
+        raise RuntimeError("거래원 문구는 있으나 표 구조가 바뀜 (열 이름 확인 필요)")
 
     result: dict[str, dict[str, float]] = {}
 

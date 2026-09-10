@@ -277,9 +277,18 @@ class TestBrokerFlow:
         # 삼성증권은 양쪽에 다 있다 — 순매수는 매수 − 매도다
         assert brokers["삼성증권"]["net_qty"] == 476058 - 705670
 
-    def test_거래원_표가_없으면_예외(self):
-        with pytest.raises(RuntimeError):
+    def test_거래원_섹션이_없으면_사유가_드러나는_예외(self):
+        # 네이버 종목 페이지는 시간대에 따라 거래원을 안 준다(2026-09-10 실측:
+        # 17:07에는 있고 21:57에는 없었다). "표를 못 찾음"으로 뭉뚱그리면
+        # 나중에 원인을 못 찾으므로 사유를 남긴다.
+        with pytest.raises(RuntimeError, match="거래원 섹션이 응답에 없음"):
             broker_flow.parse_brokers("<html><body>종목 정보</body></html>")
+
+    def test_문구는_있는데_표_구조가_바뀌면_다른_사유(self):
+        # 이쪽은 "페이지가 안 준다"가 아니라 "우리가 못 읽는다"라서 대응이 다르다.
+        html = "매도상위 매수상위<table><tr><th>알수없음</th></tr></table>"
+        with pytest.raises(RuntimeError, match="표 구조가 바뀜"):
+            broker_flow.parse_brokers(html)
 
     @pytest.mark.parametrize(
         "disclosed,observed,expected",
