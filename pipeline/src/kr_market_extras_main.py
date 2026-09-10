@@ -171,8 +171,19 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
 
     # 자사주 프로그램이 잡힌 종목만 거래원을 받는다. 여기서 오늘치를 먼저 저장한
     # 다음 누적을 다시 읽어야, 오늘 거래분이 추정 진행률에 바로 반영된다.
-    _collect_broker_trading(db, rows, closes)
-    _attach_estimated_progress(db, rows)
+    #
+    # 거래원은 **자사주보다 나중에 추가된 기능**이라 broker_trading 표가 아직 없을 수
+    # 있다(마이그레이션 전). 그 경우에도 자사주 본체는 저장돼야 하므로 따로 감싼다 —
+    # 안 그러면 부가 기능 하나 때문에 이미 받아 둔 공시 정보가 통째로 날아간다.
+    try:
+        _collect_broker_trading(db, rows, closes)
+        _attach_estimated_progress(db, rows)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  거래원 수집 실패(자사주 본체는 계속 저장): {exc}", flush=True)
+        # 추정 열이 스키마에 없으면 upsert 자체가 깨진다. 붙였던 값을 도로 뗀다.
+        for row in rows:
+            for key in ("estimated_qty", "estimated_amount", "estimated_progress_pct", "observed_days"):
+                row.pop(key, None)
 
     db.save_buyback(rows)
     # 이번에 실제로 조회한 종목 중 공시가 있는 것만 남긴다. 조회 자체를 안 한
