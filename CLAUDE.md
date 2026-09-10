@@ -35,6 +35,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | 뉴스 검색 (부동산·종목) | `naverapihub.apigw.ntruss.com/search/v1/news` | 필요 (NAVER API HUB) |
 | 해외주식 시총순 목록 | `api.stock.naver.com/stock/exchange/{거래소}/marketValue` | 불필요 |
 | 국장 일봉 | FinanceDataReader가 내부적으로 `fchart.stock.naver.com` 호출 | 불필요 |
+| 코스피·코스닥 지수 일봉 | `api.finance.naver.com/siseJson.naver?symbol=KOSPI\|KOSDAQ` | 불필요 |
 
 **다른 소스를 골랐다면 왜 네이버로는 안 되는지 한 줄 남길 것.** 단, 네이버가 만능은 아니다 —
 국내 관점 데이터에 강하고 미국 현지 세부 데이터(업종 분류·재무제표 등)는 비어 있는 경우가 있다.
@@ -54,7 +55,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |
 | `kis_auth.py` | 한국투자증권 OAuth 토큰 관리 (분당 1회 제한이라 디스크 캐싱) |
 | `indicators.py` | SMA·RSI·거래량비율 등 순수 계산 함수 |
-| `market_indices.py` | 홈 상단 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500) → `market_index_snapshot`. **국내 지수를 `fdr.DataReader('KS11')`로 받으면 안 된다** — 개별 종목과 달리 이 경로는 거래소가 아니라 제3자의 GitHub CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽어서 하루 이상 늦은 값을 **에러 없이 조용히** 준다(2026-09-09: 9/9 오후에도 마지막 행이 9/7이라 화면에 '국내 9/7 장마감 기준'이 떠 있었다). 그래서 국내도 US와 같은 yfinance(^KS11/^KQ11)를 먼저 쓰고 실패 시에만 fdr로 폴백한다. yfinance는 장중에 오늘 봉을 미완성 상태로 주므로 15:40 KST 이전 실행에서는 오늘 봉을 버린다 |
+| `market_indices.py` | 홈 상단 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500) → `market_index_snapshot`. **국내 지수를 `fdr.DataReader('KS11')`로 받으면 안 된다** — 개별 종목과 달리 이 경로는 거래소가 아니라 제3자의 GitHub CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽어서 하루 이상 늦은 값을 **에러 없이 조용히** 준다(2026-09-09: 9/9 오후에도 마지막 행이 9/7이라 화면에 '국내 9/7 장마감 기준'이 떠 있었다). **yfinance(^KS11/^KQ11)도 못 믿는다**(2026-09-10): 야후는 KRX 일봉 확정이 늦어 아침 06:30 실행에서 에러 없이 9/8까지만 줬다(같은 실행에서 해외 지수는 9/9 정상 — 전날 저녁에 받은 9/9 값은 장중 실시간 행이었다). 그래서 지금은 **네이버 `siseJson`이 1순위**고(프로브로 9/10 아침에 9/9 종가 보유 확인), 순서는 네이버 → yfinance → fdr이다. 세 소스 모두 장중에 오늘 봉을 미완성으로 주므로 15:40 KST 이전 실행에서는 오늘 봉을 버린다(`drop_unfinished_kr_bar`). 소스가 살아 있는지는 `.github/workflows/kr_index_probe.yml`(`python -m src.kr_index_probe`)로 1분 만에 확인된다 |
 | `sectors.py` | 주도 섹터 판정 |
 | `market_regime.py` | 상승장/하락장 판정 |
 | `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록). `in_band_tickers()`(조정폭 20~60% 판정)는 `fundamentals.py`도 대상 종목을 좁히는 데 재사용 |
@@ -247,7 +248,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
   **그 종목 일봉의 마지막 날짜**에서 나온다. 둘이 어긋날 수 있다 — 코스피 지수를 fdr 캐시로
   받던 탓에 장세는 9/7, 종목은 9/9로 저장돼 눌림목 탭이 통째로 비었다(화면이 장세 날짜로
   종목을 찾았기 때문). 두 가지로 막아뒀다: (1) `prices_kr.get_kospi_index_history`가
-  yfinance(^KS11)를 먼저 쓴다 — `market_indices.py`와 같은 소스·같은 장중 봉 처리라
+  네이버 `siseJson` → yfinance → fdr 순으로 떨어진다 — `market_indices.py`와 같은 소스·같은 장중 봉 처리라
   **한쪽을 바꾸면 다른 쪽도 같이 볼 것**, (2) 화면(`app/pullback/page.tsx`)은 장세 날짜가
   아니라 `getLatestScreenedDate()`로 **종목 쪽 최신 날짜**를 찾아 조회한다. 미장은 지수가
   yfinance(현지 날짜), 종목이 KIS(한국 날짜) 기준이라 구조적으로 하루 어긋날 수 있으므로

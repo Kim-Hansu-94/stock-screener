@@ -12,15 +12,23 @@ CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽는데, 그 파일 갱신이 �
 떠 있었다(해외는 yfinance 실시간이라 9/8로 정상). 에러가 아니라 조용히 옛날 값을
 주기 때문에 파이프라인 로그만 봐서는 알 수 없다.
 
-그래서 국내도 미국과 같은 yfinance(^KS11/^KQ11)를 먼저 쓰고, 그게 실패했을 때만
-fdr 캐시로 떨어진다 — 하루 늦은 값이라도 아무것도 없는 것보다는 낫다(대신 로그에
-남긴다). 어느 값이 언제 것인지 확인할 수 있게 수집한 날짜를 로그에 찍는다.
+⚠️ yfinance(^KS11/^KQ11)도 국내 지수는 못 믿는다(2026-09-10 수정). 야후는 KRX 일봉
+확정이 늦어, 9/10 아침 06:30 실행에서 **에러 없이** 9/8까지만 줬다(같은 실행에서 해외
+지수는 9/9까지 정상). 전날 저녁 실행 때 받았던 9/9 값은 장중 실시간 행이었을 뿐이다.
+
+그래서 국내 지수는 **네이버(api.finance.naver.com/siseJson.naver)를 1순위**로 쓴다 —
+프로브(.github/workflows/kr_index_probe.yml)로 확인해 보니 9/10 아침에 9/9 종가를
+정확히 갖고 있었다. 순서는 네이버 → yfinance → fdr 캐시이고, 아래로 내려갈수록 값이
+낡을 수 있으므로 어느 단계로 떨어졌는지 로그에 남긴다. 어느 값이 언제 것인지 확인할 수
+있게 수집한 날짜도 함께 찍는다.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import FinanceDataReader as fdr
+import requests
 import yfinance as yf
 
 KST = timezone(timedelta(hours=9))
@@ -33,10 +41,10 @@ _LOOKBACK_DAYS = 10
 # 값이므로 "장마감 종가"로 저장하면 안 된다.
 _KR_CLOSE_HOUR, _KR_CLOSE_MINUTE = 15, 40
 
-# (표시 이름, yfinance 티커, FinanceDataReader 폴백 티커)
+# (표시 이름, 네이버 심볼, yfinance 티커, FinanceDataReader 폴백 티커)
 _KR_INDEXES = [
-    ("코스피", "^KS11", "KS11"),
-    ("코스닥", "^KQ11", "KQ11"),
+    ("코스피", "KOSPI", "^KS11", "KS11"),
+    ("코스닥", "KOSDAQ", "^KQ11", "KQ11"),
 ]
 
 # (표시 이름, yfinance 티커)
@@ -56,6 +64,49 @@ def _snapshot_from_closes(name: str, dates: list, closes: list[float]) -> dict |
         "close": float(closes[-1]),
         "prev_close": float(closes[-2]),
     }
+
+
+_NAVER_SISE_URL = "https://api.finance.naver.com/siseJson.naver"
+_NAVER_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://finance.naver.com/"}
+_NAVER_TIMEOUT = 20
+
+
+def naver_index_closes(symbol: str, start: date, end: date) -> tuple[list[str], list[float]]:
+    """네이버 금융 차트 API에서 국내 지수 일봉 (날짜, 종가)를 받는다.
+
+    응답은 JSON이 아니라 파이썬/JS 리터럴에 가까운 텍스트다(작은따옴표) —
+    첫 줄이 헤더고 그 아래가 `['20260909', 시가, 고가, 저가, 종가, 거래량, 외국인소진율]`.
+    작은따옴표를 큰따옴표로 바꿔야 json으로 읽힌다.
+    """
+    params = {
+        "symbol": symbol,
+        "requestType": "1",
+        "startTime": start.strftime("%Y%m%d"),
+        "endTime": end.strftime("%Y%m%d"),
+        "timeframe": "day",
+    }
+    resp = requests.get(
+        _NAVER_SISE_URL, params=params, headers=_NAVER_HEADERS, timeout=_NAVER_TIMEOUT
+    )
+    resp.raise_for_status()
+    rows = json.loads(resp.text.strip().replace("'", '"'))
+
+    dates: list[str] = []
+    closes: list[float] = []
+    for row in rows:
+        # 헤더 행(['날짜','시가',...])과 빈 행을 걸러낸다.
+        if not isinstance(row, list) or len(row) < 5:
+            continue
+        raw_date = str(row[0])
+        if len(raw_date) != 8 or not raw_date.isdigit():
+            continue
+        try:
+            close = float(row[4])
+        except (TypeError, ValueError):
+            continue
+        dates.append(f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}")
+        closes.append(close)
+    return dates, closes
 
 
 def _yahoo_closes(ticker: str, start: date, end: date) -> tuple[list[str], list[float]]:
@@ -91,20 +142,30 @@ def drop_unfinished_kr_bar(
 
 
 def _kr_snapshot(
-    name: str, yahoo_ticker: str, fdr_ticker: str, today: date, now_kst: datetime
+    name: str, naver_symbol: str, yahoo_ticker: str, fdr_ticker: str, today: date, now_kst: datetime
 ) -> dict | None:
     start = today - timedelta(days=_LOOKBACK_DAYS)
     dates: list[str] = []
     closes: list[float] = []
+
+    # 1순위: 네이버(국내 지수의 본진). 야후는 KRX 일봉 확정이 하루 늦는 날이 있다.
     try:
-        # end가 배타적이라 하루를 더해야 오늘 종가가 들어온다(저녁 16:30 실행용).
-        dates, closes = _yahoo_closes(yahoo_ticker, start, today + timedelta(days=1))
+        dates, closes = naver_index_closes(naver_symbol, start, today)
         dates, closes = drop_unfinished_kr_bar(dates, closes, now_kst)
     except Exception as exc:  # noqa: BLE001
-        print(f"  시황 지수 실시간 조회 실패 ({name}): {exc}", flush=True)
+        print(f"  시황 지수 네이버 조회 실패 ({name}): {exc}", flush=True)
 
     if len(closes) < 2:
-        # fdr은 GitHub CSV 캐시라 보통 하루 늦다 — 최후 수단임을 로그에 남긴다.
+        # 2순위: yfinance. end가 배타적이라 하루를 더해야 오늘 종가가 들어온다.
+        print(f"  시황 지수 {name}: 네이버 데이터 부족 → yfinance로 대체", flush=True)
+        try:
+            dates, closes = _yahoo_closes(yahoo_ticker, start, today + timedelta(days=1))
+            dates, closes = drop_unfinished_kr_bar(dates, closes, now_kst)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  시황 지수 실시간 조회 실패 ({name}): {exc}", flush=True)
+
+    if len(closes) < 2:
+        # 최후: fdr은 GitHub CSV 캐시라 보통 하루 늦다 — 로그에 남긴다.
         print(f"  시황 지수 {name}: 실시간 데이터 부족 → fdr 캐시(하루 지연 가능)로 대체", flush=True)
         dates, closes = _fdr_closes(fdr_ticker, start, today)
 
@@ -121,9 +182,9 @@ def _us_snapshot(name: str, ticker: str, today: date) -> dict | None:
 def collect_market_index_snapshots(today: date, now_kst: datetime | None = None) -> list[dict]:
     now = now_kst or datetime.now(KST)
     snapshots: list[dict] = []
-    for name, yahoo_ticker, fdr_ticker in _KR_INDEXES:
+    for name, naver_symbol, yahoo_ticker, fdr_ticker in _KR_INDEXES:
         try:
-            snap = _kr_snapshot(name, yahoo_ticker, fdr_ticker, today, now)
+            snap = _kr_snapshot(name, naver_symbol, yahoo_ticker, fdr_ticker, today, now)
         except Exception as exc:  # noqa: BLE001
             print(f"  시황 지수 수집 실패 ({name}): {exc}", flush=True)
             continue
