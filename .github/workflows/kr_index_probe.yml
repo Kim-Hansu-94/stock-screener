@@ -8,6 +8,8 @@ on:
   push:
     paths:
       - 'pipeline/src/kr_index_probe.py'
+      - 'pipeline/src/market_indices.py'
+      - 'pipeline/src/prices_kr.py'
       - '.github/workflows/kr_index_probe.yml'
 
 jobs:
@@ -23,7 +25,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r pipeline/requirements.txt
 
       - name: Probe KR index sources
         working-directory: pipeline

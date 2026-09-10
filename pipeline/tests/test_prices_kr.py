@@ -29,7 +29,8 @@ def _fake_yahoo(dates: list[str], closes: list[float]) -> pd.DataFrame:
 # 통째로 빈다 — 2026-09-09에 실제로 그랬다.
 @patch("pipeline.src.prices_kr.fdr.DataReader", return_value=FAKE_OHLCV)
 @patch("pipeline.src.prices_kr.yf.download")
-def test_get_kospi_index_history_prefers_realtime_over_fdr_cache(mock_yf, mock_reader):
+@patch("pipeline.src.prices_kr.naver_index_closes", side_effect=RuntimeError("naver down"))
+def test_get_kospi_index_history_prefers_realtime_over_fdr_cache(mock_naver, mock_yf, mock_reader):
     mock_yf.return_value = _fake_yahoo(["2024-01-02", "2024-01-03"], [2500.0, 2550.0])
 
     result = get_kospi_index_history(end=date(2024, 1, 3), lookback_days=300, now_kst=_AFTER_CLOSE)
@@ -42,7 +43,8 @@ def test_get_kospi_index_history_prefers_realtime_over_fdr_cache(mock_yf, mock_r
 
 @patch("pipeline.src.prices_kr.fdr.DataReader", return_value=FAKE_OHLCV)
 @patch("pipeline.src.prices_kr.yf.download", side_effect=RuntimeError("network down"))
-def test_get_kospi_index_history_falls_back_to_fdr(mock_yf, mock_reader):
+@patch("pipeline.src.prices_kr.naver_index_closes", side_effect=RuntimeError("naver down"))
+def test_get_kospi_index_history_falls_back_to_fdr(mock_naver, mock_yf, mock_reader):
     result = get_kospi_index_history(end=date(2024, 1, 2), lookback_days=300, now_kst=_AFTER_CLOSE)
 
     mock_reader.assert_called_once()
@@ -52,7 +54,8 @@ def test_get_kospi_index_history_falls_back_to_fdr(mock_yf, mock_reader):
 
 @patch("pipeline.src.prices_kr.fdr.DataReader", return_value=FAKE_OHLCV)
 @patch("pipeline.src.prices_kr.yf.download")
-def test_get_kospi_index_history_drops_todays_unfinished_bar(mock_yf, mock_reader):
+@patch("pipeline.src.prices_kr.naver_index_closes", side_effect=RuntimeError("naver down"))
+def test_get_kospi_index_history_drops_todays_unfinished_bar(mock_naver, mock_yf, mock_reader):
     # 장 마감(15:30) 전 실행이면 오늘 봉은 장중 값이라 기준일로 삼으면 안 된다.
     mock_yf.return_value = _fake_yahoo(
         ["2024-01-01", "2024-01-02", "2024-01-03"], [2450.0, 2500.0, 2550.0]
@@ -71,3 +74,22 @@ def test_get_kr_stock_history_returns_ohlcv_columns(mock_reader):
     mock_reader.assert_called_once()
     assert mock_reader.call_args[0][0] == "005930"
     assert list(result.columns) == ["Open", "High", "Low", "Close", "Volume"]
+
+
+# 야후도 하루 늦을 수 있어(2026-09-10 아침, 에러 없이 9/8까지만 줬다) 네이버가 1순위다.
+# **시황 위젯(market_indices.py)과 같은 순서·같은 장중 봉 처리를 유지해야** 장세 날짜와
+# 종목 날짜가 다시 어긋나지 않는다.
+@patch("pipeline.src.prices_kr.fdr.DataReader", return_value=FAKE_OHLCV)
+@patch("pipeline.src.prices_kr.yf.download")
+@patch(
+    "pipeline.src.prices_kr.naver_index_closes",
+    return_value=(["2024-01-02", "2024-01-03"], [2500.0, 2555.0]),
+)
+def test_get_kospi_index_history_prefers_naver(mock_naver, mock_yf, mock_reader):
+    result = get_kospi_index_history(date(2024, 1, 3), 10, now_kst=_AFTER_CLOSE)
+
+    assert result.index[-1].date().isoformat() == "2024-01-03"
+    assert result.iloc[-1] == 2555.0
+    # 네이버가 됐으면 야후·fdr은 아예 안 부른다.
+    assert mock_yf.call_count == 0
+    assert mock_reader.call_count == 0

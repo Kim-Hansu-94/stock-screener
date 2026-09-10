@@ -86,6 +86,24 @@ def probe_index_basic(symbol: str) -> str:
     return _snippet(json.dumps(data, ensure_ascii=False), 500)
 
 
+def probe_actual_code_path() -> str:
+    """실제 파이프라인이 쓰는 함수 두 개가 오늘 어느 날짜를 주는지.
+
+    프로브가 엔드포인트만 두드리면 "네이버는 되는데 코드는 야후로 떨어지는" 상태를
+    못 잡는다 — 그게 2026-09-10에 실제로 일어난 실패 방식이다.
+    """
+    from .market_indices import collect_market_index_snapshots
+    from .prices_kr import get_kospi_index_history
+
+    today = datetime.now(KST).date()
+    lines = []
+    for snap in collect_market_index_snapshots(today):
+        lines.append(f"{snap['index_name']}={snap['date']}({snap['close']:,.2f})")
+    series = get_kospi_index_history(today, 30)
+    lines.append(f"파이프라인 기준일(as_of)={series.index[-1].date().isoformat()}")
+    return " / ".join(lines)
+
+
 _PROBES = [
     ("api.stock.naver.com /index/KOSPI/price", lambda: probe_api_stock_price("KOSPI")),
     ("api.stock.naver.com /index/KOSDAQ/price", lambda: probe_api_stock_price("KOSDAQ")),
@@ -94,6 +112,7 @@ _PROBES = [
     ("siseJson KOSDAQ", lambda: probe_sise_json("KOSDAQ")),
     ("fchart KOSPI", lambda: probe_fchart("KOSPI")),
     ("fchart KOSDAQ", lambda: probe_fchart("KOSDAQ")),
+    ("실제 코드 경로", probe_actual_code_path),
 ]
 
 
