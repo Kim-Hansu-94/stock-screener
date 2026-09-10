@@ -114,10 +114,22 @@ function ConsensusBlock({ consensus, close }: { consensus: ConsensusRow; close: 
 }
 
 function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
-  // 금액 기준이 있으면 그걸 쓰고, 없으면 기간 기준임을 라벨로 밝힌다. 둘을 합쳐
-  // 하나의 "진행률"로 보여주면 어느 근거인지 알 수 없게 된다.
-  const amountBased = buyback.amount_progress_pct != null
-  const progress = buyback.amount_progress_pct ?? buyback.period_progress_pct
+  // 진행률이 세 종류라 무엇을 보여줄지가 중요하다. 우선순위는 근거의 강도 순이다:
+  //   1) 취득 금액 확정 (결과보고서) — 지금은 DART에 정형 API가 없어 거의 안 채워진다
+  //   2) 위탁증권사 창구 누적 순매수 (추정) — 진행 중에 따라갈 수 있는 유일한 값
+  //   3) 취득 기간 경과율 (근사) — 아무것도 없을 때의 마지막 수단
+  // 셋을 하나로 합치지 않는다. 합치면 화면에서 어느 근거인지 알 수 없게 된다.
+  const basis =
+    buyback.amount_progress_pct != null
+      ? { pct: buyback.amount_progress_pct, label: '취득 금액 기준 (공시 확정)' }
+      : buyback.estimated_progress_pct != null
+        ? {
+            pct: buyback.estimated_progress_pct,
+            label: `${buyback.broker ?? '위탁 증권사'} 창구 순매수 기준 (추정)`,
+          }
+        : buyback.period_progress_pct != null
+          ? { pct: buyback.period_progress_pct, label: '취득 기간 기준 (실제 매입량 아님)' }
+          : null
 
   return (
     <div>
@@ -130,19 +142,17 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
         )}
       </div>
 
-      {progress != null && (
+      {basis && (
         <>
           <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
             <div
               className={`h-full rounded-full ${buyback.is_disposal ? 'bg-down' : 'bg-primary'}`}
-              style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
+              style={{ width: `${Math.min(Math.max(basis.pct, 0), 100)}%` }}
             />
           </div>
           <p className="mt-0.5 text-xs">
-            <span className="font-mono font-semibold">{progress.toFixed(0)}%</span>
-            <span className="ml-1 text-muted-foreground">
-              {amountBased ? '진행 (취득 금액 기준)' : '진행 (취득 기간 기준 — 실제 매입량은 다를 수 있음)'}
-            </span>
+            <span className="font-mono font-semibold">{basis.pct.toFixed(0)}%</span>
+            <span className="ml-1 text-muted-foreground">진행 · {basis.label}</span>
           </p>
         </>
       )}
@@ -151,8 +161,28 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
         <p className="mt-0.5 text-xs text-muted-foreground">
           {buyback.is_disposal ? '처분' : '취득'} 예정 {formatKrwCompact(buyback.planned_amount)}원
           {buyback.planned_qty != null && ` (${Math.round(buyback.planned_qty).toLocaleString('ko-KR')}주)`}
-          {buyback.acquired_amount != null && ` · 완료 ${formatKrwCompact(buyback.acquired_amount)}원`}
           {buyback.period_start && buyback.period_end && ` · ${buyback.period_start} ~ ${buyback.period_end}`}
+        </p>
+      )}
+
+      {/* 창구 추정치는 별도 줄로 근거를 다 드러낸다 — 어느 증권사인지, 며칠 관측했는지,
+          왜 확정치가 아닌지. 숫자만 보여주면 확정 진행률과 구분이 안 된다. */}
+      {buyback.estimated_amount != null && buyback.estimated_amount > 0 && (
+        <p className="mt-1 rounded-md bg-accent/60 px-2 py-1.5 text-xs leading-relaxed text-accent-foreground">
+          <b>{buyback.broker ?? '위탁 증권사'}</b> 창구에서{' '}
+          <span className="font-mono font-semibold">
+            {formatKrwCompact(buyback.estimated_amount)}원
+          </span>
+          {buyback.estimated_qty != null &&
+            ` (${Math.round(buyback.estimated_qty).toLocaleString('ko-KR')}주)`}{' '}
+          순매수
+          {buyback.observed_days != null && ` · ${buyback.observed_days}일 관측`}.
+          <span className="text-accent-foreground/70">
+            {' '}
+            회사가 자사주를 이 창구로 사겠다고 공시했기 때문에 매입 진행을 가늠하는 데 쓰지만, 그
+            창구 매수가 전부 자사주는 아닙니다(같은 증권사의 다른 주문이 섞입니다). 확정 수치는
+            취득이 끝난 뒤 결과보고서로 공시됩니다.
+          </span>
         </p>
       )}
 

@@ -87,3 +87,47 @@ create table if not exists stock_buyback (
 -- 처음 표를 만들 때 필드명을 확정하지 못해 빠져 있었다. 이미 표를 만든 뒤라면
 -- 아래 한 줄만 따로 실행하면 된다(이미 있으면 아무 일도 일어나지 않는다).
 alter table stock_buyback add column if not exists planned_qty numeric;
+
+-- ============================================================
+-- 2026-09-10 추가: 거래원(증권사 창구별 매매) — 자사주 매입 진행 중 추적용
+-- ============================================================
+--
+-- 자기주식 취득 결정 공시에는 **위탁투자중개업자**(어느 증권사 창구로 살지)가 적혀
+-- 있다(`stock_buyback.broker`). 거래소가 매일 공개하는 종목별 상위 매수·매도 창구에서
+-- 그 증권사의 순매수를 누적하면, 결과보고서가 나오기 전에도 매입량을 추정할 수 있다.
+--
+-- **추정치다.** 그 창구 매수가 전부 자사주는 아니다(같은 증권사 일반 고객 주문이 섞임).
+-- 화면은 이걸 확정 진행률과 분리해 "추정"이라고 밝혀 보여준다.
+--
+-- 네이버가 주는 건 **그날 상위 5개 창구**뿐이라 과거 소급이 안 된다 — 이 표는
+-- 워크플로가 처음 도는 날부터 쌓인다. 해당 증권사가 그날 6위 밖이면 그날은 빠지므로
+-- 추정 진행률은 실제보다 낮게 나올 수 있다.
+create table if not exists broker_trading (
+  market      text not null check (market in ('KR', 'US')),
+  ticker      text not null,
+  name        text,
+  date        date not null,
+  broker      text not null,
+  buy_qty     numeric,
+  sell_qty    numeric,
+  net_qty     numeric,
+  -- 순매수 수량 × 종가. investor_flow와 같은 근사 방식이다.
+  net_amount  numeric,
+  source      text,
+  updated_at  timestamptz not null default now(),
+  primary key (market, ticker, date, broker)
+);
+
+create index if not exists broker_trading_ticker_date_idx
+  on broker_trading (market, ticker, date desc);
+
+-- 자사주 표에 위탁증권사와 추정 진행률 열을 추가한다.
+-- amount_progress_pct(확정, 결과보고서 기반)와 estimated_progress_pct(추정, 창구 기반)를
+-- 따로 두는 게 핵심이다 — 합치면 화면에서 어느 근거인지 알 수 없게 된다.
+alter table stock_buyback add column if not exists broker text;
+alter table stock_buyback add column if not exists estimated_qty numeric;
+alter table stock_buyback add column if not exists estimated_amount numeric;
+alter table stock_buyback add column if not exists estimated_progress_pct numeric;
+-- 며칠치를 실제로 관측했는지. 적으면 추정치를 믿을 근거도 약하다는 뜻이라
+-- 화면이 "N일 관측"으로 같이 보여준다.
+alter table stock_buyback add column if not exists observed_days int;

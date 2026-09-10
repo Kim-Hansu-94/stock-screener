@@ -227,6 +227,35 @@ class ScreenerDB:
             [{**r, "updated_at": now} for r in rows]
         ).execute()
 
+    def save_broker_trading(self, rows: list[dict]) -> None:
+        """거래원(증권사 창구별 매매) 저장.
+
+        종목 × 날짜 × 증권사 PK라 upsert만으로 충분하다 — 같은 날을 다시 받아
+        덮어쓰는 것뿐이다. 네이버가 그날 상위 5개만 주므로 **과거 소급이 안 된다**:
+        이 표는 워크플로가 처음 도는 날부터 쌓인다.
+        """
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        _batch_upsert(self.client, "broker_trading", [{**r, "updated_at": now} for r in rows])
+
+    def get_broker_trading(self, ticker: str, since: str | None = None) -> list[dict]:
+        """한 종목의 거래원 이력. 자사주 추정 진행률 계산에 쓴다."""
+        try:
+            query = (
+                self.client.table("broker_trading")
+                .select("date, broker, buy_qty, sell_qty, net_qty, net_amount")
+                .eq("market", "KR")
+                .eq("ticker", ticker)
+            )
+            if since:
+                query = query.gte("date", since)
+            return query.execute().data or []
+        except Exception as exc:  # noqa: BLE001
+            # 표가 아직 없을 수 있다(마이그레이션 전). 추정 진행률만 비고 나머지는 계속.
+            print(f"  [buyback] broker_trading 조회 실패: {exc}", flush=True)
+            return []
+
     def prune_buyback(self, keep: list[str]) -> None:
         """자사주 공시가 사라진 종목의 지난 행을 지운다.
 

@@ -61,6 +61,11 @@ _FIELDS = {
     True: (("dppln_prc_ostk", "dppln_prc_estk"), ("dppln_stk_ostk", "dppln_stk_estk"), "dpprpd_bgd", "dpprpd_edd", "dp_dd"),
 }
 
+# 위탁투자중개업자 — 회사가 자사주를 **어느 증권사 창구로 사는지**가 공시에 적혀 있다
+# (SK하이닉스는 SK증권). 거래원 데이터(broker_flow.py)에서 이 증권사의 일별 순매수를
+# 보면 진행 중에도 매입량을 추정할 수 있다. 취득·처분 공시 양쪽에 같은 이름으로 있다.
+_BROKER_KEY = "cs_iv_bk"
+
 def _api_key() -> str | None:
     return os.environ.get("DART_API_KEY") or None
 
@@ -235,6 +240,7 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
 
     planned = planned_qty = None
     start = end = None
+    broker = None
     is_disposal = False
     detail_kind = None
     if program is not None:
@@ -244,6 +250,9 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
         planned_qty = _sum_amounts(detail_row, qty_keys)
         start = _parse_date(detail_row.get(start_key))
         end = _parse_date(detail_row.get(end_key))
+        raw_broker = detail_row.get(_BROKER_KEY)
+        if raw_broker not in (None, "", "-"):
+            broker = str(raw_broker).strip()[:100]
 
     # 취득 **완료** 금액은 이 API에 없다. 주요사항보고서는 "얼마를 사겠다"는 계획
     # 공시이고, 실제 체결량은 별도의 자기주식취득결과보고서(전용 API 없음)에 있다.
@@ -299,6 +308,7 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
         "period_progress_pct": period_progress,
         "period_start": start.isoformat() if start else None,
         "period_end": end.isoformat() if end else None,
+        "broker": broker,
         "disclosure_count": len(disclosures),
         "detail_source": detail_kind,
         "detail_error": " / ".join(_LAST_DETAIL_ERRORS)[:300] if program is None and _LAST_DETAIL_ERRORS else None,

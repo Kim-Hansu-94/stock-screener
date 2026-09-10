@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
+from . import broker_flow as broker_mod
 from . import buyback as buyback_mod
 from . import consensus as consensus_mod
 from . import investor_flow as flow_mod
@@ -35,6 +36,8 @@ MAX_FLOW_TICKERS = 60
 # 컨센서스·자사주는 하루에 다 받을 필요가 없다 — 실행마다 앞에서부터 이만큼씩.
 MAX_CONSENSUS_TICKERS = 40
 MAX_BUYBACK_TICKERS = 40
+# 거래원은 자사주 프로그램이 진행 중인 종목만 본다 — 전 종목을 훑을 이유가 없다.
+MAX_BROKER_TICKERS = 30
 
 FLOW_DAYS = 60
 
@@ -147,6 +150,7 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
         print(f"  자사주 수집 생략: {exc}", flush=True)
         return
 
+    closes = _latest_closes(db)
     rows: list[dict] = []
     no_program = 0
     failures: list[str] = []
@@ -165,6 +169,11 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
             continue
         rows.append(row)
 
+    # 자사주 프로그램이 잡힌 종목만 거래원을 받는다. 여기서 오늘치를 먼저 저장한
+    # 다음 누적을 다시 읽어야, 오늘 거래분이 추정 진행률에 바로 반영된다.
+    _collect_broker_trading(db, rows, closes)
+    _attach_estimated_progress(db, rows)
+
     db.save_buyback(rows)
     # 이번에 실제로 조회한 종목 중 공시가 있는 것만 남긴다. 조회 자체를 안 한
     # 종목(상한에 걸려 이번 실행에서 빠진 종목)까지 지우면 안 되므로, 지울 대상을
@@ -178,6 +187,71 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
     print(f"  → {len(rows)}개 저장, 자사주 공시 없음 {no_program}개, 실패 {len(failures)}건", flush=True)
     if failures:
         print(f"  사유 예: {'; '.join(failures[:3])}", flush=True)
+
+
+def _collect_broker_trading(db: ScreenerDB, buyback_rows: list[dict], closes: dict[str, float]) -> None:
+    """자사주 프로그램이 잡힌 종목의 오늘자 거래원(상위 5개 창구)을 저장한다.
+
+    네이버가 그날 상위 5개만 주므로 **과거 소급이 안 된다** — 매일 쌓는 수밖에 없다.
+    그래서 여기가 실패하면 그날치가 영영 빈다. 실패 사유를 반드시 남긴다.
+    """
+    picked = buyback_rows[:MAX_BROKER_TICKERS]
+    if not picked:
+        return
+    today = _today_kst()
+    print(f"  거래원 수집 ({len(picked)}개 종목)...", flush=True)
+
+    rows: list[dict] = []
+    failures: list[str] = []
+    for entry in picked:
+        ticker = entry["ticker"]
+        try:
+            rows.extend(
+                broker_mod.build_rows(ticker, entry.get("name") or ticker, today, closes.get(ticker))
+            )
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{ticker}: {exc}")
+
+    db.save_broker_trading(rows)
+    print(f"    → {len(rows)}행 저장, 실패 {len(failures)}건", flush=True)
+    if failures:
+        print(f"    사유 예: {'; '.join(failures[:3])}", flush=True)
+
+
+def _attach_estimated_progress(db: ScreenerDB, buyback_rows: list[dict]) -> None:
+    """위탁증권사 창구의 누적 순매수로 추정 진행률을 채운다.
+
+    확정 진행률(`amount_progress_pct`, 결과보고서 기반)과 **따로** 채운다 —
+    합치면 화면에서 어느 근거인지 알 수 없게 된다.
+    """
+    for entry in buyback_rows:
+        broker = entry.get("broker")
+        if not broker:
+            continue
+        history = db.get_broker_trading(entry["ticker"], entry.get("period_start"))
+        estimate = broker_mod.estimate_buyback_progress(
+            history, broker, entry.get("period_start"), entry.get("planned_amount")
+        )
+        entry.update(estimate)
+
+
+def _latest_closes(db: ScreenerDB) -> dict[str, float]:
+    """거래원 금액 환산용 최신 종가. 없으면 그 종목만 금액이 빈다."""
+    closes: dict[str, float] = {}
+    try:
+        resp = (
+            db.client.table("investor_flow")
+            .select("ticker, close, date")
+            .eq("market", "KR")
+            .order("date", desc=True)
+            .limit(1000)
+            .execute()
+        )
+        for row in resp.data or []:
+            closes.setdefault(row["ticker"], float(row["close"]))
+    except Exception as exc:  # noqa: BLE001
+        print(f"  종가 조회 실패(거래원 금액은 비워 둠): {exc}", flush=True)
+    return closes
 
 
 def _existing_buyback_tickers(db: ScreenerDB) -> list[str]:
