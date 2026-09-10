@@ -35,6 +35,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+from . import broker_flow
 from .buyback import _api_key, _disclosure_list, load_corp_codes
 from .naver_api import HEADERS, TIMEOUT
 
@@ -175,11 +176,36 @@ def _probe_broker_windows() -> None:
                     print(f"        {list(row)[:6]}", flush=True)
 
 
+def _probe_broker_parser() -> None:
+    """탐색이 아니라 **실제 파서**가 살아 있는 페이지에서 도는지 본다.
+
+    [B]는 표가 있다는 것까지만 봤다. 그 표를 broker_flow.parse_brokers가 제대로
+    읽는지는 별개 문제다 — 컨센서스에서 "표는 찾았는데 엉뚱한 칸을 읽던" 일을
+    한 번 겪었으므로 파서까지 여기서 돌려 본다.
+    """
+    print("\n[C] broker_flow 파서 실측", flush=True)
+    for ticker, name in _SAMPLES:
+        try:
+            brokers, source = broker_flow.fetch_brokers(ticker)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {name}({ticker}): {exc}", flush=True)
+            continue
+        top = sorted(brokers.items(), key=lambda kv: kv[1]["net_qty"], reverse=True)[:3]
+        print(f"  o {name}({ticker}): 소스={source}, 창구 {len(brokers)}곳", flush=True)
+        for broker, values in top:
+            print(
+                f"      {broker}: 매수 {values['buy_qty']:,.0f} / 매도 {values['sell_qty']:,.0f} "
+                f"→ 순매수 {values['net_qty']:,.0f}",
+                flush=True,
+            )
+
+
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
     _probe_dart_document()
     _probe_broker_windows()
+    _probe_broker_parser()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0

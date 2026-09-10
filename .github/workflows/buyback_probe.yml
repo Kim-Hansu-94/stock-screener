@@ -10,6 +10,8 @@ on:
   push:
     paths:
       - 'pipeline/src/buyback_probe.py'
+      # 파서를 고쳤을 때도 실측으로 확인해야 한다.
+      - 'pipeline/src/broker_flow.py'
       - '.github/workflows/buyback_probe.yml'
 
 jobs:
