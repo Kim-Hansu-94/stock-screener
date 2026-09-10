@@ -133,6 +133,54 @@ def _detail(corp_code: str, api_key: str, endpoint: str) -> list[dict]:
     return payload.get("list") or []
 
 
+def _pick_by_pattern(row: dict, must: tuple[str, ...], avoid: tuple[str, ...] = ()) -> str | None:
+    """키 이름에 특정 조각이 모두 들어간 칸을 찾는다.
+
+    DART의 주요사항보고서 필드명은 보고서 종류마다 조금씩 다르다(aq_pl_tot_amount /
+    aqpln_prc_tot / ...). 후보를 일일이 나열하는 것만으로는 새 표기가 나올 때마다
+    조용히 None이 되므로, 고정 후보(_PLANNED_AMOUNT_KEYS 등)로 못 찾으면
+    이름 패턴으로 한 번 더 훑는다.
+    """
+    for key, value in row.items():
+        lowered = str(key).lower()
+        if all(m in lowered for m in must) and not any(a in lowered for a in avoid):
+            if value not in (None, "", "-"):
+                return str(value)
+    return None
+
+
+def describe_detail(corp_code: str) -> list[str]:
+    """프로브용 진단 — 상세 API가 실제로 어떤 키를 주는지 그대로 찍는다.
+
+    "진행률=None"만 봐서는 API가 안 온 건지, 왔는데 키 이름이 다른 건지 알 수 없다.
+    여기서 원본 키를 보여 주면 _PLANNED_AMOUNT_KEYS 등에 무엇을 추가해야 하는지가
+    바로 나온다.
+    """
+    api_key = _api_key()
+    if not api_key:
+        return ["      DART_API_KEY 미설정"]
+    lines: list[str] = []
+    for label, endpoint in _DETAIL_ENDPOINTS:
+        try:
+            rows = _detail(corp_code, api_key, endpoint)
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"      {label}({endpoint}): 실패 {exc}")
+            continue
+        if not rows:
+            lines.append(f"      {label}({endpoint}): 0건")
+            continue
+        sample = rows[-1]
+        lines.append(f"      {label}({endpoint}): {len(rows)}건, 키={sorted(sample.keys())}")
+        # 금액·날짜로 보이는 칸만 값까지 보여 준다 — 전부 찍으면 로그가 넘친다.
+        interesting = {
+            k: v
+            for k, v in sample.items()
+            if any(t in str(k).lower() for t in ("amount", "prc", "qy", "bgd", "edd", "de"))
+        }
+        lines.append(f"        값 예시={interesting}")
+    return lines
+
+
 def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
     """DB(`stock_buyback`)에 넣을 한 행. 자사주 공시가 없으면 None.
 
@@ -165,10 +213,22 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
     planned = acquired = None
     start = end = None
     if detail_row is not None:
-        planned = to_number(_pick(detail_row, _PLANNED_AMOUNT_KEYS))
-        acquired = to_number(_pick(detail_row, _ACQUIRED_AMOUNT_KEYS))
-        start = _parse_date(_pick(detail_row, _START_KEYS))
-        end = _parse_date(_pick(detail_row, _END_KEYS))
+        # 고정 후보로 먼저 찾고, 없으면 키 이름 패턴으로 한 번 더 훑는다.
+        planned = to_number(
+            _pick(detail_row, _PLANNED_AMOUNT_KEYS)
+            # 예정 금액: 이름에 'amount'(또는 'prc')가 들어가되 '취득 완료'를 뜻하는
+            # 접미사(_ac)는 피한다.
+            or _pick_by_pattern(detail_row, ("pl", "amount"), avoid=("_ac",))
+            or _pick_by_pattern(detail_row, ("tot", "amount"), avoid=("_ac",))
+        )
+        acquired = to_number(
+            _pick(detail_row, _ACQUIRED_AMOUNT_KEYS)
+            or _pick_by_pattern(detail_row, ("amount", "_ac"))
+        )
+        start = _parse_date(
+            _pick(detail_row, _START_KEYS) or _pick_by_pattern(detail_row, ("bgd",))
+        )
+        end = _parse_date(_pick(detail_row, _END_KEYS) or _pick_by_pattern(detail_row, ("edd",)))
 
     amount_progress = None
     if planned and planned > 0 and acquired is not None:

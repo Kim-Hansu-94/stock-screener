@@ -56,6 +56,9 @@ def _probe_consensus() -> bool:
             data, source = consensus_mod.fetch_consensus(ticker)
         except Exception as exc:  # noqa: BLE001
             print(f"  x {name}({ticker}): {exc}", flush=True)
+            # 왜 못 찾았는지(페이지가 막힌 건지·표 구조가 바뀐 건지)까지 찍는다.
+            for line in consensus_mod.describe_sources(ticker):
+                print(line, flush=True)
             continue
         print(
             f"  o {name}({ticker}): 소스={source}, 목표가={data['target_price']}, "
@@ -99,6 +102,11 @@ def _probe_buyback() -> bool:
         )
         if row["detail_error"]:
             print(f"      상세 API 실패 사유: {row['detail_error']}", flush=True)
+        if row["amount_progress_pct"] is None and row["period_progress_pct"] is None:
+            # 공시는 잡혔는데 진행률이 둘 다 비었다 = 상세 응답의 키 이름이 우리
+            # 후보와 다르다는 뜻이다. 원본 키를 그대로 찍어 다음 수정 근거로 삼는다.
+            for line in buyback_mod.describe_detail(corp_code):
+                print(line, flush=True)
         ok = True
     return ok
 

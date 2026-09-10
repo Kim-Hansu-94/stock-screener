@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import io
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -50,7 +51,8 @@ def _parse_frgn_table(code: str, page: int) -> pd.DataFrame:
     # "외국인"을 못 찾고 조용히 빈 결과가 된다.
     resp.encoding = "euc-kr"
 
-    tables = pd.read_html(resp.text)
+    # 문자열을 그대로 넘기면 pandas가 FutureWarning을 낸다(향후 제거 예정).
+    tables = pd.read_html(io.StringIO(resp.text))
     for table in tables:
         cols = ["".join(str(c) for c in col) if isinstance(col, tuple) else str(col) for col in table.columns]
         joined = " ".join(cols)
