@@ -12,6 +12,7 @@ import {
 import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
+import { AverageCostCalculator } from '@/components/AverageCostCalculator'
 import { LoadingFallback } from '@/components/LoadingFallback'
 
 // 감시 카드와 같은 이유로 차트는 펼쳤을 때만 불러온다.
@@ -198,6 +199,16 @@ export function PositionCard({
 
             {expanded.has(key) ? (
               <>
+                {latest && (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <AverageCostCalculator
+                      market={entry.market}
+                      ticker={entry.ticker}
+                      currentPrice={latest.close}
+                      savedAvgCost={entry.avg_cost}
+                    />
+                  </div>
+                )}
                 {bars.length > 0 && (
                   <div className="mt-3 border-t border-border pt-3">
                     <StockChart
@@ -226,7 +237,7 @@ export function PositionCard({
                 onClick={() => toggle(key)}
                 className="mt-2 text-xs text-muted-foreground hover:text-primary"
               >
-                차트·뉴스 보기 ▾
+                평단 계산기·차트·뉴스 보기 ▾
               </button>
             )}
           </div>
