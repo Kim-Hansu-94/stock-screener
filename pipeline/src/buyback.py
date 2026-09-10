@@ -132,11 +132,12 @@ def _disclosure_list(corp_code: str, api_key: str) -> list[dict]:
         },
     )
     rows = payload.get("list") or []
-    return [
-        r
-        for r in rows
-        if any(k in str(r.get("report_nm", "")) for k in _BUYBACK_KEYWORDS)
-    ]
+    matched = [r for r in rows if any(k in str(r.get("report_nm", "")) for k in _BUYBACK_KEYWORDS)]
+    # DART list.json은 최신순(내림차순)으로 준다 — 그대로 [-1]을 쓰면 **가장 오래된**
+    # 공시를 "최신"으로 표시하게 된다(2026-09-10 2차 프로브: SK하이닉스가 8월
+    # 취득결정 대신 4월 처분결정으로 표시됐다). 날짜로 직접 줄 세운다.
+    matched.sort(key=lambda r: str(r.get("rcept_dt") or ""))
+    return matched
 
 
 def _detail(corp_code: str, api_key: str, endpoint: str) -> list[dict]:

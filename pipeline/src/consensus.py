@@ -174,29 +174,32 @@ def fetch_consensus(ticker: str) -> tuple[dict, str]:
 
 
 def describe_sources(ticker: str) -> list[str]:
-    """프로브용 진단 — 소스별로 응답에 무엇이 들어 있는지 찍는다.
+    """프로브용 진단 — '목표주가'가 들어 있는 표를 통째로 찍는다.
 
-    "목표주가 값을 찾지 못함"만 봐서는 페이지가 막힌 건지, 표 구조가 바뀐 건지,
-    애초에 그 페이지에 없는 건지 구분이 안 된다. 여기서 그 셋을 갈라 준다.
+    "값을 못 읽음"만으로는 어느 칸을 봐야 하는지 알 수 없고, 더 나쁜 건 **엉뚱한
+    칸을 읽고도 그럴듯한 숫자라 성공처럼 보이는 것**이다(2026-09-10 2차 프로브에서
+    실제로 그랬다 — 삼성전자 목표가를 488,409원으로 읽고 투자의견을 '목표주가원'
+    이라는 헤더 텍스트로 읽었다). 그래서 구조를 그대로 보여 준다.
     """
     lines: list[str] = []
-    for url, label in ((_WISE_COMPANY_URL, "기업개요"),):
-        try:
-            html = _fetch_html(url, ticker)
-        except Exception as exc:  # noqa: BLE001
-            lines.append(f"      WISEreport {label}: 요청 실패 {exc}")
+    try:
+        html = _fetch_html(_WISE_COMPANY_URL, ticker)
+    except Exception as exc:  # noqa: BLE001
+        return [f"      WISEreport 요청 실패: {exc}"]
+
+    try:
+        tables = pd.read_html(io.StringIO(html))
+    except Exception as exc:  # noqa: BLE001
+        return [f"      WISEreport {len(html)}자, 표 파싱 실패: {exc}"]
+
+    lines.append(f"      WISEreport {len(html)}자, 표 {len(tables)}개")
+    for index, table in enumerate(tables):
+        text = " ".join(str(v) for v in table.astype(str).values.flatten())
+        if "목표주가" not in text:
             continue
-        has_label = "목표주가" in html
-        try:
-            tables = pd.read_html(io.StringIO(html))
-        except Exception as exc:  # noqa: BLE001
-            lines.append(f"      WISEreport {label}: {len(html)}자, 목표주가문구={has_label}, 표 파싱 실패 {exc}")
-            continue
-        cell = _value_near_label(tables, _TARGET_LABELS, accept=_is_valid_target_any)
-        lines.append(
-            f"      WISEreport {label}: {len(html)}자, 목표주가문구={has_label}, "
-            f"표 {len(tables)}개, 목표주가칸={cell!r}"
-        )
+        lines.append(f"      [표 {index}] shape={table.shape} 컬럼={list(table.columns)[:6]}")
+        for row in table.astype(str).values[:4]:
+            lines.append(f"        {list(row)[:8]}")
     return lines
 
 

@@ -28,9 +28,11 @@ from . import investor_flow as flow_mod
 _SAMPLES = [("005930", "삼성전자"), ("000660", "SK하이닉스")]
 
 
-def _probe_flow() -> bool:
+def _probe_flow() -> tuple[bool, dict[str, float]]:
+    """(정상 여부, 종목별 최신 종가). 종가는 컨센서스 검산에 쓴다."""
     print("\n[1/3] 수급 (외국인·기관 순매매)", flush=True)
     ok = False
+    closes: dict[str, float] = {}
     for ticker, name in _SAMPLES:
         try:
             rows, source = flow_mod.fetch_investor_flow(ticker)
@@ -38,6 +40,8 @@ def _probe_flow() -> bool:
             print(f"  x {name}({ticker}): {exc}", flush=True)
             continue
         latest = rows[0] if rows else {}
+        if latest.get("close"):
+            closes[ticker] = float(latest["close"])
         print(
             f"  o {name}({ticker}): {len(rows)}행, 소스={source}, "
             f"최근={latest.get('date')} 종가={latest.get('close')} "
@@ -45,27 +49,46 @@ def _probe_flow() -> bool:
             flush=True,
         )
         ok = True
-    return ok
+    return ok, closes
 
 
-def _probe_consensus() -> bool:
+# 컨센서스 목표가가 현재가의 이 배수를 벗어나면 엉뚱한 칸을 읽은 것으로 본다.
+# 증권사 목표가가 현재가의 2배를 넘는 경우는 사실상 없다 — 2026-09-10 2차
+# 프로브가 삼성전자 목표가를 488,409원(현재가의 1.8배)으로 읽고도 "정상"으로
+# 끝나서, 값 범위만 보는 검사로는 부족하다는 게 드러났다.
+_MAX_UPSIDE_RATIO = 2.0
+_MIN_UPSIDE_RATIO = 0.4
+
+
+def _probe_consensus(closes: dict[str, float]) -> bool:
     print("\n[2/3] 목표주가 컨센서스", flush=True)
-    ok = False
+    ok = True
     for ticker, name in _SAMPLES:
         try:
             data, source = consensus_mod.fetch_consensus(ticker)
         except Exception as exc:  # noqa: BLE001
             print(f"  x {name}({ticker}): {exc}", flush=True)
-            # 왜 못 찾았는지(페이지가 막힌 건지·표 구조가 바뀐 건지)까지 찍는다.
             for line in consensus_mod.describe_sources(ticker):
                 print(line, flush=True)
+            ok = False
             continue
+
+        close = closes.get(ticker)
+        target = data["target_price"]
+        ratio = target / close if close else None
+        suspicious = ratio is not None and not (_MIN_UPSIDE_RATIO <= ratio <= _MAX_UPSIDE_RATIO)
+        mark = "!" if suspicious else "o"
         print(
-            f"  o {name}({ticker}): 소스={source}, 목표가={data['target_price']}, "
+            f"  {mark} {name}({ticker}): 소스={source}, 목표가={target}, "
+            f"현재가={close}, 배수={ratio and round(ratio, 2)}, "
             f"의견={data['opinion']}, 리포트수={data['report_count']}",
             flush=True,
         )
-        ok = True
+        if suspicious:
+            print("      → 목표가가 현재가 대비 비상식적이다. 표 구조를 확인할 것:", flush=True)
+            for line in consensus_mod.describe_sources(ticker):
+                print(line, flush=True)
+            ok = False
     return ok
 
 
@@ -114,7 +137,8 @@ def _probe_buyback() -> bool:
 def main() -> int:
     load_dotenv()
     print("국내 부가 데이터 소스 점검 (수급 · 컨센서스 · 자사주)", flush=True)
-    results = [_probe_flow(), _probe_consensus(), _probe_buyback()]
+    flow_ok, closes = _probe_flow()
+    results = [flow_ok, _probe_consensus(closes), _probe_buyback()]
     print(f"\n결과: {sum(results)}/3 소스 정상", flush=True)
     # 하나라도 죽어 있으면 실패로 끝낸다 — 초록불로 끝나면 "다 됐다"로 보인다.
     return 0 if all(results) else 1
