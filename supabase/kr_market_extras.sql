@@ -1,0 +1,83 @@
+-- 국내 시장 부가 데이터 3종 (수급 · 목표주가 컨센서스 · 자사주 매입).
+--
+-- 주식 본 파이프라인과 분리된 별도 워크플로(.github/workflows/kr_market_extras.yml)가
+-- 채운다 — 부동산과 같은 이유다. 여기가 실패했다고 매일 도는 스크리닝이 죽으면 안 되고,
+-- 갱신 주기도 다르다(수급은 매일, 컨센서스·자사주는 며칠에 한 번이면 충분).
+--
+-- schema.sql이 아니라 별도 파일인 것도 realestate.sql·paper_trades.sql과 같은 규칙이다:
+-- 본 파이프라인이 없어도 되는 테이블은 따로 둬서, schema.sql을 다시 돌릴 일과 분리한다.
+
+-- 수급: 일별 외국인·기관 순매매.
+-- 종목 × 날짜로 쌓이는 표라 PK가 (market, ticker, date)다. 파이프라인이 매 실행
+-- 최근 60일을 통째로 다시 받아 upsert하므로, 뒤늦게 정정된 값도 자동으로 따라온다.
+create table if not exists investor_flow (
+  market      text not null check (market in ('KR', 'US')),
+  ticker      text not null,
+  name        text,
+  date        date not null,
+  close       numeric not null,
+  -- 순매매 "수량(주)". 네이버가 주는 원본 단위 그대로다.
+  foreign_net_qty       numeric,
+  institution_net_qty   numeric,
+  -- 위 수량 × 종가. 장중 평균단가가 아니라 근사치이며, 화면에서 "몇 억 규모인가"를
+  -- 가늠하는 용도다. 종가만으로 재현되므로 나중에 검증하기 쉽다.
+  foreign_net_amount     numeric,
+  institution_net_amount numeric,
+  source      text,
+  updated_at  timestamptz not null default now(),
+  primary key (market, ticker, date)
+);
+
+create index if not exists investor_flow_ticker_date_idx
+  on investor_flow (market, ticker, date desc);
+
+-- 목표주가 컨센서스: 증권사 평균 목표가.
+-- 종목당 최신 1행만 유지하는 스냅샷이다(market_index_snapshot과 같은 성격) —
+-- 목표가 시계열은 아직 화면에서 안 쓰고, 쌓으면 용량만 는다(무료 플랜 500MB).
+create table if not exists stock_consensus (
+  market        text not null check (market in ('KR', 'US')),
+  ticker        text not null,
+  name          text,
+  date          date not null,
+  target_price  numeric not null,
+  -- 저장 시점 종가 대비 상승여력(%). 화면이 최신 종가로 다시 계산할 수도 있어
+  -- 참고값이다 — 이 값이 언제 기준인지는 date 열이 말해 준다.
+  upside_pct    numeric,
+  opinion       text,
+  report_count  int,
+  consensus_eps numeric,
+  source        text,
+  updated_at    timestamptz not null default now(),
+  primary key (market, ticker)
+);
+
+-- 자사주 매입: 진행 중인(또는 가장 최근) 자기주식 취득 프로그램.
+-- 이것도 종목당 최신 1행 스냅샷이다.
+--
+-- 진행률이 두 개인 것이 의도적이다. amount_progress_pct는 취득 "금액" 기준의 진짜
+-- 진행률이고, period_progress_pct는 금액을 모를 때 쓰는 "기간" 기준 근사치다.
+-- 하나로 합치면 화면에서 어느 근거인지 알 수 없게 되므로 나눠 둔다.
+create table if not exists stock_buyback (
+  market      text not null check (market in ('KR', 'US')),
+  ticker      text not null,
+  name        text,
+  corp_code   text,
+  latest_report       text,
+  latest_report_date  date,
+  latest_report_url   text,
+  -- 처분(파는 것)은 매입과 방향이 정반대다. 같은 표에 담되 화면에서 구분한다.
+  is_disposal         boolean not null default false,
+  planned_amount      numeric,
+  acquired_amount     numeric,
+  amount_progress_pct numeric,
+  period_progress_pct numeric,
+  period_start        date,
+  period_end          date,
+  disclosure_count    int,
+  detail_source       text,
+  -- 상세 API가 전부 실패했을 때의 사유. 채워져 있으면 "공시 목록만 받았다"는 뜻이라,
+  -- 조용히 반쪽짜리로 도는 상태를 로그가 아니라 DB에서도 알아볼 수 있다.
+  detail_error        text,
+  updated_at  timestamptz not null default now(),
+  primary key (market, ticker)
+);

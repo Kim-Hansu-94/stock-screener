@@ -7,6 +7,7 @@ import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistActions'
 
 import { LazyStockChart } from '@/components/LazyStockChart'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
 // 감시 종목은 분할매수 판단에 장기 추세까지 보고 싶다는 요청으로 120일선을 추가한 세트.
 // 다른 화면(StockCard 등)의 기본 5/20/60일선과는 별개로 이 카드에서만 쓴다.
@@ -231,6 +232,11 @@ export function WatchlistCard({
                   movingAverages={WATCHLIST_MOVING_AVERAGES}
                 />
               </div>
+              <MarketExtrasPanel
+                market={entry.market}
+                ticker={entry.ticker}
+                className="mt-3 border-t border-border pt-3"
+              />
               <StockNewsFeed
                 query={entry.market === 'KR' ? entry.name || entry.ticker : entry.ticker}
                 className="mt-3 border-t border-border pt-3"

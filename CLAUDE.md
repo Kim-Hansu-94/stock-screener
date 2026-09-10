@@ -67,6 +67,12 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
 | `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (저점 매집 후보 탭, 구 "오늘의 추천") |
 | `db.py` | Supabase 클라이언트 래퍼 (`ScreenerDB`), 모든 `save_*`/`upsert` 메서드 |
+| `naver_api.py` | 네이버 증권 내부 API 공통 헬퍼 — JSON이 아닌 응답(봇 차단 페이지는 200+HTML로 온다)을 사유가 드러나는 에러로 바꾸고, 감싸는 키 이름을 고정하지 않고 구조로 찾는다(`rows_from_json`/`find_first`). `universe_us.py`에 같은 함수가 있지만 그쪽은 손대지 않았다 — 유니버스 수집은 본 파이프라인 첫 단계라 리팩터링하다 깨지면 스크리닝 전체가 멈춘다 |
+| `investor_flow.py` | **수급** — 국내 종목 일별 외국인·기관 순매매 → `investor_flow`. 소스는 네이버 금융 `item/frgn.naver` HTML 표(10년 넘게 같은 형태) 1순위, `m.stock.naver.com/api/stock/{code}/trend` 2순위. **네이버 금융은 아직 EUC-KR이라 인코딩을 지정 안 하면 컬럼명이 깨져 '외국인'을 못 찾고 조용히 빈 결과가 된다.** 원본 단위는 **수량(주)**이고 금액은 종가를 곱한 근사치다(장중 평균단가 아님) |
+| `consensus.py` | **목표주가 컨센서스** — 증권사 평균 목표가 → `stock_consensus`. 네이버 3개 경로를 후보로 두고 앞에서부터 시도. **카드의 ATR 목표가와 합치지 않는다** — 전자는 애널리스트의 12개월 밸류에이션, 후자는 변동성 기반 단기 매매 목표라 평균 내면 둘 다 아닌 값이 된다 |
+| `buyback.py` | **자사주 매입** — DART 공시 → `stock_buyback`. 네이버가 아니라 DART인 이유: 자기주식 취득은 공시 의무 사항이라 원본이 여기 있고, `DART_API_KEY`가 이미 등록돼 있다. **진행률이 두 개인 것이 의도적이다** — `amount_progress_pct`(취득 금액 기준, 진짜 진행률)와 `period_progress_pct`(기간 기준 근사치). 합치면 화면에서 어느 근거인지 알 수 없게 된다. 공시가 없으면 예외가 아니라 `None`을 돌려준다("자사주를 안 사는 회사"와 "못 받았다"를 구분) |
+| `kr_market_extras_main.py` | 위 3종 수집 오케스트레이션 — **본 파이프라인과 분리된 별도 워크플로**(`.github/workflows/kr_market_extras.yml`, 평일 17:30 KST). 셋 중 하나가 죽어도 나머지는 저장된다. 대상은 유니버스 전체가 아니라 **화면에 실제로 뜨는 국내 종목**(감시·보유 + 최근 스크리닝 + 횡보/조정 후보)이고 실행당 상한이 있다 |
+| `kr_market_extras_probe.py` | 위 3종 소스가 살아 있는지 1분 만에 확인하는 진단(`.github/workflows/kr_market_extras_probe.yml`). 작업 컨테이너는 네이버·DART가 막혀 있어 거기서 확인이 안 된다 — universe_probe와 같은 이유·같은 방식. **응답 키 후보가 맞았는지는 이 출력으로만 알 수 있다**(값이 None이면 후보 목록에 실제 키를 추가해야 한다는 뜻) |
 | `realestate.py` / `realestate_main.py` / `lawd_codes.py` | 부동산 실거래 동향 (국토부 Open API). **주식 파이프라인과 분리된 별도 워크플로**(`.github/workflows/realestate.yml`, 주 1회) — 실거래는 신고 기한이 30일이라 매일 볼 이유가 없고, 여기가 실패했다고 주식 스크리닝이 죽으면 안 된다. `MOLIT_API_KEY` 필요 (미설정이면 조용히 건너뜀) |
 | `realestate_media.py` / `realestate_media_main.py` | 부동산 관련 뉴스(네이버 뉴스검색 API)·유튜브(YouTube Data API) 링크 수집 — 홈 상단 노출용. **또 다른 별도 워크플로**(`.github/workflows/realestate_media.yml`, 4시간마다 하루 6회 — 2026-09-06 하루 1회에서 상향, 실행당 API 호출이 뉴스·유튜브 각 1회뿐이라 한도에 여유가 큼) — 실거래(주 1회)·주식 파이프라인과 모두 독립. 날짜별 이력을 안 쌓고 매 실행마다 테이블을 통째로 갈아끼우는 "오늘의 스냅샷"이다(어제 뉴스를 보여줄 이유가 없다). `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`, `YOUTUBE_API_KEY` 필요 — 하나만 없으면 그 소스만 건너뛰고, 둘 다 없으면 실행 자체가 에러로 멈춘다(안 그러면 초록불로 끝나 "다 됐다"로 보임) |
 
@@ -87,6 +93,9 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `watchlist_tickers` | `/api/watchlist`(사이트 "관심 종목 추가"·"보유 종목 추가" 폼) | watchlist.py가 코드 상수와 합쳐 평가 대상으로 읽음. `category`로 매집 감시(accumulation, 기본값)와 포지션 관리(position)가 갈리고, 후자만 `avg_cost`(평단가)를 쓴다 (`supabase/watchlist_tickers.sql`로 생성) |
 | `realestate_monthly` | realestate_main.py (주 1회) | 부동산 동향 탭 (`supabase/realestate.sql`로 생성). PK에 `area_band` 포함 — `ALL`(구 전체) + 면적 4구간 |
 | `realestate_media` | realestate_media_main.py (4시간마다, 매 실행마다 전체 갈아끼움) | 부동산 동향 탭 홈 상단 뉴스·영상 (`supabase/realestate_media.sql`로 생성) |
+| `investor_flow` | investor_flow.py (평일 17:30, 최근 60일 upsert) | 카드 펼침 시 수급 막대 (`supabase/kr_market_extras.sql`로 생성) |
+| `stock_consensus` | consensus.py (종목당 최신 1행 스냅샷) | 카드 펼침 시 증권사 목표주가 |
+| `stock_buyback` | buyback.py (종목당 최신 1행 스냅샷) | 카드 펼침 시 자사주 진행률 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (저점 매집 후보 추천 기록) | **아직 읽는 화면 없음** — 패턴 추천 성적을 낼 때 쓸 재료 |
 
@@ -120,6 +129,9 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `realestateTrend.ts` | 부동산 원본 행 → 지역 목록(최신월+전월대비, 매매가 내림차순)·지역 상세(월별+전월대비)·지도 색상(`priceMapColor`, 매매가 → 단일색조 연속 스케일) 가공하는 순수 함수. `realestateTrend.test.ts`로 검증 |
 | `data/capital-sigungu.json` | 수도권 77개 시군구 SVG 지도 좌표(사전 계산). 통계청 SGIS(2018, 공공누리 1유형) 경계를 `southkorea/southkorea-maps`에서 받아 LAWD_CD로 매핑하고 d3-geo로 투영해 만들었다(재현 스크립트는 저장 안 함 — 경계 자체가 거의 안 바뀌어 일회성). 옹진군은 원양 도서 때문에 투영 기준(fitSize)에서 뺐다 |
 | `averageCost.ts` | 분할매수 평단 계산 — 차수별(단가·수량) 매수를 수량 가중 평균으로 합쳐 평단가·평가손익·본전 가격을 낸다. 매도 비용(KR 0.165% = 거래세·농특세 0.15% + 수수료, US 0.07%)을 평가손익에서 차감할 수 있고, 그래서 **본전 가격 ≠ 평단가**다(비용만큼 위). `simulateAddBuy()`는 물타기 시뮬레이션(지금 N주 더 사면 평단이 얼마). 순수 함수라 `averageCost.test.ts`로 검증. 라오니(raoni.xyz/calc)의 평단 손익계산기를 벤치마킹 |
+| `investorFlow.ts` | 수급 요약(누적 순매매·연속 일수·매수일 수)과 금액 한국식 축약(`1.2조`/`3,400억`). **판정하지 않는다** — "외국인이 사니 좋다" 같은 결론은 내지 않고 값만 낸다(supportSignals.ts와 같은 원칙). `investorFlow.test.ts`로 검증 |
+| `useLazyPriceHistory.ts` | 카드를 펼쳤을 때만 그 종목 일봉을 `/api/price-history`로 받아오는 훅. 한 번 받으면 다시 안 받고, 접으면 진행 중 요청을 취소한다 |
+| `queries/krExtras.ts` | 수급·컨센서스·자사주 조회. **조회 실패·표 없음이 정상 상태**다(별도 워크플로가 처음 돌기 전까지) — 예외를 던지지 않고 빈 값을 돌려주며, 화면은 그 섹션만 숨긴다 |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -165,7 +177,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 
 ## frontend/components/
 
-`AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
+`MarketExtrasPanel.tsx`(수급·컨센서스·자사주 — 카드를 펼치면 `/api/kr-extras`로 받아 그린다. **국내 종목 전용**이고, 세 값 모두 기존 판정·점수에 넣지 않고 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수인지 알 수 없게 되고 지금까지 쌓인 스크리너 성적과 기준이 갈라진다) · `LazyStockChart.tsx`(펼쳤을 때 일봉을 받아 그리는 차트) · `AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load) ·
 `WatchlistCard.tsx`(매집 감시 카드) · `PositionCard.tsx`(포지션 관리 카드 — 보유 종목 지지 신호 점검,
 `supportSignals.ts` 사용) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
@@ -216,6 +228,14 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
   21:00 KST에 US 재무건전성만 도는 세 번째 실행이 있다(`us_financial_health_main.py`,
   `.github/workflows/us_financial_health.yml`). 본 파이프라인(`main.py`)과
   완전히 분리된 워크플로·pg_cron 트리거라 `main.py`의 스케줄 로직과는 무관하다
+- **화면에 안 쓰는 일봉을 미리 내려보내지 말 것 (2026-09-10)**: 예전에는 화면에 뜨는
+  모든 종목의 일봉이 서버 렌더 결과(RSC 페이로드)에 실려 브라우저까지 갔다. 정작 그걸
+  쓰는 건 차트뿐이고 차트는 카드를 펼쳐야 뜨므로, 대부분이 한 번도 안 쓰이고 버려졌다 —
+  탭 전환이 느린 가장 큰 원인이었다(눌림목 종목당 150봉, 종목발굴 감시 종목 30개 ×
+  500봉). 지금은 `/api/price-history` + `useLazyPriceHistory`/`LazyStockChart`로 펼친
+  종목만 받는다. **카드에 새 데이터를 붙일 때 같은 실수를 반복하지 말 것** — 펼쳐야
+  보이는 정보는 펼쳤을 때 받는다(`/api/kr-extras`도 같은 이유로 라우트다). 서버에서만
+  필요한 계산(등락률·손익비)은 서버에서 끝내고 숫자만 내려보낸다
 - **성적 집계의 판정 기간**: `scorecard.ts`의 `MAX_HOLD_BARS`(60거래일)를 지나면 강제 청산으로
   결론을 낸다. 이 값을 줄이면 아직 살아 있는 트레이드를 죽은 걸로 세고, 늘리면 판정 대기(pending)만
   쌓여 표본이 안 모인다. 손절은 1R로 가깝고 목표는 보통 2R 이상이라 손절이 훨씬 빨리 걸리므로,
@@ -312,3 +332,15 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
   search.list 호출당 100 유닛 소모 — 일일 기본 할당량 10,000유닛 기준 하루 100회
   정도). 둘 다
   Settings → Secrets and variables → Actions에 등록하면 다음 실행부터 채워진다.
+- **수급·컨센서스·자사주 소스는 아직 실제 응답으로 검증되지 않았다 (2026-09-10 추가 시점)** —
+  작업 컨테이너에서 네이버·DART 접속이 막혀 있어 응답 모양을 확인할 수 없었다. 그래서
+  키를 고정하지 않고 후보 중에서 찾도록(`naver_api.find_first`) 짰지만, **그 후보가
+  실제로 맞는지는 프로브를 한 번 돌려야 안다**: Actions에서 `KR Market Extras Source
+  Probe`를 실행하면 소스별로 값이 오는지 1분 만에 나온다. 값이 `None`으로 찍히면
+  `consensus.py`의 `_TARGET_KEYS` 등에 실제 키 이름을 추가하면 된다. 자사주 상세
+  API(`_DETAIL_ENDPOINTS`)는 특히 이름이 불확실한데, 전부 실패해도 공시 목록
+  (`list.json`)은 받아지므로 "최근 자사주 공시가 있다"까지는 남는다 —
+  그 경우 `stock_buyback.detail_error`에 사유가 저장된다
+- **`supabase/kr_market_extras.sql`을 아직 실행하지 않았다면** 위 워크플로가 저장 단계에서
+  실패한다. Supabase SQL Editor에 그 파일을 한 번 붙여넣어 실행하면 된다(화면 쪽은
+  표가 없어도 조용히 섹션만 숨기므로 사이트는 정상 동작한다)

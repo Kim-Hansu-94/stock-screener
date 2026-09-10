@@ -336,3 +336,57 @@ export interface RealestateMediaRow {
 
 
 
+
+/** investor_flow 한 행 — 국내 종목의 일별 외국인·기관 순매매.
+ *
+ * `*_qty`는 **수량(주)**, `*_amount`는 그 수량 × 종가다. 네이버가 주는 원본이
+ * 수량이라 그대로 두고, 금액은 "몇 억 규모인가"를 가늠하려고 파생시킨 값이다. */
+export interface InvestorFlowRow {
+  market: Market
+  ticker: string
+  name: string | null
+  date: string
+  close: number
+  foreign_net_qty: number | null
+  institution_net_qty: number | null
+  foreign_net_amount: number | null
+  institution_net_amount: number | null
+  source: string | null
+}
+
+/** stock_consensus 한 행 — 증권사 목표주가 컨센서스 (종목당 최신 1행). */
+export interface ConsensusRow {
+  market: Market
+  ticker: string
+  name: string | null
+  date: string
+  target_price: number
+  /** 저장 시점 종가 대비 상승여력(%). 화면은 최신 종가로 다시 계산할 수도 있다. */
+  upside_pct: number | null
+  opinion: string | null
+  report_count: number | null
+  consensus_eps: number | null
+  source: string | null
+}
+
+/** stock_buyback 한 행 — 자사주 매입(또는 처분) 현황 (종목당 최신 1행).
+ *
+ * 진행률이 둘인 것이 의도적이다: `amount_progress_pct`는 취득 **금액** 기준의
+ * 진짜 진행률이고, `period_progress_pct`는 금액을 모를 때 쓰는 **기간** 기준
+ * 근사치다. 화면은 금액이 있으면 그걸 쓰고, 없으면 기간 기준임을 라벨로 밝힌다. */
+export interface BuybackRow {
+  market: Market
+  ticker: string
+  name: string | null
+  latest_report: string | null
+  latest_report_date: string | null
+  latest_report_url: string | null
+  is_disposal: boolean
+  planned_amount: number | null
+  acquired_amount: number | null
+  amount_progress_pct: number | null
+  period_progress_pct: number | null
+  period_start: string | null
+  period_end: string | null
+  disclosure_count: number | null
+}

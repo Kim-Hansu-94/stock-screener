@@ -197,6 +197,54 @@ class ScreenerDB:
         rows = [{**s, "updated_at": now} for s in snapshots]
         self.client.table("market_index_snapshot").upsert(rows).execute()
 
+    def save_investor_flow(self, rows: list[dict]) -> None:
+        """수급(일별 외국인·기관 순매매) 저장.
+
+        종목 × 날짜 PK라 upsert만으로 충분하다 — _replace_day가 필요한 표
+        (그날 빠진 종목의 지난 행이 유령으로 남는 경우)와 달리, 여기서는
+        같은 종목의 같은 날짜를 다시 받아 덮어쓰는 것뿐이다.
+        """
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        _batch_upsert(self.client, "investor_flow", [{**r, "updated_at": now} for r in rows])
+
+    def save_consensus(self, rows: list[dict]) -> None:
+        """목표주가 컨센서스 저장 (종목당 최신 1행 스냅샷)."""
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        self.client.table("stock_consensus").upsert(
+            [{**r, "updated_at": now} for r in rows]
+        ).execute()
+
+    def save_buyback(self, rows: list[dict]) -> None:
+        """자사주 매입 현황 저장 (종목당 최신 1행 스냅샷)."""
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        self.client.table("stock_buyback").upsert(
+            [{**r, "updated_at": now} for r in rows]
+        ).execute()
+
+    def prune_buyback(self, keep: list[str]) -> None:
+        """자사주 공시가 사라진 종목의 지난 행을 지운다.
+
+        upsert만 하면 프로그램이 끝나 공시가 빠진 종목이 화면에 영원히 "매입 중"으로
+        남는다 — prune_watchlist_status와 같은 이유다. 다만 keep이 비면(수집 자체가
+        실패했을 수 있다) 아무 것도 지우지 않는다.
+        """
+        if not keep:
+            return
+        try:
+            existing = self.client.table("stock_buyback").select("ticker").eq("market", "KR").execute()
+        except Exception:  # noqa: BLE001
+            return
+        keep_set = set(keep)
+        stale = [r["ticker"] for r in (existing.data or []) if r["ticker"] not in keep_set]
+        for ticker in stale:
+            self.client.table("stock_buyback").delete().eq("market", "KR").eq("ticker", ticker).execute()
+
     def refresh_monthly_ohlcv(self) -> None:
         # 일봉 저장 후 월봉 사전 집계 MV를 갱신 (CONCURRENTLY라 조회를 막지 않음).
         self.client.rpc("refresh_monthly_ohlcv").execute()

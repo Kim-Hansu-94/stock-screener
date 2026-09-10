@@ -14,6 +14,7 @@ import { BuyButton } from '@/components/TradeButton'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { Spinner } from '@/components/Spinner'
 import { useLazyPriceHistory } from '@/lib/useLazyPriceHistory'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
@@ -289,6 +290,12 @@ export function StockCard({ stock, changePercent, market, usdKrwRate, stop, targ
                 targetPrice={target ?? undefined}
               />
             )}
+            <MarketExtrasPanel
+              market={market}
+              ticker={stock.ticker}
+              close={stock.close}
+              className="mt-4 border-t border-border pt-3"
+            />
             {newsLoading && (
               <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />

@@ -13,6 +13,7 @@ import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
 import { AverageCostCalculator } from '@/components/AverageCostCalculator'
 import { LazyStockChart } from '@/components/LazyStockChart'
+import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 
 
 // 지지 신호 점검에 쓰는 120일선을 차트에도 같이 그린다. 박스 구간(회색 점선)은
@@ -203,6 +204,12 @@ export function PositionCard({
                     />
                   </div>
                 )}
+                <MarketExtrasPanel
+                  market={entry.market}
+                  ticker={entry.ticker}
+                  close={latest?.close ?? null}
+                  className="mt-3 border-t border-border pt-3"
+                />
                 <div className="mt-3 border-t border-border pt-3">
                   {/* 지지 신호 판정에 쓰는 일봉(180봉)과 달리, 차트는 더 긴 구간을
                       보고 싶은 자리라 펼쳤을 때 500봉을 따로 받아온다. */}
