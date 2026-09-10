@@ -25,6 +25,8 @@ function Chip({ children, className = '' }: { children: React.ReactNode; classNa
   )
 }
 
+// 배지는 자리가 없어 근거를 한 단어로 줄인다. 어느 근거인지 안 밝히면 "회사가
+// 실제로 산 돈"과 "달력이 흘러간 정도"를 구분할 수 없다.
 const BUYBACK_BASIS_LABEL: Record<NonNullable<KrExtrasSummary['buybackBasis']>, string> = {
   amount: '',
   estimated: ' 추정',

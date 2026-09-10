@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import io
 import sys
+from datetime import date, timedelta
 import zipfile
 
 import pandas as pd
@@ -200,12 +201,77 @@ def _probe_broker_parser() -> None:
             )
 
 
+# KRX 정보데이터시스템. 네이버가 "오늘 상위 5개 창구"만 주는 것과 달리 여기는
+# 통계 조회라 **과거 날짜를 지정할 수 있다** — 되면 취득 시작일부터 소급할 수 있다.
+# bld 코드는 화면마다 다르고 공개 문서가 없어 후보를 두드려 본다.
+_KRX_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+_KRX_HEADERS = {
+    "User-Agent": HEADERS["User-Agent"],
+    "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd",
+    "X-Requested-With": "XMLHttpRequest",
+}
+_KRX_CANDIDATES = [
+    ("회원사별 거래실적(종목)", "dbms/MDC/STAT/standard/MDCSTAT02501"),
+    ("회원사별 거래실적(일별)", "dbms/MDC/STAT/standard/MDCSTAT02601"),
+    ("종목별 거래실적", "dbms/MDC/STAT/standard/MDCSTAT01701"),
+    ("투자자별 거래실적", "dbms/MDC/STAT/standard/MDCSTAT02203"),
+]
+
+
+def _probe_krx_broker_history() -> None:
+    """거래원 **과거 이력**을 받을 수 있는 곳 탐색.
+
+    네이버 경로는 그날 상위 5개뿐이라 소급이 안 된다. SK하이닉스는 8월 20일에
+    취득을 시작했는데 수집은 오늘부터라, 관측 하루치(1.16조)를 40조로 나눠 2.9%가
+    나오는 상황이다 — 그건 "회사가 3%만 샀다"가 아니라 "우리가 하루만 봤다"는 뜻이다.
+    과거를 받을 수 있으면 이 간극이 사라진다.
+    """
+    print("\n[D] KRX 거래원 과거 이력 탐색", flush=True)
+    today = date.today()
+    start = today - timedelta(days=30)
+    for label, bld in _KRX_CANDIDATES:
+        payload = {
+            "bld": bld,
+            "locale": "ko_KR",
+            "isuCd": "KR7000660001",  # SK하이닉스 표준코드
+            "tboxisuCd_finder_stkisu0_0": "000660/SK하이닉스",
+            "isuCd2": "",
+            "codeNmisuCd_finder_stkisu0_0": "SK하이닉스",
+            "strtDd": start.strftime("%Y%m%d"),
+            "endDd": today.strftime("%Y%m%d"),
+            "trdDd": today.strftime("%Y%m%d"),
+            "share": "1",
+            "money": "1",
+            "csvxls_isNo": "false",
+        }
+        try:
+            resp = requests.post(_KRX_URL, data=payload, headers=_KRX_HEADERS, timeout=25)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {label}({bld}): {exc}", flush=True)
+            continue
+
+        # 응답을 감싸는 키가 화면마다 다르다(OutBlock_1 / output / block1 ...).
+        rows: list = []
+        for value in data.values() if isinstance(data, dict) else []:
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                if len(value) > len(rows):
+                    rows = value
+        if not rows:
+            print(f"  - {label}({bld}): 행 없음, 키={list(data)[:6] if isinstance(data, dict) else type(data)}", flush=True)
+            continue
+        print(f"  o {label}({bld}): {len(rows)}행, 키={sorted(rows[0].keys())[:12]}", flush=True)
+        print(f"      첫 행={dict(list(rows[0].items())[:8])}", flush=True)
+
+
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
     _probe_dart_document()
     _probe_broker_windows()
     _probe_broker_parser()
+    _probe_krx_broker_history()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
