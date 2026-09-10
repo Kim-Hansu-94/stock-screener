@@ -12,7 +12,7 @@ import pandas as pd
 
 import pytest
 
-from src import buyback, consensus, investor_flow
+from src import broker_flow, buyback, consensus, investor_flow
 from src.naver_api import find_first, rows_from_json, to_number
 
 
@@ -250,3 +250,111 @@ class TestBuyback:
         monkeypatch.setattr(buyback, "_api_key", lambda: None)
         with pytest.raises(RuntimeError, match="DART_API_KEY"):
             buyback.build_row("005930", "삼성전자", "0012345")
+
+
+class TestBrokerFlow:
+    """거래원 파싱 — 2026-09-10 프로브가 찍어 준 실제 표 구조를 그대로 쓴다.
+
+    네이버 main 페이지의 매수 수량 컬럼은 **'거개량'으로 오타가 나 있다**.
+    그래서 값은 컬럼 이름이 아니라 열 위치로 읽는다.
+    """
+
+    def _html(self, columns, rows):
+        table = pd.DataFrame(rows, columns=columns)
+        return "매도상위 매수상위" + table.to_html(index=False)
+
+    def test_실제_표에서_창구별_매수_매도를_뽑는다(self):
+        html = self._html(
+            ["매도상위", "거래량", "매수상위", "거개량"],
+            [
+                ["삼성증권", "705670", "SK증권", "623600"],
+                ["한국투자증권", "587213", "삼성증권", "476058"],
+            ],
+        )
+        brokers = broker_flow.parse_brokers(html)
+        assert brokers["SK증권"]["buy_qty"] == 623600
+        assert brokers["SK증권"]["net_qty"] == 623600  # 매도상위엔 없다
+        # 삼성증권은 양쪽에 다 있다 — 순매수는 매수 − 매도다
+        assert brokers["삼성증권"]["net_qty"] == 476058 - 705670
+
+    def test_거래원_표가_없으면_예외(self):
+        with pytest.raises(RuntimeError):
+            broker_flow.parse_brokers("<html><body>종목 정보</body></html>")
+
+    @pytest.mark.parametrize(
+        "disclosed,observed,expected",
+        [
+            ("SK증권", "SK증권", True),
+            ("에스케이증권", "SK증권", False),  # 표기가 아예 다르면 못 맞춘다
+            ("SK 증권", "SK증권", True),  # 공백은 무시
+            ("주식회사 SK증권", "SK증권", True),
+            (None, "SK증권", False),
+            ("SK증권", None, False),
+        ],
+    )
+    def test_증권사_이름_매칭(self, disclosed, observed, expected):
+        assert broker_flow.brokers_match(disclosed, observed) is expected
+
+    def test_추정_진행률은_기간_시작_이후_순매수만_센다(self):
+        rows = [
+            # 프로그램 시작 전 거래 — 이 프로그램과 무관하다
+            {"date": "2026-08-01", "broker": "SK증권", "net_qty": 1000, "net_amount": 1_000_000},
+            {"date": "2026-08-25", "broker": "SK증권", "net_qty": 100, "net_amount": 200_000},
+            {"date": "2026-08-26", "broker": "SK증권", "net_qty": 150, "net_amount": 300_000},
+            # 다른 증권사는 세지 않는다
+            {"date": "2026-08-26", "broker": "삼성증권", "net_qty": 999, "net_amount": 9_000_000},
+        ]
+        result = broker_flow.estimate_buyback_progress(rows, "SK증권", "2026-08-20", 1_000_000)
+        assert result["estimated_amount"] == 500_000
+        assert result["estimated_progress_pct"] == pytest.approx(50.0)
+        assert result["observed_days"] == 2
+
+    def test_순매도인_날은_음수로_더한다(self):
+        # 매수분만 세면 실제보다 부풀려진다.
+        rows = [
+            {"date": "2026-08-25", "broker": "SK증권", "net_qty": 100, "net_amount": 1_000_000},
+            {"date": "2026-08-26", "broker": "SK증권", "net_qty": -40, "net_amount": -400_000},
+        ]
+        result = broker_flow.estimate_buyback_progress(rows, "SK증권", None, 10_000_000)
+        assert result["estimated_amount"] == 600_000
+
+    def test_예정금액이_없으면_진행률은_비운다(self):
+        rows = [{"date": "2026-08-25", "broker": "SK증권", "net_qty": 1, "net_amount": 100}]
+        result = broker_flow.estimate_buyback_progress(rows, "SK증권", None, None)
+        assert result["estimated_progress_pct"] is None
+        assert result["estimated_amount"] == 100
+
+    def test_진행률은_100을_넘지_않는다(self):
+        # 창구 매수에 자사주가 아닌 주문이 섞이면 예정 금액을 넘길 수 있다.
+        rows = [{"date": "2026-08-25", "broker": "SK증권", "net_qty": 1, "net_amount": 5_000}]
+        result = broker_flow.estimate_buyback_progress(rows, "SK증권", None, 1_000)
+        assert result["estimated_progress_pct"] == 100.0
+
+
+class TestBuybackBroker:
+    def test_위탁투자중개업자를_공시에서_읽는다(self, monkeypatch):
+        # 이 값이 거래원 데이터와 자사주 프로그램을 잇는 열쇠다.
+        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
+        monkeypatch.setattr(
+            buyback,
+            "_detail",
+            lambda c, k, e: [{"aq_dd": "2026년 08월 19일", "aqpln_prc_ostk": "1000", "cs_iv_bk": "SK증권"}]
+            if e == "tsstkAqDecsn"
+            else [],
+        )
+        monkeypatch.setattr(buyback, "_disclosure_list", lambda c, k: [])
+        row = buyback.build_row("000660", "SK하이닉스", "0012345")
+        assert row["broker"] == "SK증권"
+
+    def test_위탁증권사가_없으면_None(self, monkeypatch):
+        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
+        monkeypatch.setattr(
+            buyback,
+            "_detail",
+            lambda c, k, e: [{"aq_dd": "2026년 08월 19일", "aqpln_prc_ostk": "1000", "cs_iv_bk": "-"}]
+            if e == "tsstkAqDecsn"
+            else [],
+        )
+        monkeypatch.setattr(buyback, "_disclosure_list", lambda c, k: [])
+        row = buyback.build_row("000660", "SK하이닉스", "0012345")
+        assert row["broker"] is None

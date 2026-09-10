@@ -385,6 +385,16 @@ export interface BuybackRow {
   planned_amount: number | null
   /** 취득(처분) 예정 수량. 금액과 함께 공시된다. */
   planned_qty: number | null
+  /** 위탁투자중개업자 — 자사주를 어느 증권사 창구로 사는지(공시 `cs_iv_bk`).
+   *  거래원 데이터에서 이 증권사의 순매수를 누적해 진행 중 매입량을 추정한다. */
+  broker: string | null
+  /** 위 추정치. 확정 진행률(amount_progress_pct)과 **성격이 다르므로 따로 둔다** —
+   *  그 창구 매수가 전부 자사주는 아니다(같은 증권사 일반 고객 주문이 섞인다). */
+  estimated_qty: number | null
+  estimated_amount: number | null
+  estimated_progress_pct: number | null
+  /** 며칠치를 실제로 관측했는지. 적으면 추정치를 믿을 근거도 약하다. */
+  observed_days: number | null
   acquired_amount: number | null
   amount_progress_pct: number | null
   period_progress_pct: number | null
