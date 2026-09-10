@@ -32,8 +32,6 @@ from .naver_api import HEADERS, TIMEOUT, find_first, get_json, to_number
 
 # WISEreport 기업개요 페이지. 네이버 종목 화면이 iframe으로 부르는 바로 그 주소다.
 _WISE_COMPANY_URL = "https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx"
-# 같은 사이트의 컨센서스 전용 탭. 기업개요에 표가 없을 때를 대비한 2순위.
-_WISE_CONSENSUS_URL = "https://navercomp.wisereport.co.kr/v2/company/cF3002.aspx"
 # 모바일 API — 지금은 목표주가가 없지만, 생기면 여기가 가장 가볍다(종목당 1회).
 _INTEGRATION_URL = "https://m.stock.naver.com/api/stock/{code}/integration"
 
@@ -63,18 +61,41 @@ def _fetch_html(url: str, code: str) -> str:
     return resp.text
 
 
-def _cell_after_label(tables: list[pd.DataFrame], labels: tuple[str, ...]) -> str | None:
-    """표들 중 라벨이 들어 있는 칸을 찾아, 같은 행의 다음 칸 값을 돌려준다."""
+def _is_valid_target(value: float | None) -> bool:
+    return value is not None and _MIN_TARGET <= value <= _MAX_TARGET
+
+
+def _value_near_label(
+    tables: list[pd.DataFrame],
+    labels: tuple[str, ...],
+    accept=lambda v: v is not None,
+) -> str | None:
+    """라벨 칸을 찾아 그 **오른쪽(가로형)** 또는 **아래쪽(세로형)** 값을 돌려준다.
+
+    2026-09-10 프로브에서 확인한 것: WISEreport 기업개요의 컨센서스 표는 세로형이라
+    '목표주가'가 헤더 행에 있고 값은 그 아래 행에 있다. 오른쪽만 보던 첫 구현은
+    옆 칸 헤더인 'EPS(원)'을 읽어 왔다.
+
+    어느 방향이 맞는지 표마다 다르므로 둘 다 시도하고, `accept`를 통과하는 값을
+    고른다 — 방향을 고정하면 표 개편 한 번에 또 엉뚱한 칸을 읽는다.
+    """
     for table in tables:
         values = table.astype(str).values
-        for row in values:
-            for index, cell in enumerate(row):
-                text = cell.replace(" ", "")
-                if any(label.replace(" ", "") in text for label in labels):
-                    for candidate in row[index + 1 :]:
-                        candidate = str(candidate).strip()
-                        if candidate and candidate.lower() != "nan":
-                            return candidate
+        for r, row in enumerate(values):
+            for c, cell in enumerate(row):
+                text = str(cell).replace(" ", "")
+                if not any(label.replace(" ", "") in text for label in labels):
+                    continue
+                candidates: list[str] = []
+                # 가로형: 같은 행의 오른쪽 칸들
+                candidates.extend(str(v).strip() for v in row[c + 1 :])
+                # 세로형: 같은 열의 아래 행들
+                candidates.extend(str(values[rr][c]).strip() for rr in range(r + 1, len(values)))
+                for candidate in candidates:
+                    if not candidate or candidate.lower() == "nan":
+                        continue
+                    if accept(to_number(candidate)) or accept(candidate):
+                        return candidate
     return None
 
 
@@ -84,22 +105,34 @@ def _from_wise(url: str, code: str) -> dict:
         raise RuntimeError("'목표주가'가 응답에 없음 (페이지 개편 또는 차단)")
 
     tables = pd.read_html(io.StringIO(html))
-    target = to_number(_cell_after_label(tables, _TARGET_LABELS))
-    if target is None or not (_MIN_TARGET <= target <= _MAX_TARGET):
-        raise RuntimeError(f"목표주가 칸을 못 읽음 (표 {len(tables)}개, 읽은 값={target})")
+    raw_target = _value_near_label(tables, _TARGET_LABELS, accept=_is_valid_target_any)
+    target = to_number(raw_target)
+    if not _is_valid_target(target):
+        raise RuntimeError(f"목표주가 칸을 못 읽음 (표 {len(tables)}개, 읽은 값={raw_target!r})")
 
-    opinion = _cell_after_label(tables, _OPINION_LABELS)
-    if opinion is not None:
-        # "4.00매수" 처럼 점수와 의견이 붙어 오는 경우가 있다. 한글만 남긴다.
-        korean = "".join(re.findall(r"[가-힣]+", opinion))
-        opinion = korean or opinion.strip()
+    # 투자의견은 "4.00매수"처럼 점수와 의견이 붙어 오거나 한글만 오기도 한다.
+    # 숫자만 있는 칸(옆 열의 EPS 등)을 잘못 집지 않도록 한글이 들어간 값만 받는다.
+    opinion_raw = _value_near_label(tables, _OPINION_LABELS, accept=_has_korean)
+    opinion = None
+    if opinion_raw:
+        korean = "".join(re.findall(r"[가-힣]+", str(opinion_raw)))
+        opinion = (korean or str(opinion_raw).strip())[:40] or None
 
     return {
         "target_price": target,
-        "opinion": (opinion or None) if opinion is None else str(opinion)[:40] or None,
+        "opinion": opinion,
         "report_count": None,
-        "consensus_eps": to_number(_cell_after_label(tables, _EPS_LABELS)),
+        "consensus_eps": to_number(_value_near_label(tables, _EPS_LABELS, accept=lambda v: isinstance(v, float))),
     }
+
+
+def _is_valid_target_any(value) -> bool:
+    """_value_near_label이 숫자·문자열을 모두 넘겨 오므로 숫자일 때만 판정한다."""
+    return isinstance(value, float) and _is_valid_target(value)
+
+
+def _has_korean(value) -> bool:
+    return isinstance(value, str) and bool(re.search(r"[가-힣]", value))
 
 
 def _from_integration(code: str) -> dict:
@@ -118,7 +151,9 @@ def _from_integration(code: str) -> dict:
 
 _SOURCES = (
     ("WISEreport 기업개요", lambda code: _from_wise(_WISE_COMPANY_URL, code)),
-    ("WISEreport 컨센서스", lambda code: _from_wise(_WISE_CONSENSUS_URL, code)),
+    # 모바일 API에는 2026-09-10 기준 목표주가 필드가 없다(프로브로 확인). 나중에
+    # 생기면 여기가 가장 가벼우므로(종목당 1회 JSON) 후보로 남겨 둔다 — 앞 소스가
+    # 성공하면 호출조차 되지 않아 비용은 0이다.
     ("네이버 통합 API", _from_integration),
 )
 
@@ -145,7 +180,7 @@ def describe_sources(ticker: str) -> list[str]:
     애초에 그 페이지에 없는 건지 구분이 안 된다. 여기서 그 셋을 갈라 준다.
     """
     lines: list[str] = []
-    for url, label in ((_WISE_COMPANY_URL, "기업개요"), (_WISE_CONSENSUS_URL, "컨센서스탭")):
+    for url, label in ((_WISE_COMPANY_URL, "기업개요"),):
         try:
             html = _fetch_html(url, ticker)
         except Exception as exc:  # noqa: BLE001
@@ -157,7 +192,7 @@ def describe_sources(ticker: str) -> list[str]:
         except Exception as exc:  # noqa: BLE001
             lines.append(f"      WISEreport {label}: {len(html)}자, 목표주가문구={has_label}, 표 파싱 실패 {exc}")
             continue
-        cell = _cell_after_label(tables, _TARGET_LABELS)
+        cell = _value_near_label(tables, _TARGET_LABELS, accept=_is_valid_target_any)
         lines.append(
             f"      WISEreport {label}: {len(html)}자, 목표주가문구={has_label}, "
             f"표 {len(tables)}개, 목표주가칸={cell!r}"

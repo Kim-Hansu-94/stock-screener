@@ -116,56 +116,83 @@ class TestConsensus:
 
 
 class TestBuyback:
+    """필드명은 2026-09-10 프로브가 찍어 준 실제 DART 응답에서 가져왔다."""
+
+    def _patch(self, monkeypatch, detail_rows, disclosures=()):
+        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
+        monkeypatch.setattr(buyback, "_detail", lambda c, k, endpoint: detail_rows.get(endpoint, []))
+        monkeypatch.setattr(buyback, "_disclosure_list", lambda c, k: list(disclosures))
+
     def test_기간_진행률은_시작과_끝_사이의_위치(self, monkeypatch):
         start = date.today() - timedelta(days=30)
         end = date.today() + timedelta(days=30)
-        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
-        monkeypatch.setattr(
-            buyback,
-            "_detail",
-            lambda c, k, e: [{"aq_pl_tot_amount": "1,000", "aq_pd_bgd": start.strftime("%Y%m%d"), "aq_pd_edd": end.strftime("%Y%m%d")}],
-        )
-        monkeypatch.setattr(
-            buyback,
-            "_disclosure_list",
-            lambda c, k: [{"report_nm": "자기주식 취득 결정", "rcept_dt": "20260801", "rcept_no": "123"}],
+        self._patch(
+            monkeypatch,
+            {
+                "tsstkAqDecsn": [
+                    {
+                        "aq_dd": "2026년 03월 19일",
+                        "aqpln_prc_ostk": "7,174,300,000,000",
+                        "aqpln_prc_estk": "-",
+                        "aqexpd_bgd": start.strftime("%Y년 %m월 %d일"),
+                        "aqexpd_edd": end.strftime("%Y년 %m월 %d일"),
+                    }
+                ]
+            },
+            [{"report_nm": "주요사항보고서(자기주식취득결정)", "rcept_dt": "20260319", "rcept_no": "123"}],
         )
         row = buyback.build_row("005930", "삼성전자", "0012345")
         assert row is not None
         assert row["period_progress_pct"] == pytest.approx(50.0, abs=2)
-        # 취득 금액이 공시에 없으면 금액 기준 진행률은 비운다 — 기간 기준으로
-        # 대신 채우면 화면에서 근거를 구분할 수 없게 된다.
-        assert row["amount_progress_pct"] is None
+        assert row["planned_amount"] == 7_174_300_000_000
+        assert row["is_disposal"] is False
         assert row["latest_report_url"].endswith("rcpNo=123")
 
-    def test_금액_진행률은_취득액_나누기_예정액(self, monkeypatch):
-        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
-        monkeypatch.setattr(
-            buyback,
-            "_detail",
-            lambda c, k, e: [{"aq_pl_tot_amount": "1000", "aq_amount_ac": "250"}],
-        )
-        monkeypatch.setattr(buyback, "_disclosure_list", lambda c, k: [])
-        row = buyback.build_row("005930", "삼성전자", "0012345")
-        assert row["amount_progress_pct"] == pytest.approx(25.0)
+    def test_한글_날짜를_읽는다(self, monkeypatch):
+        # DART 주요사항보고서는 "2026년 03월 19일"로 준다. 이걸 못 읽으면
+        # 기간 진행률이 통째로 빈다(첫 프로브에서 실제로 그랬다).
+        assert buyback._parse_date("2026년 03월 19일") == date(2026, 3, 19)
+        assert buyback._parse_date("20260821") == date(2026, 8, 21)
+        assert buyback._parse_date("-") is None
 
-    def test_처분_공시는_매입과_구분한다(self, monkeypatch):
-        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
-        monkeypatch.setattr(buyback, "_detail", lambda c, k, e: [])
-        monkeypatch.setattr(
-            buyback,
-            "_disclosure_list",
-            lambda c, k: [{"report_nm": "자기주식 처분 결정", "rcept_dt": "20260801", "rcept_no": "9"}],
+    def test_보통주와_기타주식_금액을_더한다(self, monkeypatch):
+        self._patch(
+            monkeypatch,
+            {"tsstkAqDecsn": [{"aq_dd": "2026년 01월 02일", "aqpln_prc_ostk": "1,000", "aqpln_prc_estk": "500"}]},
         )
         row = buyback.build_row("005930", "삼성전자", "0012345")
+        assert row["planned_amount"] == 1500
+
+    def test_취득과_처분_중_더_최근_결의를_고른다(self, monkeypatch):
+        # 엔드포인트 순서대로 첫 응답을 쓰면, 처분이 더 최근인 회사도 오래된 취득
+        # 공시로 표시된다(SK하이닉스 실사례). 방향이 정반대라 그냥 틀린 값이 된다.
+        self._patch(
+            monkeypatch,
+            {
+                "tsstkAqDecsn": [{"aq_dd": "2026년 01월 10일", "aqpln_prc_ostk": "100"}],
+                "tsstkDpDecsn": [{"dp_dd": "2026년 04월 22일", "dppln_prc_ostk": "900"}],
+            },
+        )
+        row = buyback.build_row("000660", "SK하이닉스", "0012345")
         assert row["is_disposal"] is True
+        assert row["planned_amount"] == 900
+        assert row["detail_source"] == "자기주식 처분 결정"
+
+    def test_취득_완료_금액은_이_API에_없으므로_비운다(self, monkeypatch):
+        # 주요사항보고서는 "얼마를 사겠다"는 계획 공시다. 기간 진행률을 금액
+        # 진행률인 척 채우면 화면에서 근거를 구분할 수 없게 된다.
+        self._patch(
+            monkeypatch,
+            {"tsstkAqDecsn": [{"aq_dd": "2026년 01월 02일", "aqpln_prc_ostk": "1,000"}]},
+        )
+        row = buyback.build_row("005930", "삼성전자", "0012345")
+        assert row["amount_progress_pct"] is None
+        assert row["acquired_amount"] is None
 
     def test_공시가_없으면_None(self, monkeypatch):
         # 예외가 아니라 None이어야 한다 — "자사주를 안 사는 회사"(대부분)와
         # "못 받았다"(진단 필요)를 구분하기 위해서다.
-        monkeypatch.setattr(buyback, "_api_key", lambda: "key")
-        monkeypatch.setattr(buyback, "_detail", lambda c, k, e: [])
-        monkeypatch.setattr(buyback, "_disclosure_list", lambda c, k: [])
+        self._patch(monkeypatch, {})
         assert buyback.build_row("005930", "삼성전자", "0012345") is None
 
     def test_키가_없으면_예외(self, monkeypatch):

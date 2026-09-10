@@ -149,8 +149,9 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
 
       {buyback.planned_amount != null && (
         <p className="mt-0.5 text-xs text-muted-foreground">
-          취득 예정 {formatKrwCompact(buyback.planned_amount)}원
-          {buyback.acquired_amount != null && ` · 취득 완료 ${formatKrwCompact(buyback.acquired_amount)}원`}
+          {buyback.is_disposal ? '처분' : '취득'} 예정 {formatKrwCompact(buyback.planned_amount)}원
+          {buyback.planned_qty != null && ` (${Math.round(buyback.planned_qty).toLocaleString('ko-KR')}주)`}
+          {buyback.acquired_amount != null && ` · 완료 ${formatKrwCompact(buyback.acquired_amount)}원`}
           {buyback.period_start && buyback.period_end && ` · ${buyback.period_start} ~ ${buyback.period_end}`}
         </p>
       )}

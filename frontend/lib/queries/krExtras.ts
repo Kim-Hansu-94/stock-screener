@@ -71,7 +71,7 @@ export async function getBuyback(ticker: string): Promise<BuybackRow | null> {
     supabase
       .from('stock_buyback')
       .select(
-        'market, ticker, name, latest_report, latest_report_date, latest_report_url, is_disposal, planned_amount, acquired_amount, amount_progress_pct, period_progress_pct, period_start, period_end, disclosure_count',
+        'market, ticker, name, latest_report, latest_report_date, latest_report_url, is_disposal, planned_amount, planned_qty, acquired_amount, amount_progress_pct, period_progress_pct, period_start, period_end, disclosure_count',
       )
       .eq('market', 'KR')
       .eq('ticker', ticker)

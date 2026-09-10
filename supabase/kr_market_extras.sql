@@ -68,6 +68,7 @@ create table if not exists stock_buyback (
   -- 처분(파는 것)은 매입과 방향이 정반대다. 같은 표에 담되 화면에서 구분한다.
   is_disposal         boolean not null default false,
   planned_amount      numeric,
+  planned_qty         numeric,
   acquired_amount     numeric,
   amount_progress_pct numeric,
   period_progress_pct numeric,
@@ -81,3 +82,8 @@ create table if not exists stock_buyback (
   updated_at  timestamptz not null default now(),
   primary key (market, ticker)
 );
+
+-- 2026-09-10 추가: 취득 예정 "수량". DART 주요사항보고서가 금액과 함께 주는데,
+-- 처음 표를 만들 때 필드명을 확정하지 못해 빠져 있었다. 이미 표를 만든 뒤라면
+-- 아래 한 줄만 따로 실행하면 된다(이미 있으면 아무 일도 일어나지 않는다).
+alter table stock_buyback add column if not exists planned_qty numeric;

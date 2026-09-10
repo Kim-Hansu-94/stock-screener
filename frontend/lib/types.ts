@@ -383,6 +383,8 @@ export interface BuybackRow {
   latest_report_url: string | null
   is_disposal: boolean
   planned_amount: number | null
+  /** 취득(처분) 예정 수량. 금액과 함께 공시된다. */
+  planned_qty: number | null
   acquired_amount: number | null
   amount_progress_pct: number | null
   period_progress_pct: number | null

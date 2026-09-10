@@ -22,6 +22,7 @@ DART에 있고, 네이버·증권사 화면도 결국 이걸 받아 보여준다
 from __future__ import annotations
 
 import os
+import re
 from datetime import date, datetime, timedelta
 
 import requests
@@ -41,21 +42,24 @@ _BUYBACK_KEYWORDS = ("자기주식", "자사주")
 # 처분(파는 것)은 매입과 방향이 정반대라 따로 표시해야 한다.
 _DISPOSAL_KEYWORDS = ("처분", "매각")
 
-# 주요사항보고서 주요정보 API 후보. 어느 이름이 살아 있는지 작업 컨테이너에서
-# 확인할 수 없어(DART 접속이 막혀 있다) 후보를 두고 프로브로 Actions에서 본다.
-# 실패해도 아래 list.json 경로로 공시 이력은 남으므로 기능이 통째로 죽지는 않는다.
+# 주요사항보고서 주요정보 API. 2026-09-10 프로브로 실제 응답을 확인하고 필드명을
+# 고정했다(그 전에는 이름을 짐작해 두고 있었다).
+#
+# 자기주식취득 신탁계약 체결(tsstkAqTrctrCnsCnc)은 **그런 엔드포인트가 없다**
+# (DART status=101 "잘못된 URL"). 후보로 남겨 두면 종목마다 헛호출이 한 번씩
+# 늘어나므로 뺐다.
 _DETAIL_ENDPOINTS = (
-    ("자기주식 취득 결정", "tsstkAqDecsn"),
-    ("자기주식취득 신탁계약 체결", "tsstkAqTrctrCnsCnc"),
-    ("자기주식 처분 결정", "tsstkDpDecsn"),
+    ("자기주식 취득 결정", "tsstkAqDecsn", False),
+    ("자기주식 처분 결정", "tsstkDpDecsn", True),
 )
 
-# 응답 키 이름도 고정하지 않는다.
-_PLANNED_AMOUNT_KEYS = ("aq_pl_tot_amount", "aqpln_prc_tot", "ctr_prc", "aq_amount", "trctr_cn_prc")
-_ACQUIRED_AMOUNT_KEYS = ("aq_amount_ac", "aqd_amount", "aq_tot_amount")
-_START_KEYS = ("aq_pd_bgd", "ctr_pd_bgd", "aq_bgd")
-_END_KEYS = ("aq_pd_edd", "ctr_pd_edd", "aq_edd")
-
+# 취득(aq)과 처분(dp)은 필드 접두어가 다르다. 금액은 보통주(ostk)와 기타주식(estk)이
+# 따로 오고, 기타주식이 없으면 '-'로 온다 — 둘을 더해야 프로그램 전체 규모가 된다.
+_FIELDS = {
+    # (예정금액 열들, 예정수량 열들, 기간 시작, 기간 종료, 결의일)
+    False: (("aqpln_prc_ostk", "aqpln_prc_estk"), ("aqpln_stk_ostk", "aqpln_stk_estk"), "aqexpd_bgd", "aqexpd_edd", "aq_dd"),
+    True: (("dppln_prc_ostk", "dppln_prc_estk"), ("dppln_stk_ostk", "dppln_stk_estk"), "dpprpd_bgd", "dpprpd_edd", "dp_dd"),
+}
 
 def _api_key() -> str | None:
     return os.environ.get("DART_API_KEY") or None
@@ -78,24 +82,40 @@ def _get(path: str, params: dict) -> dict:
     return payload
 
 
-def _pick(row: dict, keys: tuple[str, ...]) -> str | None:
-    for key in keys:
-        value = row.get(key)
-        if value not in (None, "", "-"):
-            return str(value)
-    return None
+# DART 주요사항보고서는 날짜를 "2026년 03월 19일"로 준다(list.json의 rcept_dt는
+# "20260821"). 둘 다 받아야 한다 — 한쪽만 처리하면 조용히 None이 되어 기간
+# 진행률이 통째로 빈다(2026-09-10 프로브에서 실제로 그랬다).
+_KOREAN_DATE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 
 
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
-    text = value.strip().replace(".", "-").replace("/", "-")
+    text = str(value).strip()
+    korean = _KOREAN_DATE.search(text)
+    if korean:
+        year, month, day = (int(g) for g in korean.groups())
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    text = text.replace(".", "-").replace("/", "-")
     if len(text) == 8 and text.isdigit():
         text = f"{text[:4]}-{text[4:6]}-{text[6:]}"
     try:
         return datetime.strptime(text[:10], "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _sum_amounts(row: dict, keys: tuple[str, ...]) -> float | None:
+    """보통주·기타주식 금액을 더한다. 둘 다 비어 있으면 None."""
+    total = None
+    for key in keys:
+        value = to_number(row.get(key))
+        if value is not None:
+            total = value if total is None else total + value
+    return total
 
 
 def _disclosure_list(corp_code: str, api_key: str) -> list[dict]:
@@ -133,34 +153,17 @@ def _detail(corp_code: str, api_key: str, endpoint: str) -> list[dict]:
     return payload.get("list") or []
 
 
-def _pick_by_pattern(row: dict, must: tuple[str, ...], avoid: tuple[str, ...] = ()) -> str | None:
-    """키 이름에 특정 조각이 모두 들어간 칸을 찾는다.
-
-    DART의 주요사항보고서 필드명은 보고서 종류마다 조금씩 다르다(aq_pl_tot_amount /
-    aqpln_prc_tot / ...). 후보를 일일이 나열하는 것만으로는 새 표기가 나올 때마다
-    조용히 None이 되므로, 고정 후보(_PLANNED_AMOUNT_KEYS 등)로 못 찾으면
-    이름 패턴으로 한 번 더 훑는다.
-    """
-    for key, value in row.items():
-        lowered = str(key).lower()
-        if all(m in lowered for m in must) and not any(a in lowered for a in avoid):
-            if value not in (None, "", "-"):
-                return str(value)
-    return None
-
-
 def describe_detail(corp_code: str) -> list[str]:
     """프로브용 진단 — 상세 API가 실제로 어떤 키를 주는지 그대로 찍는다.
 
     "진행률=None"만 봐서는 API가 안 온 건지, 왔는데 키 이름이 다른 건지 알 수 없다.
-    여기서 원본 키를 보여 주면 _PLANNED_AMOUNT_KEYS 등에 무엇을 추가해야 하는지가
-    바로 나온다.
+    2026-09-10에 이 출력으로 실제 필드명(aqpln_prc_ostk 등)을 확정했다.
     """
     api_key = _api_key()
     if not api_key:
         return ["      DART_API_KEY 미설정"]
     lines: list[str] = []
-    for label, endpoint in _DETAIL_ENDPOINTS:
+    for label, endpoint, _ in _DETAIL_ENDPOINTS:
         try:
             rows = _detail(corp_code, api_key, endpoint)
         except Exception as exc:  # noqa: BLE001
@@ -171,14 +174,47 @@ def describe_detail(corp_code: str) -> list[str]:
             continue
         sample = rows[-1]
         lines.append(f"      {label}({endpoint}): {len(rows)}건, 키={sorted(sample.keys())}")
-        # 금액·날짜로 보이는 칸만 값까지 보여 준다 — 전부 찍으면 로그가 넘친다.
         interesting = {
             k: v
             for k, v in sample.items()
-            if any(t in str(k).lower() for t in ("amount", "prc", "qy", "bgd", "edd", "de"))
+            if any(t in str(k).lower() for t in ("prc", "stk_", "bgd", "edd", "_dd"))
         }
         lines.append(f"        값 예시={interesting}")
     return lines
+
+
+def _latest_program(corp_code: str, api_key: str) -> tuple[dict, bool, str] | None:
+    """취득·처분 공시를 모두 받아 **가장 최근 결의** 한 건을 고른다.
+
+    엔드포인트 순서대로 첫 응답을 쓰면, 처분 공시가 더 최근인 회사도 오래된 취득
+    공시로 표시된다(2026-09-10 프로브: SK하이닉스가 최신은 처분결정인데 취득으로
+    잡혔다). 방향이 정반대인 두 사건이라 이건 그냥 틀린 값이다.
+    """
+    best: tuple[date, dict, bool, str] | None = None
+    errors: list[str] = []
+    for label, endpoint, is_disposal in _DETAIL_ENDPOINTS:
+        try:
+            rows = _detail(corp_code, api_key, endpoint)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{label}: {exc}")
+            continue
+        _, _, _, _, decision_key = _FIELDS[is_disposal]
+        for row in rows:
+            decided = _parse_date(row.get(decision_key))
+            # 결의일이 안 읽히면 순서를 정할 수 없다 — 가장 뒤(=DART가 최신으로
+            # 주는 쪽)를 아주 오래된 것으로 두고 다른 후보에 밀리게 한다.
+            key = decided or date.min
+            if best is None or key > best[0]:
+                best = (key, row, is_disposal, label)
+    if best is None:
+        _LAST_DETAIL_ERRORS.clear()
+        _LAST_DETAIL_ERRORS.extend(errors)
+        return None
+    return best[1], best[2], best[3]
+
+
+# _latest_program이 아무 것도 못 찾았을 때의 사유. build_row가 detail_error에 담는다.
+_LAST_DETAIL_ERRORS: list[str] = []
 
 
 def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
@@ -191,73 +227,61 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
     if not api_key:
         raise RuntimeError("DART_API_KEY 미설정")
 
-    detail_row: dict | None = None
-    detail_kind: str | None = None
-    detail_errors: list[str] = []
-    for label, endpoint in _DETAIL_ENDPOINTS:
-        try:
-            rows = _detail(corp_code, api_key, endpoint)
-        except Exception as exc:  # noqa: BLE001
-            detail_errors.append(f"{label}: {exc}")
-            continue
-        if rows:
-            # 가장 최근 공시 하나만 본다 — 진행 중인 프로그램은 보통 하나다.
-            detail_row = rows[-1]
-            detail_kind = label
-            break
-
+    program = _latest_program(corp_code, api_key)
     disclosures = _disclosure_list(corp_code, api_key)
-    if detail_row is None and not disclosures:
+    if program is None and not disclosures:
         return None
 
-    planned = acquired = None
+    planned = planned_qty = None
     start = end = None
-    if detail_row is not None:
-        # 고정 후보로 먼저 찾고, 없으면 키 이름 패턴으로 한 번 더 훑는다.
-        planned = to_number(
-            _pick(detail_row, _PLANNED_AMOUNT_KEYS)
-            # 예정 금액: 이름에 'amount'(또는 'prc')가 들어가되 '취득 완료'를 뜻하는
-            # 접미사(_ac)는 피한다.
-            or _pick_by_pattern(detail_row, ("pl", "amount"), avoid=("_ac",))
-            or _pick_by_pattern(detail_row, ("tot", "amount"), avoid=("_ac",))
-        )
-        acquired = to_number(
-            _pick(detail_row, _ACQUIRED_AMOUNT_KEYS)
-            or _pick_by_pattern(detail_row, ("amount", "_ac"))
-        )
-        start = _parse_date(
-            _pick(detail_row, _START_KEYS) or _pick_by_pattern(detail_row, ("bgd",))
-        )
-        end = _parse_date(_pick(detail_row, _END_KEYS) or _pick_by_pattern(detail_row, ("edd",)))
+    is_disposal = False
+    detail_kind = None
+    if program is not None:
+        detail_row, is_disposal, detail_kind = program
+        amount_keys, qty_keys, start_key, end_key, _ = _FIELDS[is_disposal]
+        planned = _sum_amounts(detail_row, amount_keys)
+        planned_qty = _sum_amounts(detail_row, qty_keys)
+        start = _parse_date(detail_row.get(start_key))
+        end = _parse_date(detail_row.get(end_key))
 
+    # 취득 **완료** 금액은 이 API에 없다. 주요사항보고서는 "얼마를 사겠다"는 계획
+    # 공시이고, 실제 체결량은 별도의 자기주식취득결과보고서(전용 API 없음)에 있다.
+    # 그래서 지금은 금액 기준 진행률이 항상 비고 기간 기준만 채워진다 — 화면이
+    # 그 사실을 라벨로 밝히므로, 근사치를 진짜 진행률인 척 보여주지는 않는다.
+    acquired = None
     amount_progress = None
-    if planned and planned > 0 and acquired is not None:
-        amount_progress = min(acquired / planned * 100, 100.0)
 
     period_progress = None
     if start and end and end > start:
         elapsed = (date.today() - start).days
         period_progress = max(0.0, min(elapsed / (end - start).days * 100, 100.0))
+    elif start and end and end == start:
+        # 하루짜리 프로그램(당일 처분 등)은 시작=종료다. 0으로 나누지 않는다.
+        period_progress = 100.0 if date.today() >= end else 0.0
 
     latest = disclosures[-1] if disclosures else None
     latest_name = str(latest.get("report_nm", "")).strip() if latest else (detail_kind or "")
+    latest_date = _parse_date(latest.get("rcept_dt")) if latest else None
     return {
         "market": "KR",
         "ticker": ticker,
         "name": name,
         "corp_code": corp_code,
         "latest_report": latest_name[:200],
-        "latest_report_date": _parse_date(latest.get("rcept_dt") if latest else None).isoformat()
-        if latest and _parse_date(latest.get("rcept_dt"))
-        else None,
+        "latest_report_date": latest_date.isoformat() if latest_date else None,
         # 공시 원문 링크 — 화면에서 "근거 보기"로 바로 연결한다.
         "latest_report_url": (
             f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={latest['rcept_no']}"
             if latest and latest.get("rcept_no")
             else None
         ),
-        "is_disposal": bool(latest_name and any(k in latest_name for k in _DISPOSAL_KEYWORDS)),
+        # 방향은 상세 공시에서 판정한다. 공시 목록의 보고서명은 '자기주식취득결과보고서'
+        # 처럼 표기가 다양해 문자열 매칭이 불안정하다.
+        "is_disposal": is_disposal
+        if program is not None
+        else bool(latest_name and any(k in latest_name for k in _DISPOSAL_KEYWORDS)),
         "planned_amount": planned,
+        "planned_qty": planned_qty,
         "acquired_amount": acquired,
         "amount_progress_pct": amount_progress,
         "period_progress_pct": period_progress,
@@ -265,7 +289,7 @@ def build_row(ticker: str, name: str, corp_code: str) -> dict | None:
         "period_end": end.isoformat() if end else None,
         "disclosure_count": len(disclosures),
         "detail_source": detail_kind,
-        "detail_error": " / ".join(detail_errors)[:300] if (detail_row is None and detail_errors) else None,
+        "detail_error": " / ".join(_LAST_DETAIL_ERRORS)[:300] if program is None and _LAST_DETAIL_ERRORS else None,
     }
 
 
