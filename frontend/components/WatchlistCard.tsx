@@ -8,6 +8,8 @@ import { AddWatchlistForm, RemoveWatchlistButton } from '@/components/WatchlistA
 
 import { LazyStockChart } from '@/components/LazyStockChart'
 import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
+import { KrExtrasBadges } from '@/components/KrExtrasBadges'
+import type { KrExtrasSummary } from '@/lib/queries/krExtras'
 
 // 감시 종목은 분할매수 판단에 장기 추세까지 보고 싶다는 요청으로 120일선을 추가한 세트.
 // 다른 화면(StockCard 등)의 기본 5/20/60일선과는 별개로 이 카드에서만 쓴다.
@@ -59,9 +61,12 @@ interface CombinedEntry {
 export function WatchlistCard({
   rows,
   tickers,
+  krExtras = {},
 }: {
   rows: WatchlistStatusRow[]
   tickers: WatchlistTickerRow[]
+  /** 티커 → 수급·목표가·자사주 요약 (국내 종목만) */
+  krExtras?: Record<string, KrExtrasSummary>
 }) {
   // 종목 수가 늘면서 뉴스를 다 펼쳐 두면 스크롤이 너무 길어져, 이름을 눌러야만
   // 그 종목 뉴스가 펼쳐지게 바꿨다(기본은 접힘). 펼치기 전엔 뉴스를 아예 불러오지도
@@ -215,6 +220,8 @@ export function WatchlistCard({
               )}
             </div>
           )}
+          <KrExtrasBadges summary={krExtras[entry.ticker]} market={entry.market} className="mt-2" />
+
           {entry.status && !entry.status.qualified && entry.status.reason && (
             <p className="mt-2 text-xs text-muted-foreground">미달: {entry.status.reason}</p>
           )}

@@ -1,6 +1,18 @@
 import type { InvestorFlowRow } from '@/lib/types'
 
 /**
+ * 요약에 실제로 필요한 최소 형태. 전체 행(InvestorFlowRow)을 요구하면 요약만
+ * 뽑으려는 쪽(queries/krExtras.ts의 배지용 조회)이 안 쓰는 열까지 SELECT해야 한다.
+ */
+export type FlowLike = {
+  date: string
+  foreign_net_qty?: number | null
+  institution_net_qty?: number | null
+  foreign_net_amount?: number | null
+  institution_net_amount?: number | null
+}
+
+/**
  * 수급 요약 — 최근 며칠 동안 외국인·기관이 순매수였나 순매도였나.
  *
  * 화면에 일별 막대만 그리면 "그래서 어느 쪽이냐"를 눈으로 세어야 한다. 여기서
@@ -26,18 +38,18 @@ export type FlowSummary = {
   days: number
 }
 
-function qtyOf(row: InvestorFlowRow, side: FlowSide): number | null {
-  return side === 'foreign' ? row.foreign_net_qty : row.institution_net_qty
+function qtyOf(row: FlowLike, side: FlowSide): number | null {
+  return (side === 'foreign' ? row.foreign_net_qty : row.institution_net_qty) ?? null
 }
 
-function amountOf(row: InvestorFlowRow, side: FlowSide): number | null {
-  return side === 'foreign' ? row.foreign_net_amount : row.institution_net_amount
+function amountOf(row: FlowLike, side: FlowSide): number | null {
+  return (side === 'foreign' ? row.foreign_net_amount : row.institution_net_amount) ?? null
 }
 
 /**
  * @param rows 날짜 오름차순(과거 → 최근) 행. 쿼리가 그 순서로 준다.
  */
-export function summarizeFlow(rows: InvestorFlowRow[], side: FlowSide): FlowSummary {
+export function summarizeFlow(rows: FlowLike[], side: FlowSide): FlowSummary {
   let netQty = 0
   let netAmount = 0
   let buyDays = 0

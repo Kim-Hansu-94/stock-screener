@@ -14,6 +14,7 @@ import {
   getWatchlistTickers,
 } from '@/lib/queries/screener'
 import { getUniverseMarketCaps } from '@/lib/queries/universe'
+import { getKrExtrasSummaries, type KrExtrasSummary } from '@/lib/queries/krExtras'
 import { buildLongTermContext } from '@/lib/longTermContext'
 import type {
   Market,
@@ -120,7 +121,14 @@ async function loadAccumulationWatchlist() {
   // 차트에 쓸 일봉은 여기서 받지 않는다 — 종목을 펼쳤을 때 LazyStockChart가
   // /api/price-history로 그 종목만 받아온다. 예전에는 감시 종목 전부(최대 30개)의
   // 500봉을 미리 받아 클라이언트까지 내려보냈고, 그게 이 탭이 느린 가장 큰 이유였다.
-  return { accumulationRows, accumulationTickers }
+  // 접힌 카드에도 수급·목표가·자사주가 보이게 요약만 미리 받는다(종목당 숫자 몇 개).
+  // 평가 전 종목(방금 추가해서 watchlist_status가 아직 없는 것)도 포함해야 한다.
+  const krTickers = new Set<string>()
+  for (const r of accumulationRows) if (r.market === 'KR') krTickers.add(r.ticker)
+  for (const t of accumulationTickers) if (t.market === 'KR') krTickers.add(t.ticker)
+  const krExtras = await getKrExtrasSummaries([...krTickers])
+
+  return { accumulationRows, accumulationTickers, krExtras }
 }
 
 async function DiscoverContent() {
@@ -141,6 +149,7 @@ async function DiscoverContent() {
     loadAccumulationWatchlist().catch(() => ({
       accumulationRows: [] as WatchlistStatusRow[],
       accumulationTickers: [] as WatchlistTickerRow[],
+      krExtras: {} as Record<string, KrExtrasSummary>,
     })),
   ])
 
@@ -152,6 +161,7 @@ async function DiscoverContent() {
       ownedTickers={[...openTickers]}
       watchlistRows={watchlist.accumulationRows}
       watchlistTickers={watchlist.accumulationTickers}
+      watchlistKrExtras={watchlist.krExtras}
     />
   )
 }

@@ -72,3 +72,26 @@ describe('formatKrwCompact', () => {
     expect(formatKrwCompact(input)).toBe(expected)
   })
 })
+
+describe('summarizeFlow — 최소 형태 입력 (배지용 조회)', () => {
+  it('필요한 열만 있는 행도 그대로 받는다', () => {
+    // 요약 배지는 SELECT를 줄이려고 date + 외국인 두 열만 받아 온다.
+    // 전체 행을 요구하면 안 쓰는 열까지 조회해야 한다.
+    const rows = [
+      { date: '2026-09-09', foreign_net_qty: 100, foreign_net_amount: 1000 },
+      { date: '2026-09-10', foreign_net_qty: 50, foreign_net_amount: 500 },
+    ]
+    const f = summarizeFlow(rows, 'foreign')
+    expect(f.netQty).toBe(150)
+    expect(f.netAmount).toBe(1500)
+    expect(f.streak).toBe(2)
+    expect(f.days).toBe(2)
+  })
+
+  it('해당 열이 아예 없으면 그 날은 세지 않는다', () => {
+    // 기관 열을 안 받아 온 응답으로 기관 요약을 부르면 0건이어야 한다 —
+    // undefined를 0으로 읽어 "순매매 0인 날"로 세면 안 된다.
+    const rows = [{ date: '2026-09-10', foreign_net_qty: 100 }]
+    expect(summarizeFlow(rows, 'institution').days).toBe(0)
+  })
+})

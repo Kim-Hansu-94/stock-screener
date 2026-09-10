@@ -14,6 +14,8 @@ import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/co
 import { AverageCostCalculator } from '@/components/AverageCostCalculator'
 import { LazyStockChart } from '@/components/LazyStockChart'
 import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
+import { KrExtrasBadges } from '@/components/KrExtrasBadges'
+import type { KrExtrasSummary } from '@/lib/queries/krExtras'
 
 
 // 지지 신호 점검에 쓰는 120일선을 차트에도 같이 그린다. 박스 구간(회색 점선)은
@@ -62,10 +64,13 @@ function formatPrice(value: number, market: Market): string {
 export function PositionCard({
   tickers,
   history,
+  krExtras = {},
 }: {
   tickers: WatchlistTickerRow[]
   /** `${market}-${ticker}` 키의 일봉 */
   history: Record<string, PriceHistoryRow[]>
+  /** 티커 → 수급·목표가·자사주 요약 (국내 종목만) */
+  krExtras?: Record<string, KrExtrasSummary>
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const toggle = (key: string) =>
@@ -159,6 +164,13 @@ export function PositionCard({
                     </div>
                   )}
                 </dl>
+
+                <KrExtrasBadges
+                  summary={krExtras[entry.ticker]}
+                  market={entry.market}
+                  close={latest.close}
+                  className="mt-2"
+                />
 
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {signals.map((s) => (

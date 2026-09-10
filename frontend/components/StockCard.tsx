@@ -15,6 +15,8 @@ import { LoadingFallback } from '@/components/LoadingFallback'
 import { Spinner } from '@/components/Spinner'
 import { useLazyPriceHistory } from '@/lib/useLazyPriceHistory'
 import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
+import { KrExtrasBadges } from '@/components/KrExtrasBadges'
+import type { KrExtrasSummary } from '@/lib/queries/krExtras'
 
 // lightweight-charts는 카드를 펼쳤을 때만 필요하므로 초기 번들에서 제외한다.
 // 모바일 첫 로딩의 JS 다운로드·파싱 시간을 줄이는 것이 목적.
@@ -28,6 +30,8 @@ interface StockCardProps {
   /** 전일 대비 등락률(%). 예전엔 일봉 전체를 받아 카드에서 계산했는데, 그 한 줄
    *  때문에 종목마다 150봉이 통째로 클라이언트까지 따라왔다. 서버에서 계산해 넘긴다. */
   changePercent: number | null
+  /** 수급·목표가·자사주 요약. 접힌 카드에서도 "펼쳐볼 만한지" 보이게 하는 배지용 */
+  krExtras?: KrExtrasSummary
   market: Market
   usdKrwRate: number
   stop: number | null
@@ -113,7 +117,7 @@ function RiskRewardBar({
   )
 }
 
-export function StockCard({ stock, changePercent, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, targetBasis, owned = false }: StockCardProps) {
+export function StockCard({ stock, changePercent, krExtras, market, usdKrwRate, stop, target, riskReward, riskReason, riskFrame, wayResistance, targetBasis, owned = false }: StockCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [news, setNews] = useState<NewsArticle[] | null>(null)
   const [newsLoading, setNewsLoading] = useState(false)
@@ -181,6 +185,8 @@ export function StockCard({ stock, changePercent, market, usdKrwRate, stop, targ
             {closeSub && <span className="text-xs text-muted-foreground tabular-nums">{closeSub}</span>}
           </div>
         </div>
+
+        <KrExtrasBadges summary={krExtras} market={market} close={stock.close} />
 
         {stock.passed === false ? (
           <div className="flex flex-wrap items-center gap-1.5">
