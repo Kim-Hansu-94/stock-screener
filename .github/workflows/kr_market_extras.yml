@@ -44,16 +44,24 @@ jobs:
           TQDM_DISABLE: '1'
         run: python -m src.kr_market_extras_main
 
-      - name: Revalidate site cache
-        # 새 데이터가 화면에 바로 반영되게 캐시 태그를 무효화한다.
-        # 수집이 실패해도 이건 무해하므로 always()로 둔다.
+      - name: Revalidate frontend cache
+        # 본 파이프라인(pipeline.yml)과 **같은 시크릿·같은 헤더**를 써야 한다.
+        # 처음에 REVALIDATE_SECRET + x-revalidate-secret으로 짰다가 이 저장소의
+        # 실제 규약(REVALIDATE_TOKEN + Authorization: Bearer)과 어긋나 401을
+        # 받았다(2026-09-10 첫 실행). 수집은 성공했는데 화면만 최대 1시간 늦게
+        # 갱신되는, 눈에 잘 안 띄는 실패였다.
+        #
+        # 실패해도 워크플로를 실패로 만들지 않는다 — cacheLife('hours')가 안전망이다.
         if: always()
         env:
           REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
-          REVALIDATE_SECRET: ${{ secrets.REVALIDATE_SECRET }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
         run: |
-          if [ -n "$REVALIDATE_URL" ]; then
-            curl -sS -X POST "$REVALIDATE_URL" -H "x-revalidate-secret: $REVALIDATE_SECRET" || true
-          else
-            echo "REVALIDATE_URL 미설정 — 캐시 무효화 건너뜀"
+          if [ -z "$REVALIDATE_URL" ]; then
+            echo "::warning::REVALIDATE_URL 시크릿 미설정 → 캐시 즉시 무효화 생략 (최대 1시간 내 자동 갱신)"
+            exit 0
           fi
+          curl -fsS -X POST "$REVALIDATE_URL" \
+            -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+            && echo "프론트 캐시 무효화 완료" \
+            || echo "::warning::캐시 무효화 호출 실패 → cacheLife에 따라 최대 1시간 내 자동 갱신"
