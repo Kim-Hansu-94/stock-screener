@@ -12,6 +12,7 @@ import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
+import { calculateChangePercent } from '@/lib/calculations'
 import { computeStopTarget } from '@/lib/risk'
 import type { AreaBand, PriceHistoryRow, RealestateMediaRow, RealestateMonthlyRow, ScreenedStockRow, WatchlistStatusRow, WatchlistTickerRow } from '@/lib/types'
 
@@ -363,7 +364,7 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">매집 감시 카드 (뉴스는 실제 API 호출)</h2>
-        <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} history={WATCHLIST_HISTORY} />
+        <WatchlistCard rows={WATCHLIST} tickers={WATCHLIST_TICKERS} />
       </section>
 
       <section className="space-y-3">
@@ -390,7 +391,7 @@ export default function PreviewPage() {
                 <p className="text-xs text-muted-foreground">{label}</p>
                 <StockCard
                   stock={stock}
-                  history={history}
+                  changePercent={calculateChangePercent(history.map((row) => row.close))}
                   market="KR"
                   usdKrwRate={1350}
                   stop={risk.stop}

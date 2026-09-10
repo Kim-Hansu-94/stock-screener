@@ -10,7 +10,6 @@ import {
   getOpportunitySnapshot,
 } from '@/lib/queries/opportunities'
 import {
-  getPriceHistoryByTicker,
   getWatchlistStatus,
   getWatchlistTickers,
 } from '@/lib/queries/screener'
@@ -20,7 +19,6 @@ import type {
   Market,
   OpportunitySnapshotRow,
   OpportunityStockRow,
-  PriceHistoryRow,
   WatchlistStatusRow,
   WatchlistTickerRow,
 } from '@/lib/types'
@@ -119,21 +117,10 @@ async function loadAccumulationWatchlist() {
   // 매집 판정 행은 여기서 빼야 같은 종목이 두 화면에 겹쳐 뜨지 않는다.
   const accumulationRows = rows.filter((r) => !positionKeys.has(`${r.market}-${r.ticker}`))
 
-  // 차트에 쓸 일봉을 시장별로 한 번에 받는다(아직 평가 전인 종목도 포함).
-  const byKey = new Map<string, { market: Market; ticker: string }>()
-  for (const r of accumulationRows) byKey.set(`${r.market}-${r.ticker}`, { market: r.market, ticker: r.ticker })
-  for (const t of accumulationTickers) byKey.set(`${t.market}-${t.ticker}`, { market: t.market, ticker: t.ticker })
-  const entries = [...byKey.values()]
-
-  const [krHistory, usHistory] = await Promise.all([
-    getPriceHistoryByTicker('KR', entries.filter((e) => e.market === 'KR').map((e) => e.ticker), 500),
-    getPriceHistoryByTicker('US', entries.filter((e) => e.market === 'US').map((e) => e.ticker), 500),
-  ])
-  const history: Record<string, PriceHistoryRow[]> = {}
-  for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
-  for (const [ticker, bars] of Object.entries(usHistory)) history[`US-${ticker}`] = bars
-
-  return { accumulationRows, accumulationTickers, history }
+  // 차트에 쓸 일봉은 여기서 받지 않는다 — 종목을 펼쳤을 때 LazyStockChart가
+  // /api/price-history로 그 종목만 받아온다. 예전에는 감시 종목 전부(최대 30개)의
+  // 500봉을 미리 받아 클라이언트까지 내려보냈고, 그게 이 탭이 느린 가장 큰 이유였다.
+  return { accumulationRows, accumulationTickers }
 }
 
 async function DiscoverContent() {
@@ -154,7 +141,6 @@ async function DiscoverContent() {
     loadAccumulationWatchlist().catch(() => ({
       accumulationRows: [] as WatchlistStatusRow[],
       accumulationTickers: [] as WatchlistTickerRow[],
-      history: {} as Record<string, PriceHistoryRow[]>,
     })),
   ])
 
@@ -166,7 +152,6 @@ async function DiscoverContent() {
       ownedTickers={[...openTickers]}
       watchlistRows={watchlist.accumulationRows}
       watchlistTickers={watchlist.accumulationTickers}
-      watchlistHistory={watchlist.history}
     />
   )
 }
