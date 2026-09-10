@@ -1,0 +1,32 @@
+name: KR Index Source Probe
+
+# 수동 실행 전용 진단. 작업용 컨테이너는 네이버·야후로 나가는 길이 막혀 있어
+# 국내 지수 소스가 오늘 날짜를 주는지 거기서 확인할 수 없다.
+# (universe_probe.yml과 같은 이유·같은 방식의 진단 워크플로다.)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'pipeline/src/kr_index_probe.py'
+      - '.github/workflows/kr_index_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe KR index sources
+        working-directory: pipeline
+        env:
+          TQDM_DISABLE: '1'
+        run: python -m src.kr_index_probe
