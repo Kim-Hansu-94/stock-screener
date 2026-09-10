@@ -73,6 +73,12 @@ def _probe_consensus(closes: dict[str, float]) -> bool:
             ok = False
             continue
 
+        # 표 구조는 성공했을 때도 찍는다. "숫자이고 범위 안"이라는 이유로 엉뚱한
+        # 칸을 통과시킨 적이 있어(488,409원 / 의견 '목표주가원'), 값만 봐서는
+        # 맞았는지 알 수 없다. 진단 도구이므로 요청 한 번 더 쓰는 편이 낫다.
+        for line in consensus_mod.describe_sources(ticker):
+            print(line, flush=True)
+
         close = closes.get(ticker)
         target = data["target_price"]
         ratio = target / close if close else None
@@ -85,9 +91,12 @@ def _probe_consensus(closes: dict[str, float]) -> bool:
             flush=True,
         )
         if suspicious:
-            print("      → 목표가가 현재가 대비 비상식적이다. 표 구조를 확인할 것:", flush=True)
-            for line in consensus_mod.describe_sources(ticker):
-                print(line, flush=True)
+            print("      → 목표가가 현재가 대비 비상식적이다(위 표 구조 확인).", flush=True)
+            ok = False
+        # 라벨 문자열이 그대로 값으로 들어왔다면 헤더 칸을 읽은 것이다 — 값의
+        # 범위로는 절대 못 잡는 종류의 오류라 따로 본다.
+        if data["opinion"] and any(bad in data["opinion"] for bad in ("목표주가", "투자의견", "추정기관")):
+            print(f"      → 투자의견이 헤더 텍스트다({data['opinion']!r}). 파싱이 틀렸다.", flush=True)
             ok = False
     return ok
 
