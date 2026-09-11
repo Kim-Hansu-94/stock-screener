@@ -28,8 +28,10 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import sys
+import time
 from datetime import date, timedelta
 from urllib.parse import urljoin
 import zipfile
@@ -448,16 +450,25 @@ def _probe_dart_all_disclosures() -> None:
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
-    _probe_dart_document()
-    _probe_broker_windows()
-    _probe_broker_parser()
-    _probe_krx_broker_history()
-    _probe_kind()
-    _probe_kind_bundles()
-    _probe_kind_pc_menu()
-    _probe_acptno()
-    _probe_treasury_screens()
-    _probe_dart_all_disclosures()
+
+    # **기본은 [L]만 돈다.** 2026-09-11에 KIND가 403을 주기 시작했다 — 한 실행에서
+    # 수십 번을 두드린 탓이다(번들 80개 + /api 40개 + 화면 4개). 몇 분 전까지
+    # 열리던 주소까지 전부 막혔으니 속도 제한이 확실하다. 탐색이 목적을 이룬
+    # 섹션들(A~K)을 매번 다시 돌리면 차단만 연장된다. 필요할 때만 PROBE_ALL=1로 켠다.
+    if os.getenv("PROBE_ALL") == "1":
+        _probe_dart_document()
+        _probe_broker_windows()
+        _probe_broker_parser()
+        _probe_krx_broker_history()
+        _probe_kind()
+        _probe_kind_bundles()
+        _probe_kind_pc_menu()
+        _probe_acptno()
+        _probe_treasury_screens()
+        _probe_dart_all_disclosures()
+    else:
+        _probe_trstk_api()
+
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
@@ -853,6 +864,131 @@ def _probe_treasury_screens() -> None:
             print(f"        [표 {i}] shape={table.shape}", flush=True)
             for row in table.head(3).astype(str).values.tolist():
                 print(f"          {row}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [L] 자사주 신청/체결 API — 사람처럼 천천히, 한 번에 조금만
+# ---------------------------------------------------------------------------
+#
+# [K]에서 KIND가 **403**을 주기 시작했다. 몇 분 전 [I]에서 멀쩡히 열리던
+# 주소(treasurystk.do·mkind)까지 전부 막혔으니 주소가 틀린 게 아니라
+# **속도 제한**이다. 한 실행에서 번들 80개 + /api 40개 + 화면 4개를 연달아
+# 두드렸으니 당연한 결과다.
+#
+# 그래서 이 섹션은 정반대로 간다.
+#
+# 1. **세션을 쓴다.** 쿠키를 받아 들고 다닌다 — 구형 JSP든 SPA든 첫 방문에서
+#    세션 쿠키를 심고, 그게 없는 요청을 막는 경우가 흔하다.
+# 2. **Referer를 호스트에 맞춘다.** mkind 요청에 kind Referer를 달고 있었는데
+#    그 자체로 거절 사유가 된다.
+# 3. **요청 사이를 띄운다.** 그리고 403이면 한 번만, 길게 쉬고 재시도한다.
+# 4. **대상을 줄인다.** 화면 3개 + API 후보 몇 개까지만.
+#
+# 노리는 것은 모바일 KIND의 자사주 라우트가 부르는 조회다. [I]에서 메뉴가
+# 확정됐다 — trstk-declared(신고)·trstk-applied(신청)·trstk-traded(체결).
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+_PAUSE_SECONDS = 3.0
+_BACKOFF_SECONDS = 30.0
+
+_TRSTK_ROUTES = [
+    ("체결내역", "trstk-traded"),
+    ("신청내역", "trstk-applied"),
+    ("신고내역", "trstk-declared"),
+]
+
+
+def _browser_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": _BROWSER_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+        }
+    )
+    return session
+
+
+def _polite_get(session: requests.Session, url: str, referer: str, *, as_json: bool = False):
+    """한 번 쉬고 요청한다. 403이면 길게 쉬고 딱 한 번 더."""
+    headers = {"Referer": referer}
+    if as_json:
+        headers["Accept"] = "application/json, text/plain, */*"
+        headers["X-Requested-With"] = "XMLHttpRequest"
+    for attempt in (1, 2):
+        time.sleep(_PAUSE_SECONDS)
+        try:
+            resp = session.get(url, headers=headers, timeout=25)
+        except Exception as exc:  # noqa: BLE001
+            print(f"      x {url}: {exc}", flush=True)
+            return None
+        if resp.status_code == 403 and attempt == 1:
+            print(f"      ! 403 — {_BACKOFF_SECONDS:.0f}초 쉬고 한 번만 더", flush=True)
+            time.sleep(_BACKOFF_SECONDS)
+            continue
+        return resp
+    return None
+
+
+def _probe_trstk_api() -> None:
+    print("\n[L] 자사주 신청/체결 — 세션 + 느린 요청으로 다시", flush=True)
+
+    session = _browser_session()
+
+    # 쿠키를 먼저 받는다. 이게 없으면 뒤 요청이 통째로 막히는 사이트가 많다.
+    for label, url in (("PC 루트", "https://kind.krx.co.kr/"), ("모바일 메인", "https://mkind.krx.co.kr/main")):
+        resp = _polite_get(session, url, referer="https://www.google.com/")
+        if resp is None:
+            continue
+        print(f"  · {label}: {resp.status_code} {len(resp.text or ''):,}자 쿠키={list(session.cookies.keys())}", flush=True)
+
+    for label, route in _TRSTK_ROUTES:
+        page_url = f"https://mkind.krx.co.kr/{route}"
+        resp = _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main")
+        if resp is None:
+            continue
+        text = resp.text or ""
+        print(f"\n  · {label} 화면 {route}: {resp.status_code} {len(text):,}자", flush=True)
+        if resp.status_code != 200:
+            print(f"      본문: {text[:300]!r}", flush=True)
+            continue
+
+        unescaped = _unescape_js(text)
+        apis = sorted(set(_API_RE.findall(unescaped)))
+        print(f"      /api 경로: {apis[:20]}", flush=True)
+        markers = [m for m in _TABLE_MARKERS if m in unescaped]
+        print(f"      표지: {markers or '없음'}", flush=True)
+
+        try:
+            tables = pd.read_html(io.StringIO(text))
+        except Exception:  # noqa: BLE001
+            tables = []
+        print(f"      표 {len(tables)}개", flush=True)
+        for i, table in enumerate(tables[:3]):
+            print(f"        [표 {i}] shape={table.shape}", flush=True)
+            for row in table.head(3).astype(str).values.tolist():
+                print(f"          {row}", flush=True)
+
+        # 화면이 SPA면 표가 없다. 그럼 그 화면이 부를 법한 API를 직접 부른다.
+        # 라우트 이름이 곧 API 이름인 경우가 흔하다(/trstk-traded → /api/trstk/traded).
+        tail = route.split("-", 1)[1]
+        candidates = [f"/api/{route}", f"/api/trstk/{tail}", f"/api/trstk/{route}"] + apis[:6]
+        for path in dict.fromkeys(candidates):
+            if "$" in path or "{" in path:
+                continue
+            api_resp = _polite_get(
+                session, urljoin("https://mkind.krx.co.kr/", path), referer=page_url, as_json=True
+            )
+            if api_resp is None:
+                continue
+            body = (api_resp.text or "")[:260].replace("\n", " ")
+            print(
+                f"      API {api_resp.status_code} {api_resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
+                flush=True,
+            )
 
 if __name__ == "__main__":
     sys.exit(main())
