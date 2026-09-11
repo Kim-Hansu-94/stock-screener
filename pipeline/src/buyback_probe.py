@@ -453,6 +453,7 @@ def main() -> int:
     _probe_broker_parser()
     _probe_krx_broker_history()
     _probe_kind()
+    _probe_kind_bundles()
     _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -461,3 +462,125 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ---------------------------------------------------------------------------
+# [H] KIND SPA 번들 해부 — 메뉴에 없는 화면의 주소를 찾는 유일한 길
+# ---------------------------------------------------------------------------
+#
+# 왜 [E]로는 부족한가. [E]는 **화면 HTML**만 긁었다. 그런데 신형 KIND는 SPA라서
+# HTML은 빈 껍데기이고 라우트·API 주소가 전부 `.js` 번들 안에 있다. 실제로
+# 사용자가 "메뉴에 자기주식이 아예 없다"고 확인해 줬다(2026-09-11) — 메뉴에
+# 없는 화면이라 화면을 열어 요청을 관찰하는 길 자체가 막힌 것이고, 그렇다면
+# **번들을 읽는 수밖에 없다**.
+#
+# 그리고 [E]가 힌트를 0건으로 본 데는 별도의 이유가 하나 더 있다:
+# **번들의 한글은 `\uXXXX`로 이스케이프되어 있다.** 원문 그대로 '자기주식'을
+# 찾으면 영원히 안 걸린다. 그래서 여기서는 먼저 이스케이프를 풀고 찾는다.
+_KIND_ORIGIN = "https://kind.krx.co.kr"
+
+# 번들에서 뽑을 것 세 가지. 확장자를 전제하지 않는다(2026-09-11 교훈).
+_API_RE = re.compile(r"""['"`](/api/[\w./${}-]{2,90})['"`]""")
+_DO_RE = re.compile(r"""['"`]([\w./-]{2,80}\.do)['"`]""")
+_METHOD_RE = re.compile(r"""['"`](search[A-Za-z]{3,40})['"`]""")
+_UNICODE_ESC_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+# 자기주식 화면을 가리킬 조각. 한글은 이스케이프를 푼 뒤에 찾는다.
+_OWN_HINTS_H = (
+    "자기주식", "자사주", "신청내역", "체결내역",
+    "tsstk", "ownstk", "ownstock", "acqu", "trtstk", "trust",
+)
+
+_BUNDLE_LIMIT = 80
+
+
+def _unescape_js(text: str) -> str:
+    """`\\uXXXX`를 실제 글자로. 이걸 안 하면 번들에서 한글이 영영 안 걸린다."""
+    return _UNICODE_ESC_RE.sub(lambda m: chr(int(m.group(1), 16)), text)
+
+
+def _collect_scripts(url: str) -> tuple[str, set[str]]:
+    text = _fetch_text(url) or ""
+    srcs = {urljoin(url, s) for s in _SCRIPT_SRC_RE.findall(text)}
+    # SPA는 번들 안에서 청크를 또 부른다. 정적 경로로 보이는 .js도 후보로 넣는다.
+    for path in re.findall(r"""['"`](/[\w./-]{2,90}\.js)['"`]""", text):
+        srcs.add(urljoin(url, path))
+    return text, srcs
+
+
+def _probe_kind_bundles() -> None:
+    print("\n[H] KIND SPA 번들 해부 — 메뉴에 없는 화면 주소 찾기", flush=True)
+
+    scripts: set[str] = set()
+    for label, url in _KIND_PAGES:
+        text, srcs = _collect_scripts(url)
+        print(f"  · {label}: {len(text):,}자, script {len(srcs)}개", flush=True)
+        scripts |= srcs
+
+    apis: set[str] = set()
+    dos: set[str] = set()
+    methods: set[str] = set()
+    hit_shown = 0
+
+    seen: set[str] = set()
+    queue = sorted(scripts)
+    while queue and len(seen) < _BUNDLE_LIMIT:
+        script_url = queue.pop(0)
+        if script_url in seen:
+            continue
+        seen.add(script_url)
+        raw = _fetch_text(script_url)
+        if raw is None:
+            continue
+        text = _unescape_js(raw)
+
+        found_api = set(_API_RE.findall(text))
+        found_do = set(_DO_RE.findall(text))
+        found_method = set(_METHOD_RE.findall(text))
+        apis |= found_api
+        dos |= found_do
+        methods |= found_method
+
+        # 번들이 또 부르는 청크를 따라간다 — 라우트별 코드가 거기 있다.
+        for chunk in re.findall(r"""['"`](/[\w./-]{2,90}\.js)['"`]""", raw):
+            nxt = urljoin(script_url, chunk)
+            if nxt not in seen:
+                queue.append(nxt)
+
+        hints = [h for h in _OWN_HINTS_H if h in text.lower() or h in text]
+        if hints:
+            print(
+                f"  ! {script_url.rsplit('/', 1)[-1]} ({len(text):,}자) 힌트={hints}",
+                flush=True,
+            )
+            for hint in hints[:3]:
+                idx = text.find(hint)
+                if idx < 0:
+                    idx = text.lower().find(hint)
+                print(f"      …{text[max(0, idx-400):idx+400]}…", flush=True)
+                hit_shown += 1
+
+    print(f"\n  o 번들 {len(seen)}개 확인", flush=True)
+    print(f"  o /api 경로 {len(apis)}개: {sorted(apis)[:60]}", flush=True)
+    print(f"  o .do 경로 {len(dos)}개: {sorted(dos)[:60]}", flush=True)
+    print(f"  o method 후보 {len(methods)}개: {sorted(methods)[:60]}", flush=True)
+    if not hit_shown:
+        print("  - 자기주식 힌트 0건 — 번들이 라우트별로 쪼개져 있고 그 청크를 못 따라갔다는 뜻", flush=True)
+
+    # 찾은 /api 경로를 실제로 두드려 본다. 어떤 게 JSON을 주는지가 다음 단계의 출발점.
+    print("\n  — 찾은 /api 경로 실제 호출 —", flush=True)
+    for path in sorted(apis)[:40]:
+        if "$" in path or "{" in path:
+            print(f"    ~ {path} (자리표시자 있음, 건너뜀)", flush=True)
+            continue
+        url = urljoin(_KIND_ORIGIN, path)
+        try:
+            resp = requests.get(url, headers=_KIND_HEADERS, timeout=20)
+        except Exception as exc:  # noqa: BLE001
+            print(f"    x {path}: {exc}", flush=True)
+            continue
+        body = (resp.text or "")[:200].replace("\n", " ")
+        print(
+            f"    {resp.status_code} {resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
+            flush=True,
+        )
