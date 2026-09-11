@@ -4,13 +4,29 @@ name: KR Market Extras (수급 · 컨센서스 · 자사주)
 # 여기가 실패했다고 매일 도는 스크리닝이 죽으면 안 되고, 갱신 주기도 다르다
 # (부동산·US 재무건전성과 같은 이유·같은 구조).
 #
-# 17:30 KST = 08:30 UTC — 국내 장 마감(15:30) 후 수급이 확정되고, 저녁 KR 전용
-# 파이프라인(16:30)이 종목을 갱신한 뒤에 돈다. 순서가 중요하다: 대상 종목을
-# screened_stocks·opportunity_snapshot에서 읽으므로 그게 먼저 채워져 있어야 한다.
+# **하루 두 번 돈다. 한 번으로는 안 되는 이유가 분명하다.**
+#
+# 1차 17:30 KST(08:30 UTC) — 전체 수집. 국내 장 마감(15:30) 후 수급이 확정되고,
+#    저녁 KR 전용 파이프라인(16:30)이 종목을 갱신한 뒤에 돈다. 순서가 중요하다:
+#    대상 종목을 screened_stocks·opportunity_snapshot에서 읽으므로 그게 먼저
+#    채워져 있어야 한다. 거래원(broker_flow.py)도 이 시각이라야 표를 준다 —
+#    같은 URL이 17:07에는 주고 21:57에는 안 줬다(2026-09-10 실측).
+#
+# 2차 18:40 KST(09:40 UTC) — **체결내역만.** 당일 자기주식 체결수량은 18시 이후에
+#    공시되므로 1차 시점에는 아직 없다. 이것만으로 끝내면 확정 진행률이 영구히
+#    하루씩 밀린다. 그렇다고 1차를 18시 뒤로 미루면 거래원이 깨진다 — 한쪽을
+#    맞추면 다른 쪽이 깨지는 구조라 나눠 도는 것이 맞다.
+#    종목 선정·공시 조회를 다시 하지 않아 요청이 적다(KIND는 403을 주는 소스다).
 on:
   workflow_dispatch:
+    inputs:
+      trstk_only:
+        description: '체결내역만 재수집 (자사주 확정 진행률 갱신)'
+        type: boolean
+        default: false
   schedule:
     - cron: '30 8 * * 1-5'
+    - cron: '40 9 * * 1-5'
 
 jobs:
   collect:
@@ -42,7 +58,15 @@ jobs:
           # 자사주만 이 키를 쓴다. 없으면 자사주 수집만 건너뛰고 수급·컨센서스는 정상.
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           TQDM_DISABLE: '1'
-        run: python -m src.kr_market_extras_main
+        # 2차(18:40 KST) 실행과 trstk_only 수동 실행은 체결내역만 갱신한다.
+        # 어느 cron이 깨웠는지는 github.event.schedule로 갈린다.
+        run: |
+          if [ "${{ github.event.schedule }}" = "40 9 * * 1-5" ] \
+             || [ "${{ inputs.trstk_only }}" = "true" ]; then
+            python -m src.kr_market_extras_main --trstk-only
+          else
+            python -m src.kr_market_extras_main
+          fi
 
       - name: Revalidate frontend cache
         # 본 파이프라인(pipeline.yml)과 **같은 시크릿·같은 헤더**를 써야 한다.

@@ -28,8 +28,10 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import sys
+import time
 from datetime import date, timedelta
 from urllib.parse import urljoin
 import zipfile
@@ -39,7 +41,7 @@ import requests
 from dotenv import load_dotenv
 
 from . import broker_flow
-from .buyback import _api_key, _disclosure_list, load_corp_codes
+from .buyback import _api_key, _disclosure_list, build_row, load_corp_codes
 from .buyback import _get as _dart_get
 from .naver_api import HEADERS, TIMEOUT
 
@@ -448,16 +450,831 @@ def _probe_dart_all_disclosures() -> None:
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
-    _probe_dart_document()
-    _probe_broker_windows()
-    _probe_broker_parser()
-    _probe_krx_broker_history()
-    _probe_kind()
-    _probe_dart_all_disclosures()
+
+    # **기본은 [L]만 돈다.** 2026-09-11에 KIND가 403을 주기 시작했다 — 한 실행에서
+    # 수십 번을 두드린 탓이다(번들 80개 + /api 40개 + 화면 4개). 몇 분 전까지
+    # 열리던 주소까지 전부 막혔으니 속도 제한이 확실하다. 탐색이 목적을 이룬
+    # 섹션들(A~K)을 매번 다시 돌리면 차단만 연장된다. 필요할 때만 PROBE_ALL=1로 켠다.
+    if os.getenv("PROBE_ALL") == "1":
+        _probe_dart_document()
+        _probe_broker_windows()
+        _probe_broker_parser()
+        _probe_krx_broker_history()
+        _probe_kind()
+        _probe_kind_bundles()
+        _probe_kind_pc_menu()
+        _probe_acptno()
+        _probe_treasury_screens()
+        _probe_dart_all_disclosures()
+    else:
+        _probe_trstk_breakdown()
+
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
 
+
+
+
+# ---------------------------------------------------------------------------
+# [H] KIND SPA 번들 해부 — 메뉴에 없는 화면의 주소를 찾는 유일한 길
+# ---------------------------------------------------------------------------
+#
+# 왜 [E]로는 부족한가. [E]는 **화면 HTML**만 긁었다. 그런데 신형 KIND는 SPA라서
+# HTML은 빈 껍데기이고 라우트·API 주소가 전부 `.js` 번들 안에 있다. 실제로
+# 사용자가 "메뉴에 자기주식이 아예 없다"고 확인해 줬다(2026-09-11) — 메뉴에
+# 없는 화면이라 화면을 열어 요청을 관찰하는 길 자체가 막힌 것이고, 그렇다면
+# **번들을 읽는 수밖에 없다**.
+#
+# 그리고 [E]가 힌트를 0건으로 본 데는 별도의 이유가 하나 더 있다:
+# **번들의 한글은 `\uXXXX`로 이스케이프되어 있다.** 원문 그대로 '자기주식'을
+# 찾으면 영원히 안 걸린다. 그래서 여기서는 먼저 이스케이프를 풀고 찾는다.
+_KIND_ORIGIN = "https://kind.krx.co.kr"
+
+# 번들에서 뽑을 것 세 가지. 확장자를 전제하지 않는다(2026-09-11 교훈).
+_API_RE = re.compile(r"""['"`](/api/[\w./${}-]{2,90})['"`]""")
+_DO_RE = re.compile(r"""['"`]([\w./-]{2,80}\.do)['"`]""")
+_METHOD_RE = re.compile(r"""['"`](search[A-Za-z]{3,40})['"`]""")
+_UNICODE_ESC_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+# 자기주식 화면을 가리킬 조각. 한글은 이스케이프를 푼 뒤에 찾는다.
+_OWN_HINTS_H = (
+    "자기주식", "자사주", "신청내역", "체결내역",
+    "tsstk", "ownstk", "ownstock", "acqu", "trtstk", "trust",
+)
+
+_BUNDLE_LIMIT = 80
+
+
+def _unescape_js(text: str) -> str:
+    """`\\uXXXX`를 실제 글자로. 이걸 안 하면 번들에서 한글이 영영 안 걸린다."""
+    return _UNICODE_ESC_RE.sub(lambda m: chr(int(m.group(1), 16)), text)
+
+
+def _collect_scripts(url: str) -> tuple[str, set[str]]:
+    text = _fetch_text(url) or ""
+    srcs = {urljoin(url, s) for s in _SCRIPT_SRC_RE.findall(text)}
+    # SPA는 번들 안에서 청크를 또 부른다. 정적 경로로 보이는 .js도 후보로 넣는다.
+    for path in re.findall(r"""['"`](/[\w./-]{2,90}\.js)['"`]""", text):
+        srcs.add(urljoin(url, path))
+    return text, srcs
+
+
+def _probe_kind_bundles() -> None:
+    print("\n[H] KIND SPA 번들 해부 — 메뉴에 없는 화면 주소 찾기", flush=True)
+
+    scripts: set[str] = set()
+    for label, url in _KIND_PAGES:
+        text, srcs = _collect_scripts(url)
+        print(f"  · {label}: {len(text):,}자, script {len(srcs)}개", flush=True)
+        scripts |= srcs
+
+    apis: set[str] = set()
+    dos: set[str] = set()
+    methods: set[str] = set()
+    hit_shown = 0
+
+    seen: set[str] = set()
+    queue = sorted(scripts)
+    while queue and len(seen) < _BUNDLE_LIMIT:
+        script_url = queue.pop(0)
+        if script_url in seen:
+            continue
+        seen.add(script_url)
+        raw = _fetch_text(script_url)
+        if raw is None:
+            continue
+        text = _unescape_js(raw)
+
+        found_api = set(_API_RE.findall(text))
+        found_do = set(_DO_RE.findall(text))
+        found_method = set(_METHOD_RE.findall(text))
+        apis |= found_api
+        dos |= found_do
+        methods |= found_method
+
+        # 번들이 또 부르는 청크를 따라간다 — 라우트별 코드가 거기 있다.
+        for chunk in re.findall(r"""['"`](/[\w./-]{2,90}\.js)['"`]""", raw):
+            nxt = urljoin(script_url, chunk)
+            if nxt not in seen:
+                queue.append(nxt)
+
+        hints = [h for h in _OWN_HINTS_H if h in text.lower() or h in text]
+        if hints:
+            print(
+                f"  ! {script_url.rsplit('/', 1)[-1]} ({len(text):,}자) 힌트={hints}",
+                flush=True,
+            )
+            for hint in hints[:3]:
+                idx = text.find(hint)
+                if idx < 0:
+                    idx = text.lower().find(hint)
+                print(f"      …{text[max(0, idx-400):idx+400]}…", flush=True)
+                hit_shown += 1
+
+    print(f"\n  o 번들 {len(seen)}개 확인", flush=True)
+    print(f"  o /api 경로 {len(apis)}개: {sorted(apis)[:60]}", flush=True)
+    print(f"  o .do 경로 {len(dos)}개: {sorted(dos)[:60]}", flush=True)
+    print(f"  o method 후보 {len(methods)}개: {sorted(methods)[:60]}", flush=True)
+    if not hit_shown:
+        print("  - 자기주식 힌트 0건 — 번들이 라우트별로 쪼개져 있고 그 청크를 못 따라갔다는 뜻", flush=True)
+
+    # 찾은 /api 경로를 실제로 두드려 본다. 어떤 게 JSON을 주는지가 다음 단계의 출발점.
+    print("\n  — 찾은 /api 경로 실제 호출 —", flush=True)
+    for path in sorted(apis)[:40]:
+        if "$" in path or "{" in path:
+            print(f"    ~ {path} (자리표시자 있음, 건너뜀)", flush=True)
+            continue
+        url = urljoin(_KIND_ORIGIN, path)
+        try:
+            resp = requests.get(url, headers=_KIND_HEADERS, timeout=20)
+        except Exception as exc:  # noqa: BLE001
+            print(f"    x {path}: {exc}", flush=True)
+            continue
+        body = (resp.text or "")[:200].replace("\n", " ")
+        print(
+            f"    {resp.status_code} {resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
+            flush=True,
+        )
+
+# ---------------------------------------------------------------------------
+# [I] PC KIND 정식 입구 — 메뉴 HTML에 전체 화면 목록이 있다
+# ---------------------------------------------------------------------------
+#
+# [H]까지의 실측으로 갈래가 갈렸다(2026-09-11).
+#
+# - `kind.krx.co.kr/` 루트는 **UserAgent 분기 스크립트**만 준다(2,149자).
+# - `main.do`를 파라미터 없이 부르면 **"페이지 오류"**다(1,472자). 404가 아니라
+#   200이라 "살아 있다"고 착각하기 쉬운데, 실제로는 안내 페이지다.
+# - 반면 **모바일(mkind)은 살아 있다** — `/main`이 29,682자를 주고 거기서
+#   `/disclosures-today` 같은 라우트와 `/api/...` 11개가 나왔다.
+#
+# 그래서 PC KIND는 **파라미터를 줘야 여는 구형 JSP 앱**이라고 보는 게 맞다
+# (`.do?method=...`). 이게 사실이라면 **메뉴 HTML에 전체 화면 목록이 그대로
+# 들어 있다** — SPA와 달리 서버가 다 그려서 주기 때문이다. 그러면 메뉴에
+# 노출되지 않는 자기주식 화면도 링크로는 남아 있을 가능성이 높다.
+_PC_ENTRIES = [
+    ("메인(초기화)", "https://kind.krx.co.kr/main.do?method=loadInitPage"),
+    ("오늘의 공시", "https://kind.krx.co.kr/disclosure/todaydisclosure.do?method=searchTodayDisclosureMain"),
+    ("공시 상세검색", "https://kind.krx.co.kr/disclosure/details.do?method=searchDetailsMain"),
+    ("전체 통합검색", "https://kind.krx.co.kr/disclosure/searchtotalinfo.do?method=searchTotalInfoMain"),
+    ("상장법인 상세", "https://kind.krx.co.kr/corpgeneral/corpList.do?method=loadInitPage"),
+    # 모바일은 살아 있는 게 확인됐으니 라우트를 이어서 판다.
+    ("모바일 오늘공시", "https://mkind.krx.co.kr/disclosures-today"),
+]
+
+# `.do` 링크와 붙어 있는 method 값을 짝지어 뽑는다. 구형 KIND는 이 둘이
+# 한 세트라서 경로만 알아도 못 연다.
+_DO_LINK_RE = re.compile(r"""([\w./-]+\.do)\?([^'"\s>]{0,200})""")
+_PC_HINTS = ("자기주식", "자사주", "신청", "체결", "취득", "처분")
+
+
+def _probe_kind_pc_menu() -> None:
+    print("\n[I] PC KIND 정식 입구 — 메뉴 HTML에서 자기주식 화면 찾기", flush=True)
+
+    all_links: dict[str, set[str]] = {}
+
+    for label, url in _PC_ENTRIES:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        is_error = "페이지 오류" in text
+        hits = [h for h in _PC_HINTS if h in text]
+        print(
+            f"  · {label}: {len(text):,}자 {'[페이지 오류]' if is_error else ''} 힌트={hits or '없음'}",
+            flush=True,
+        )
+        if is_error:
+            continue
+
+        for path, query in _DO_LINK_RE.findall(text):
+            all_links.setdefault(path, set()).add(query[:120])
+
+        # 자기주식 관련 글자 주변을 통째로 찍는다 — 링크·onclick이 거기 붙어 있다.
+        for hint in hits[:2]:
+            idx = text.find(hint)
+            print(f"      '{hint}' 주변: {text[max(0, idx-500):idx+500]!r}", flush=True)
+
+    print(f"\n  o .do 링크 {len(all_links)}개", flush=True)
+    for path, queries in sorted(all_links.items()):
+        print(f"    - {path}  ← {sorted(queries)[:4]}", flush=True)
+
+    own = {p: q for p, q in all_links.items() if any(k in p.lower() for k in _OWN_HINTS_H)}
+    print(f"  o 자기주식으로 보이는 경로: {own or '없음'}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [J] 접수번호(acptNo)에서 출발한다 — 사용자가 실제로 열리는 주소를 줬다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11, 사용자가 이 주소에서 자기주식매매 내역이 보인다고 알려줬다:
+#
+#   kind.krx.co.kr/common/disclsviewer.do?method=searchInitInfo&acptNo=20260826000780
+#
+# 여기서 두 가지가 바로 읽힌다.
+#
+# 1. **PC KIND는 살아 있다.** 다만 `?method=`를 줘야 열린다 — `main.do`를
+#    맨손으로 불러 '페이지 오류'를 받고 "막혔다"고 결론 낸 게 틀렸던 것이다.
+# 2. **접수번호가 `YYYYMMDD`+일련번호 6자리다.** 20260826 + 000780.
+#    이건 DART의 `rcept_no`와 **같은 형식**이다.
+#
+# 2번이 핵심이다. 형식만 같은 게 아니라 **같은 번호 체계라면**, 지금 쓰는
+# DART_API_KEY로 `document.xml?rcept_no=...`를 불러 원문을 그대로 받을 수 있다
+# (이 경로는 2026-09-10 프로브에서 이미 응답을 확인했다). 그러면 KIND를
+# 뚫을 필요 자체가 없어진다.
+#
+# 그리고 앞선 "DART에는 없다"는 결론도 다시 봐야 한다. 그때는 필터 없이
+# 목록을 받았다고 생각했지만, DART `list.json`에는 **공시유형(`pblntf_ty`)**이
+# 있고 **`I`가 거래소공시**다. 기본 목록이 거래소공시를 빼고 준다면 자기주식
+# 매매내역은 애초에 보이지 않았을 것이다. 그래서 여기서 `I`를 명시해 다시 묻는다.
+#
+# 날짜마다 훑는 방법(사용자 제안)은 마지막 수단으로 남긴다 — 일련번호가
+# 6자리라 날짜당 최대 100만 번이라 그대로는 못 쓴다. **목록을 주는 경로를
+# 찾는 게 먼저다.**
+_USER_ACPT_NO = "20260826000780"
+
+
+def _probe_acptno() -> None:
+    print("\n[J] 접수번호에서 출발 — KIND acptNo가 DART rcept_no와 같은가", flush=True)
+
+    key = _api_key()
+    if not key:
+        print("  - DART_API_KEY 없음 — 건너뜀", flush=True)
+        return
+
+    # J1. 사용자가 준 접수번호를 DART 원문 API에 그대로 넣어 본다.
+    #     성공하면 KIND를 뚫을 필요가 없다.
+    print(f"  · DART document.xml ← acptNo {_USER_ACPT_NO}", flush=True)
+    try:
+        resp = requests.get(
+            _DOCUMENT_URL,
+            params={"crtfc_key": key, "rcept_no": _USER_ACPT_NO},
+            timeout=TIMEOUT,
+        )
+        ctype = resp.headers.get("Content-Type", "?")
+        print(f"      {resp.status_code} {ctype} {len(resp.content):,}바이트", flush=True)
+        if "xml" in ctype and len(resp.content) < 2000:
+            # 에러는 XML 한 줄로 온다(status/message).
+            print(f"      본문: {resp.text[:400]!r}", flush=True)
+        else:
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                for name in zf.namelist():
+                    raw = zf.read(name)
+                    text = raw.decode("utf-8", errors="replace")
+                    print(f"      · {name}: {len(text):,}자", flush=True)
+                    for hint in ("자기주식", "체결", "신청", "수량"):
+                        idx = text.find(hint)
+                        if idx >= 0:
+                            print(f"          '{hint}' 주변: {text[max(0, idx-200):idx+300]!r}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"      x {exc}", flush=True)
+
+    # J2. 거래소공시(pblntf_ty=I)를 명시해서 목록을 다시 받는다.
+    #     "DART에 없다"던 결론이 필터 탓이었는지 확인하는 자리다.
+    corp_codes = load_corp_codes()
+    begin = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+    today = date.today().strftime("%Y%m%d")
+    for code, name in _SAMPLES:
+        corp = corp_codes.get(code)
+        if not corp:
+            print(f"  - {name}({code}): corp_code 없음", flush=True)
+            continue
+        for ty, label in (("I", "거래소공시"), (None, "전체")):
+            params = {
+                "crtfc_key": key,
+                "corp_code": corp,
+                "bgn_de": begin,
+                "end_de": today,
+                "page_count": 100,
+            }
+            if ty:
+                params["pblntf_ty"] = ty
+            try:
+                payload = _dart_get("list", params)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  x {name} {label}: {exc}", flush=True)
+                continue
+            rows = payload.get("list") or []
+            print(f"  · {name} {label}: {payload.get('status')} {len(rows)}건", flush=True)
+            for row in rows[:25]:
+                print(f"      {row.get('rcept_no')} {row.get('rcept_dt')} | {row.get('report_nm')}", flush=True)
+
+    # J3. KIND 뷰어 자체도 두드린다. 열리면 본문을 어디서 가져오는지가 보인다.
+    viewer = (
+        "https://kind.krx.co.kr/common/disclsviewer.do"
+        f"?method=searchInitInfo&acptNo={_USER_ACPT_NO}"
+    )
+    text = _fetch_text(viewer)
+    if text is None:
+        return
+    print(f"  · KIND 뷰어: {len(text):,}자 ('페이지 오류' {'있음' if '페이지 오류' in text else '없음'})", flush=True)
+    for hint in ("자기주식", "acptNo", "docNo", "viewer", "searchContents"):
+        idx = text.find(hint)
+        if idx >= 0:
+            print(f"      '{hint}' 주변: {text[max(0, idx-300):idx+300]!r}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [K] 자기주식 화면을 찾았다 — 이제 그 화면이 부르는 조회를 캔다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11 [I] 실측으로 화면이 확정됐다. **메뉴에 없다고 화면이 없는 게 아니었다.**
+#
+# PC KIND 메뉴 HTML:
+#     <a href="/corpgeneral/treasurystk.do?method=loadInitPage">자사주취득/처분</a>
+#
+# 모바일 KIND 사이드 메뉴(여기가 진짜다 — 일자별 신청·체결이 통째로 있다):
+#     <strong>자사주</strong>
+#       allMenuNav(this, 'trstk-declared')  → 신고내역
+#       allMenuNav(this, 'trstk-applied')   → 신청내역
+#       allMenuNav(this, 'trstk-traded')    → 체결내역
+#
+# 그리고 PC 상세검색 화면에는 공시유형 체크박스가 있고
+#     <input name="disclosureTypeArr01" value="0134"> 자기주식(신탁포함)
+# 이므로, 유형 0134로 목록을 받으면 접수번호(acptNo)가 통째로 나온다.
+#
+# 즉 길이 세 갈래로 열렸다. 여기서는 셋을 다 두드려 **어느 쪽이 표를 주는지**만
+# 가린다. 판정하지 않고 구조를 찍는 것이 이 프로브의 역할이다.
+_TREASURY_SCREENS = [
+    ("모바일 체결내역", "https://mkind.krx.co.kr/trstk-traded"),
+    ("모바일 신청내역", "https://mkind.krx.co.kr/trstk-applied"),
+    ("모바일 신고내역", "https://mkind.krx.co.kr/trstk-declared"),
+    ("PC 자사주취득/처분", "https://kind.krx.co.kr/corpgeneral/treasurystk.do?method=loadInitPage"),
+]
+
+# 구형 KIND는 폼 하나를 두고 `method` 값만 바꿔 제출한다. 그 값이 조회 주소다.
+_METHOD_ASSIGN_RE = re.compile(r"""method(?:\.value)?\s*[=:]\s*['"]([A-Za-z][\w]{3,60})['"]""")
+_INPUT_NAME_RE = re.compile(r"""<input[^>]+name=['"]([\w\[\]]{1,40})['"]""", re.I)
+_FORM_ACTION_RE = re.compile(r"""<form[^>]+action=['"]([^'"]+)['"]""", re.I)
+_TABLE_MARKERS = ("체결", "신청", "수량", "단가", "일자", "종목")
+
+
+def _probe_treasury_screens() -> None:
+    print("\n[K] 자기주식 화면 실측 — 어느 쪽이 표를 주는가", flush=True)
+
+    for label, url in _TREASURY_SCREENS:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        is_error = "페이지 오류" in text
+        markers = [m for m in _TABLE_MARKERS if m in text]
+        print(
+            f"\n  · {label}: {len(text):,}자 {'[페이지 오류]' if is_error else ''} 표지={markers or '없음'}",
+            flush=True,
+        )
+        if is_error:
+            continue
+
+        # 조회에 필요한 세 가지: 폼 action, method 값, 입력 필드 이름.
+        actions = sorted(set(_FORM_ACTION_RE.findall(text)))
+        methods = sorted(set(_METHOD_ASSIGN_RE.findall(text)))
+        inputs = sorted(set(_INPUT_NAME_RE.findall(text)))
+        apis = sorted(set(_API_RE.findall(_unescape_js(text))))
+        print(f"      form action: {actions[:6]}", flush=True)
+        print(f"      method 값  : {methods[:20]}", flush=True)
+        print(f"      입력 필드  : {inputs[:30]}", flush=True)
+        print(f"      /api 경로  : {apis[:20]}", flush=True)
+
+        # 화면 전용 스크립트 안에 조회 주소가 있는 경우가 많다.
+        for src in sorted({urljoin(url, s) for s in _SCRIPT_SRC_RE.findall(text)}):
+            if "jquery" in src.lower() or "shiv" in src.lower():
+                continue
+            js = _fetch_text(src)
+            if js is None:
+                continue
+            js = _unescape_js(js)
+            js_apis = sorted(set(_API_RE.findall(js)))
+            js_methods = sorted(set(_METHOD_ASSIGN_RE.findall(js)))
+            hints = [h for h in ("trstk", "자사주", "자기주식", "체결", "신청") if h in js]
+            if not (js_apis or js_methods or hints):
+                continue
+            print(
+                f"      · {src.rsplit('/', 1)[-1]}: api={js_apis[:12]} method={js_methods[:12]} 힌트={hints}",
+                flush=True,
+            )
+            for hint in hints[:2]:
+                idx = js.find(hint)
+                print(f"          '{hint}' 주변: {js[max(0, idx-350):idx+350]!r}", flush=True)
+
+        # 표가 이미 들어 있으면 구조를 바로 찍는다 — 그러면 파싱만 하면 끝이다.
+        try:
+            tables = pd.read_html(io.StringIO(text))
+        except Exception:  # noqa: BLE001
+            tables = []
+        print(f"      표 {len(tables)}개", flush=True)
+        for i, table in enumerate(tables[:4]):
+            print(f"        [표 {i}] shape={table.shape}", flush=True)
+            for row in table.head(3).astype(str).values.tolist():
+                print(f"          {row}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [L] 자사주 신청/체결 API — 사람처럼 천천히, 한 번에 조금만
+# ---------------------------------------------------------------------------
+#
+# [K]에서 KIND가 **403**을 주기 시작했다. 몇 분 전 [I]에서 멀쩡히 열리던
+# 주소(treasurystk.do·mkind)까지 전부 막혔으니 주소가 틀린 게 아니라
+# **속도 제한**이다. 한 실행에서 번들 80개 + /api 40개 + 화면 4개를 연달아
+# 두드렸으니 당연한 결과다.
+#
+# 그래서 이 섹션은 정반대로 간다.
+#
+# 1. **세션을 쓴다.** 쿠키를 받아 들고 다닌다 — 구형 JSP든 SPA든 첫 방문에서
+#    세션 쿠키를 심고, 그게 없는 요청을 막는 경우가 흔하다.
+# 2. **Referer를 호스트에 맞춘다.** mkind 요청에 kind Referer를 달고 있었는데
+#    그 자체로 거절 사유가 된다.
+# 3. **요청 사이를 띄운다.** 그리고 403이면 한 번만, 길게 쉬고 재시도한다.
+# 4. **대상을 줄인다.** 화면 3개 + API 후보 몇 개까지만.
+#
+# 노리는 것은 모바일 KIND의 자사주 라우트가 부르는 조회다. [I]에서 메뉴가
+# 확정됐다 — trstk-declared(신고)·trstk-applied(신청)·trstk-traded(체결).
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+_PAUSE_SECONDS = 3.0
+_BACKOFF_SECONDS = 30.0
+
+_TRSTK_ROUTES = [
+    ("체결내역", "trstk-traded"),
+    ("신청내역", "trstk-applied"),
+    ("신고내역", "trstk-declared"),
+]
+
+
+def _browser_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": _BROWSER_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            "Connection": "keep-alive",
+        }
+    )
+    return session
+
+
+def _polite_get(session: requests.Session, url: str, referer: str, *, as_json: bool = False):
+    """한 번 쉬고 요청한다. 403이면 길게 쉬고 딱 한 번 더."""
+    headers = {"Referer": referer}
+    if as_json:
+        headers["Accept"] = "application/json, text/plain, */*"
+        headers["X-Requested-With"] = "XMLHttpRequest"
+    for attempt in (1, 2):
+        time.sleep(_PAUSE_SECONDS)
+        try:
+            resp = session.get(url, headers=headers, timeout=25)
+        except Exception as exc:  # noqa: BLE001
+            print(f"      x {url}: {exc}", flush=True)
+            return None
+        if resp.status_code == 403 and attempt == 1:
+            print(f"      ! 403 — {_BACKOFF_SECONDS:.0f}초 쉬고 한 번만 더", flush=True)
+            time.sleep(_BACKOFF_SECONDS)
+            continue
+        return resp
+    return None
+
+
+def _probe_trstk_api() -> None:
+    print("\n[L] 자사주 신청/체결 — 세션 + 느린 요청으로 다시", flush=True)
+
+    session = _browser_session()
+
+    # 쿠키를 먼저 받는다. 이게 없으면 뒤 요청이 통째로 막히는 사이트가 많다.
+    for label, url in (("PC 루트", "https://kind.krx.co.kr/"), ("모바일 메인", "https://mkind.krx.co.kr/main")):
+        resp = _polite_get(session, url, referer="https://www.google.com/")
+        if resp is None:
+            continue
+        print(f"  · {label}: {resp.status_code} {len(resp.text or ''):,}자 쿠키={list(session.cookies.keys())}", flush=True)
+
+    for label, route in _TRSTK_ROUTES:
+        page_url = f"https://mkind.krx.co.kr/{route}"
+        resp = _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main")
+        if resp is None:
+            continue
+        text = resp.text or ""
+        print(f"\n  · {label} 화면 {route}: {resp.status_code} {len(text):,}자", flush=True)
+        if resp.status_code != 200:
+            print(f"      본문: {text[:300]!r}", flush=True)
+            continue
+
+        unescaped = _unescape_js(text)
+        apis = sorted(set(_API_RE.findall(unescaped)))
+        print(f"      /api 경로: {apis[:20]}", flush=True)
+        markers = [m for m in _TABLE_MARKERS if m in unescaped]
+        print(f"      표지: {markers or '없음'}", flush=True)
+
+        try:
+            tables = pd.read_html(io.StringIO(text))
+        except Exception:  # noqa: BLE001
+            tables = []
+        print(f"      표 {len(tables)}개", flush=True)
+        for i, table in enumerate(tables[:3]):
+            print(f"        [표 {i}] shape={table.shape}", flush=True)
+            for row in table.head(3).astype(str).values.tolist():
+                print(f"          {row}", flush=True)
+
+        # 화면이 SPA면 표가 없다. 그럼 그 화면이 부를 법한 API를 직접 부른다.
+        # 라우트 이름이 곧 API 이름인 경우가 흔하다(/trstk-traded → /api/trstk/traded).
+        tail = route.split("-", 1)[1]
+        candidates = [f"/api/{route}", f"/api/trstk/{tail}", f"/api/trstk/{route}"] + apis[:6]
+        for path in dict.fromkeys(candidates):
+            if "$" in path or "{" in path:
+                continue
+            api_resp = _polite_get(
+                session, urljoin("https://mkind.krx.co.kr/", path), referer=page_url, as_json=True
+            )
+            if api_resp is None:
+                continue
+            body = (api_resp.text or "")[:260].replace("\n", " ")
+            print(
+                f"      API {api_resp.status_code} {api_resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
+                flush=True,
+            )
+
+# ---------------------------------------------------------------------------
+# [M] 그 접수번호가 정말 "자기주식매매 내역"인가 — 문서 머리를 본다
+# ---------------------------------------------------------------------------
+#
+# [J]에서 사용자가 준 acptNo를 DART `document.xml`에 넣었더니 200으로 293,832자
+# 문서가 왔다. 그걸 보고 "KIND 번호와 DART 번호가 같다"고 말했는데, **아직
+# 확인된 게 아니다.**
+#
+# 본문에서 걸린 '자기주식'은 `9 | 삼성전자 | 자기주식처분결과보고서 | 2026.07.16`
+# 같은 **목록 표의 한 줄**이었고, 같은 문서에 '중도상환신청방법'·'최소청약금액'·
+# 'USD 99.5'·'100,000 증권'이 함께 있었다. 이건 자기주식매매 내역이 아니라
+# **파생결합증권 발행 서류**로 보인다.
+#
+# 그렇다면 둘 중 하나다.
+#   (가) 번호 체계는 같은데 사용자가 준 번호가 마침 다른 회사 서류다.
+#   (나) KIND acptNo와 DART rcept_no는 **다른 번호**이고, 우연히 같은 자리에
+#        전혀 다른 문서가 있었다.
+#
+# (나)라면 "DART에서 원문 받으면 되지 않나"가 통째로 무너진다. 그래서
+# **문서의 머리(회사명·보고서명)를 직접 찍어** 어느 쪽인지 가린다.
+# 값이 숫자이고 그럴듯하다는 이유로 맞다고 넘어갔다가 컨센서스에서 세 번
+# 틀렸던 것과 같은 함정이다 — "응답이 왔다"와 "맞는 문서다"는 다르다.
+_DOC_HEAD_RE = re.compile(r"<(COMPANY-NAME|DOCUMENT-NAME|TITLE)[^>]*>(.{0,120}?)</\1>", re.S | re.I)
+
+
+def _probe_acptno_identity() -> None:
+    print("\n[M] 그 접수번호가 정말 자기주식매매 내역인가", flush=True)
+
+    key = _api_key()
+    if not key:
+        print("  - DART_API_KEY 없음 — 건너뜀", flush=True)
+        return
+
+    try:
+        resp = requests.get(
+            _DOCUMENT_URL,
+            params={"crtfc_key": key, "rcept_no": _USER_ACPT_NO},
+            timeout=TIMEOUT,
+        )
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            name = zf.namelist()[0]
+            text = zf.read(name).decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x {exc}", flush=True)
+        return
+
+    print(f"  · {name}: {len(text):,}자", flush=True)
+    # 머리말 태그가 문서 정체를 그대로 말해 준다.
+    heads = _DOC_HEAD_RE.findall(text)
+    for tag, value in heads[:10]:
+        print(f"      <{tag}> {value.strip()!r}", flush=True)
+    if not heads:
+        print(f"      머리 태그 없음 — 앞 1,200자: {text[:1200]!r}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [N] `/api/trstk/*`에 붙일 조건 이름을 찾는다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11 [L] 실측으로 창구가 확정됐다.
+#
+#   GET /api/trstk/traded    → 400 {"resultCode":"E0002","message":"파라미터 검증 실패"}
+#   GET /api/trstk/applied   → 400 (동일)
+#   GET /api/trstk/declared  → 400 (동일)
+#
+# **400은 404와 전혀 다르다.** 틀린 주소(`/api/trstk-traded`)는 404에 HTML 안내가
+# 오는데, 이 셋은 JSON으로 "파라미터 검증 실패"를 돌려줬다 — 주소는 맞고
+# 조건만 빠졌다는 뜻이다.
+#
+# 그리고 [M]에서 확인된 것 하나 더. 사용자가 준 접수번호를 DART에 넣어 나온
+# 문서는 **NH투자증권 투자설명서(일괄신고)**였다. 자기주식매매 내역이 아니다.
+# "KIND 번호와 DART 번호가 같다"고 했던 앞선 판단은 **틀렸고**, DART로 원문을
+# 받는 길은 성립하지 않는다. 목록도 원문도 KIND에서 받아야 한다.
+#
+# 조건 이름은 화면이 들고 있다. 두 군데를 본다.
+#   (1) 호출부 주변 — 화면 HTML·스크립트에서 `/api/trstk/...` 앞뒤를 통째로 찍는다.
+#   (2) 빈 표의 머리글 — 표가 0행으로 왔으니 열 이름이 곧 받게 될 항목 이름이다.
+_TRSTK_CALL_WINDOW = 1800
+
+
+def _probe_trstk_params() -> None:
+    print("\n[N] /api/trstk/* 에 붙일 조건 이름 찾기", flush=True)
+
+    session = _browser_session()
+    warm = _polite_get(session, "https://mkind.krx.co.kr/main", referer="https://www.google.com/")
+    if warm is None:
+        return
+    print(f"  · 쿠키 확보: {list(session.cookies.keys())}", flush=True)
+
+    page_url = "https://mkind.krx.co.kr/trstk-traded"
+    resp = _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main")
+    if resp is None or resp.status_code != 200:
+        print(f"  x 화면을 못 받음: {resp.status_code if resp else '실패'}", flush=True)
+        return
+    html = resp.text or ""
+    print(f"  · 체결내역 화면: {len(html):,}자", flush=True)
+
+    # (2) 빈 표의 머리글 — 받게 될 항목 이름이 그대로 적혀 있다.
+    for match in re.finditer(r"<thead[^>]*>(.*?)</thead>", html, re.S | re.I):
+        cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", match.group(1), re.S | re.I)
+        cleaned = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        print(f"      표 머리글: {[c for c in cleaned if c]}", flush=True)
+
+    # 조회 조건 입력칸도 그대로 조건 이름이다.
+    for tag in re.findall(r"<(?:select|input)[^>]+>", html, re.I):
+        if any(k in tag for k in ('name=', 'id=')):
+            ident = re.findall(r"""(?:name|id)=['"]([\w-]{1,40})['"]""", tag)
+            if ident:
+                print(f"      입력칸: {ident}", flush=True)
+
+    # (1) 호출부 주변 — 화면과 그 화면 스크립트를 같이 본다.
+    targets = [("화면", html)]
+    for src in sorted({urljoin(page_url, x) for x in _SCRIPT_SRC_RE.findall(html)}):
+        if "jquery" in src.lower() or "shiv" in src.lower() or "rMate" in src:
+            continue
+        js_resp = _polite_get(session, src, referer=page_url)
+        if js_resp is None or js_resp.status_code != 200:
+            continue
+        targets.append((src.rsplit("/", 1)[-1], js_resp.text or ""))
+
+    for label, text in targets:
+        unescaped = _unescape_js(text)
+        idx = unescaped.find("/api/trstk/")
+        if idx < 0:
+            continue
+        half = _TRSTK_CALL_WINDOW // 2
+        print(f"\n  — {label} 호출부 —", flush=True)
+        print(unescaped[max(0, idx - half):idx + half], flush=True)
+
+# ---------------------------------------------------------------------------
+# [O] 조건을 실제로 넣어 본다 — SK하이닉스 8/20 이후 체결내역
+# ---------------------------------------------------------------------------
+#
+# [N]에서 화면 소스가 조회 방법을 통째로 보여줬다(2026-09-11 실측, 원문 그대로):
+#
+#     function searchTrstkList(async){
+#         var param = {
+#                 marketType : $("#marketType").val()
+#                 , corpName : $("#corpName").val()
+#                 , repIsuSrtCd : $("#repIsuSrtCd").val()
+#                 , fromDate : $("#fromDate").val()
+#                 , toDate : $("#toDate").val()
+#                 , pageNo: currPageIdx
+#         };
+#         commonAjax("/api/trstk/traded", "get", param, async, searchCallBack);
+#     }
+#
+# 응답 필드도 같은 자리에 있었다 — `item.trd_dd`(매매일),
+# `item.trstk_appl_qty`(신청수량), `item.trstk_acqstdisp_tp_cd`(1=취득/2=처분/0=신탁).
+# 표 머리글은 `['매매일','회사명','취득/처분','신청수량','체결수량']`이다.
+#
+# **아직 모르는 것은 날짜 형식 하나뿐이다.** 화면이 `dateWithDash(item.trd_dd)`로
+# 대시를 붙여 표시하므로 응답은 `20260820`일 가능성이 높지만, 입력(fromDate)이
+# 같은 형식인지는 확인된 바 없다. 그래서 **두 형식을 다 넣어 본다** — 어느 쪽이
+# 값을 주는지는 응답이 말해 준다.
+#
+# 요청은 4번을 넘기지 않는다(쿠키 1 + 화면 1 + 조회 2). 2026-09-11에 한 실행에서
+# 130번을 두드려 403을 맞은 적이 있다.
+_TRSTK_TARGET = ("000660", "SK하이닉스")
+_TRSTK_FROM = "20260820"   # 취득 시작일
+_DATE_FORMATS = [
+    ("대시 없음", lambda d: d),
+    ("대시 있음", lambda d: f"{d[:4]}-{d[4:6]}-{d[6:]}"),
+]
+
+
+def _probe_trstk_call() -> None:
+    print("\n[O] 조건을 넣어 실제 조회 — SK하이닉스 체결내역", flush=True)
+
+    code, name = _TRSTK_TARGET
+    today = date.today().strftime("%Y%m%d")
+
+    session = _browser_session()
+    if _polite_get(session, "https://mkind.krx.co.kr/main", referer="https://www.google.com/") is None:
+        return
+    page_url = "https://mkind.krx.co.kr/trstk-traded"
+    if _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main") is None:
+        return
+    print(f"  · 쿠키: {list(session.cookies.keys())}", flush=True)
+
+    for label, fmt in _DATE_FORMATS:
+        params = {
+            "marketType": "",
+            "corpName": name,
+            "repIsuSrtCd": code,
+            "fromDate": fmt(_TRSTK_FROM),
+            "toDate": fmt(today),
+            "pageNo": 1,
+        }
+        time.sleep(_PAUSE_SECONDS)
+        try:
+            resp = session.get(
+                "https://mkind.krx.co.kr/api/trstk/traded",
+                params=params,
+                headers={
+                    "Referer": page_url,
+                    "Accept": "application/json, text/plain, */*",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=25,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {label}: {exc}", flush=True)
+            continue
+
+        print(f"\n  · {label} {params['fromDate']}~{params['toDate']}: {resp.status_code}", flush=True)
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001
+            print(f"      JSON 아님: {(resp.text or '')[:300]!r}", flush=True)
+            continue
+
+        rows = payload.get("dataList") or []
+        print(
+            f"      resultOk={payload.get('resultOk')} "
+            f"resultCode={payload.get('resultCode')} "
+            f"message={payload.get('message')!r} "
+            f"dataListCount={payload.get('dataListCount')}",
+            flush=True,
+        )
+        for row in rows[:8]:
+            print(f"      {row}", flush=True)
+        if rows:
+            print(f"      필드 이름 전체: {sorted(rows[0].keys())}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [P] 진행률 검산 — 일자별 체결량과 분모를 통째로 찍는다
+# ---------------------------------------------------------------------------
+#
+# 화면에 45%가 떴는데 사용자가 다른 화면에서 본 값은 43%였다. 2%p 차이를
+# "날짜가 달라서겠지"로 넘기면 안 된다 — **분자든 분모든 틀렸을 수 있다.**
+#
+# 컨센서스에서 세 번 연속 틀렸을 때도 값이 그럴듯해서 넘어갔다. 여기서는
+# 계산을 요약하지 않고 **일자별 체결량 전부 + 분모 + 나눗셈 결과**를 그대로
+# 찍어서, 사람이 눈으로 검산할 수 있게 한다.
+def _probe_trstk_breakdown() -> None:
+    print("\n[P] 진행률 검산 — 일자별 체결량 전부와 분모", flush=True)
+
+    from . import trstk as trstk_mod
+
+    code, name = "000660", "SK하이닉스"
+
+    # 분모: DART 취득 결정 공시의 취득 예정 수량.
+    key = _api_key()
+    planned_qty = planned_amount = None
+    if key:
+        try:
+            corp_codes = load_corp_codes()
+            row = build_row(code, name, corp_codes.get(code))
+            if row:
+                planned_qty = row.get("planned_qty")
+                planned_amount = row.get("planned_amount")
+                print(
+                    f"  · DART 공시: {row.get('latest_report')} ({row.get('latest_report_date')})",
+                    flush=True,
+                )
+                print(
+                    f"    취득 예정 수량 {planned_qty!r}주 / 금액 {planned_amount!r}원 "
+                    f"/ 기간 {row.get('period_start')} ~ {row.get('period_end')}",
+                    flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x DART 조회 실패: {exc}", flush=True)
+
+    # 분자: 일자별 체결량. 한 줄도 빠짐없이 찍는다.
+    try:
+        trades = trstk_mod.fetch_trades(code, name, date(2026, 8, 1), date.today())
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x 체결내역 조회 실패: {exc}", flush=True)
+        return
+
+    total = 0
+    print(f"\n  · 체결 {len(trades)}일치:", flush=True)
+    for t in trades:
+        total += t["traded_qty"] or 0
+        print(
+            f"      {t['date']}  신청 {t['applied_qty']:>9,}  체결 {t['traded_qty']:>9,}  누적 {total:>10,}",
+            flush=True,
+        )
+
+    print(f"\n  · 누적 체결 {total:,}주", flush=True)
+    if planned_qty:
+        pct = total / float(planned_qty) * 100.0
+        print(f"  · {total:,} / {int(planned_qty):,} = {pct:.2f}%", flush=True)
+    else:
+        print("  · 분모(취득 예정 수량)를 못 받아 진행률을 낼 수 없다", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -19,12 +19,14 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
 from . import broker_flow as broker_mod
 from . import buyback as buyback_mod
+from . import trstk as trstk_mod
 from . import consensus as consensus_mod
 from . import investor_flow as flow_mod
 from .db import ScreenerDB
@@ -38,6 +40,8 @@ MAX_CONSENSUS_TICKERS = 40
 MAX_BUYBACK_TICKERS = 40
 # 거래원은 자사주 프로그램이 진행 중인 종목만 본다 — 전 종목을 훑을 이유가 없다.
 MAX_BROKER_TICKERS = 30
+# 체결내역은 종목당 페이지 1~2회로 끝나지만 KIND가 403을 주는 소스라 넉넉히 잡지 않는다.
+MAX_TRSTK_TICKERS = 30
 
 FLOW_DAYS = 60
 
@@ -175,6 +179,16 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
     # 거래원은 **자사주보다 나중에 추가된 기능**이라 broker_trading 표가 아직 없을 수
     # 있다(마이그레이션 전). 그 경우에도 자사주 본체는 저장돼야 하므로 따로 감싼다 —
     # 안 그러면 부가 기능 하나 때문에 이미 받아 둔 공시 정보가 통째로 날아간다.
+    # **확정 체결내역이 먼저다.** KIND가 일자별 체결수량을 그대로 주므로, 이게 있으면
+    # 창구 추정은 쓸 이유가 없다. 다만 종목·기간에 따라 없을 수 있어 추정도 계속 받는다.
+    try:
+        _collect_trstk(db, rows)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  체결내역 수집 실패(자사주 본체는 계속 저장): {exc}", flush=True)
+        for row in rows:
+            for key in _TRSTK_KEYS:
+                row.pop(key, None)
+
     try:
         _collect_broker_trading(db, rows, closes)
         _attach_estimated_progress(db, rows)
@@ -198,6 +212,49 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
     print(f"  → {len(rows)}개 저장, 자사주 공시 없음 {no_program}개, 실패 {len(failures)}건", flush=True)
     if failures:
         print(f"  사유 예: {'; '.join(failures[:3])}", flush=True)
+
+
+_TRSTK_KEYS = ("confirmed_qty", "confirmed_progress_pct", "confirmed_days", "confirmed_through")
+
+
+def _collect_trstk(db: ScreenerDB, buyback_rows: list[dict]) -> None:
+    """KIND 자기주식 체결내역을 받아 저장하고, 확정 진행률을 행에 붙인다.
+
+    **취득 기간 시작일부터 매번 다시 받는다.** 소급이 되는 소스라 그래도 되고,
+    그래야 수집이 며칠 끊겨도 구멍이 저절로 메워진다 — 거래원(`broker_flow.py`)이
+    그날 못 받으면 영영 구멍인 것과 결정적으로 다른 점이다.
+    """
+    picked = [r for r in buyback_rows if r.get("period_start")][:MAX_TRSTK_TICKERS]
+    if not picked:
+        return
+    print(f"  체결내역 수집 ({len(picked)}개)...", flush=True)
+
+    session = trstk_mod.open_session()
+    saved = 0
+    failures: list[str] = []
+    try:
+        for row in picked:
+            ticker, name = row["ticker"], row.get("name") or row["ticker"]
+            try:
+                start = date.fromisoformat(row["period_start"])
+            except (TypeError, ValueError):
+                continue
+            try:
+                trades = trstk_mod.fetch_trades(ticker, name, start, date.today(), session=session)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{ticker}: {exc}")
+                continue
+            if not trades:
+                continue
+            db.save_buyback_trades(trades)
+            row.update(trstk_mod.summarize(trades, row.get("planned_qty")))
+            saved += len(trades)
+    finally:
+        session.close()
+
+    print(f"    → 체결 {saved}행 저장, 실패 {len(failures)}건", flush=True)
+    if failures:
+        print(f"    사유 예: {'; '.join(failures[:3])}", flush=True)
 
 
 def _collect_broker_trading(db: ScreenerDB, buyback_rows: list[dict], closes: dict[str, float]) -> None:
@@ -273,9 +330,62 @@ def _existing_buyback_tickers(db: ScreenerDB) -> list[str]:
     return [r["ticker"] for r in (resp.data or [])]
 
 
+def run_trstk_only(db: ScreenerDB) -> None:
+    """체결내역만 다시 받아 확정 진행률을 갱신한다 (저녁 2차 실행용).
+
+    **왜 따로 도는가.** 당일 체결수량은 **18시 이후**에 공시된다. 본 수집이 도는
+    17:30에는 아직 없으므로, 한 번만 돌면 확정 진행률이 **영구히 하루씩 밀린다**.
+    그렇다고 본 수집을 18시 뒤로 미룰 수도 없다 — 거래원(`broker_flow.py`)은
+    시간대를 타서 17:07에는 표를 주고 21:57에는 안 준다(2026-09-10 실측). 한쪽을
+    맞추면 다른 쪽이 깨지는 구조라 **두 번 도는 것이 맞다.**
+
+    이 실행은 종목 선정·공시 조회를 다시 하지 않는다. 이미 저장된 `stock_buyback`을
+    읽어 체결내역만 새로 받으므로 요청이 적다(KIND는 403을 주는 소스다).
+    """
+    rows = _buyback_rows_for_trstk(db)
+    if not rows:
+        print("체결내역 재수집 생략: 진행 중인 자사주 프로그램이 없음", flush=True)
+        return
+    print(f"체결내역 재수집 ({len(rows)}개 대상)...", flush=True)
+
+    _collect_trstk(db, rows)
+    # 확정 열만 갱신한다. 공시 본문을 다시 안 받았으므로 나머지 열은 건드리지 않는다 —
+    # 부분 upsert가 되도록 PK와 confirmed_* 만 담아 보낸다.
+    updates = [
+        {k: r[k] for k in ("market", "ticker", *_TRSTK_KEYS) if k in r}
+        for r in rows
+        if r.get("confirmed_qty") is not None
+    ]
+    if updates:
+        db.save_buyback(updates)
+    print(f"  → {len(updates)}개 종목 확정 진행률 갱신", flush=True)
+
+
+def _buyback_rows_for_trstk(db: ScreenerDB) -> list[dict]:
+    """체결내역을 받을 종목. 이미 저장된 자사주 스냅샷에서 읽는다."""
+    try:
+        resp = (
+            db.client.table("stock_buyback")
+            .select("market, ticker, name, period_start, planned_qty, is_disposal")
+            .eq("market", "KR")
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  자사주 스냅샷 조회 실패: {exc}", flush=True)
+        return []
+    # 처분 프로그램은 진행률의 대상이 아니다(매입량을 재는 화면이다).
+    return [r for r in (resp.data or []) if r.get("period_start") and not r.get("is_disposal")]
+
+
 def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
+
+    # 저녁 2차 실행은 체결내역만 갱신한다(위 run_trstk_only 주석 참고).
+    if "--trstk-only" in sys.argv:
+        run_trstk_only(db)
+        print("체결내역 재수집 완료", flush=True)
+        return
 
     targets = _target_tickers(db)
     if not targets:

@@ -3,6 +3,8 @@ import { buybackProgress, tradingDaysBetween, MIN_ESTIMATE_COVERAGE } from './bu
 
 function row(over: Record<string, unknown> = {}) {
   return {
+    confirmed_progress_pct: null,
+    confirmed_days: null,
     amount_progress_pct: null,
     estimated_progress_pct: null,
     period_progress_pct: null,
@@ -28,6 +30,39 @@ describe('tradingDaysBetween', () => {
 })
 
 describe('buybackProgress', () => {
+  it('거래소 체결내역이 있으면 다른 근거를 전부 제친다', () => {
+    // KRX KIND가 일자별 체결수량을 공시하므로 진행 중에도 확정치를 쓸 수 있다.
+    // 결과보고서(amount)를 기다릴 필요도, 창구로 추정할 필요도 없다.
+    const r = buybackProgress(
+      row({
+        confirmed_progress_pct: 43,
+        confirmed_days: 17,
+        amount_progress_pct: 42,
+        estimated_progress_pct: 90,
+        period_progress_pct: 23,
+      }),
+      '2026-09-11',
+    )
+    expect(r.basis).toMatchObject({ pct: 43, kind: 'confirmed', measuresPurchase: true })
+    expect(r.basis?.label).toContain('17일')
+  })
+
+  it('체결내역은 소급되므로 관측 커버리지를 따지지 않는다', () => {
+    // 거래원(estimated)과 결정적으로 다른 점이다 — 취득 시작 직후 조회해도
+    // 8/20부터의 전 구간이 한 번에 오므로 "하루만 봤다"는 상태가 없다.
+    const r = buybackProgress(
+      row({
+        confirmed_progress_pct: 43,
+        confirmed_days: 1,
+        period_start: '2026-08-20',
+        observed_days: 1,
+      }),
+      '2026-09-11',
+    )
+    expect(r.basis?.kind).toBe('confirmed')
+    expect(r.estimateUnderObserved).toBe(false)
+  })
+
   it('확정치가 있으면 무조건 그걸 쓴다', () => {
     const r = buybackProgress(
       row({ amount_progress_pct: 42, estimated_progress_pct: 90, period_progress_pct: 10 }),

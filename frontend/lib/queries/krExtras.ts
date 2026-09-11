@@ -73,7 +73,7 @@ export async function getBuyback(ticker: string): Promise<BuybackRow | null> {
     supabase
       .from('stock_buyback')
       .select(
-        'market, ticker, name, latest_report, latest_report_date, latest_report_url, is_disposal, planned_amount, planned_qty, acquired_amount, amount_progress_pct, period_progress_pct, period_start, period_end, disclosure_count, broker, estimated_qty, estimated_amount, estimated_progress_pct, observed_days',
+        'market, ticker, name, latest_report, latest_report_date, latest_report_url, is_disposal, planned_amount, planned_qty, acquired_amount, amount_progress_pct, period_progress_pct, period_start, period_end, disclosure_count, broker, estimated_qty, estimated_amount, estimated_progress_pct, observed_days, confirmed_qty, confirmed_progress_pct, confirmed_days, confirmed_through',
       )
       .eq('market', 'KR')
       .eq('ticker', ticker)
@@ -109,7 +109,7 @@ export type KrExtrasSummary = {
   buyback: 'buy' | 'sell' | null
   /** 자사주 진행률과 그 근거 — 근거를 같이 넘겨야 배지에 "추정"을 표시할 수 있다 */
   buybackPct: number | null
-  buybackBasis: 'amount' | 'estimated' | 'period' | null
+  buybackBasis: 'confirmed' | 'amount' | 'estimated' | 'period' | null
   /** 창구 추정치가 있는데 관측이 모자라 대표로 못 쓴 상태. 배지가 이를 밝혀야 한다. */
   buybackUnderObserved: boolean
   /** `buybackPct`가 "회사가 얼마나 샀나"인가. false면 달력 경과율일 뿐이다. */
@@ -175,6 +175,8 @@ export async function getKrExtrasSummaries(
     safeSelect<{
       ticker: string
       is_disposal: boolean
+      confirmed_progress_pct: number | null
+      confirmed_days: number | null
       amount_progress_pct: number | null
       estimated_progress_pct: number | null
       period_progress_pct: number | null
@@ -185,7 +187,7 @@ export async function getKrExtrasSummaries(
       supabase
         .from('stock_buyback')
         .select(
-          'ticker, is_disposal, amount_progress_pct, estimated_progress_pct, period_progress_pct, period_start, observed_days, broker',
+          'ticker, is_disposal, confirmed_progress_pct, confirmed_days, amount_progress_pct, estimated_progress_pct, period_progress_pct, period_start, observed_days, broker',
         )
         .eq('market', 'KR')
         .in('ticker', tickers),
