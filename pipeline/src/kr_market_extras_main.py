@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -329,9 +330,62 @@ def _existing_buyback_tickers(db: ScreenerDB) -> list[str]:
     return [r["ticker"] for r in (resp.data or [])]
 
 
+def run_trstk_only(db: ScreenerDB) -> None:
+    """체결내역만 다시 받아 확정 진행률을 갱신한다 (저녁 2차 실행용).
+
+    **왜 따로 도는가.** 당일 체결수량은 **18시 이후**에 공시된다. 본 수집이 도는
+    17:30에는 아직 없으므로, 한 번만 돌면 확정 진행률이 **영구히 하루씩 밀린다**.
+    그렇다고 본 수집을 18시 뒤로 미룰 수도 없다 — 거래원(`broker_flow.py`)은
+    시간대를 타서 17:07에는 표를 주고 21:57에는 안 준다(2026-09-10 실측). 한쪽을
+    맞추면 다른 쪽이 깨지는 구조라 **두 번 도는 것이 맞다.**
+
+    이 실행은 종목 선정·공시 조회를 다시 하지 않는다. 이미 저장된 `stock_buyback`을
+    읽어 체결내역만 새로 받으므로 요청이 적다(KIND는 403을 주는 소스다).
+    """
+    rows = _buyback_rows_for_trstk(db)
+    if not rows:
+        print("체결내역 재수집 생략: 진행 중인 자사주 프로그램이 없음", flush=True)
+        return
+    print(f"체결내역 재수집 ({len(rows)}개 대상)...", flush=True)
+
+    _collect_trstk(db, rows)
+    # 확정 열만 갱신한다. 공시 본문을 다시 안 받았으므로 나머지 열은 건드리지 않는다 —
+    # 부분 upsert가 되도록 PK와 confirmed_* 만 담아 보낸다.
+    updates = [
+        {k: r[k] for k in ("market", "ticker", *_TRSTK_KEYS) if k in r}
+        for r in rows
+        if r.get("confirmed_qty") is not None
+    ]
+    if updates:
+        db.save_buyback(updates)
+    print(f"  → {len(updates)}개 종목 확정 진행률 갱신", flush=True)
+
+
+def _buyback_rows_for_trstk(db: ScreenerDB) -> list[dict]:
+    """체결내역을 받을 종목. 이미 저장된 자사주 스냅샷에서 읽는다."""
+    try:
+        resp = (
+            db.client.table("stock_buyback")
+            .select("market, ticker, name, period_start, planned_qty, is_disposal")
+            .eq("market", "KR")
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  자사주 스냅샷 조회 실패: {exc}", flush=True)
+        return []
+    # 처분 프로그램은 진행률의 대상이 아니다(매입량을 재는 화면이다).
+    return [r for r in (resp.data or []) if r.get("period_start") and not r.get("is_disposal")]
+
+
 def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
+
+    # 저녁 2차 실행은 체결내역만 갱신한다(위 run_trstk_only 주석 참고).
+    if "--trstk-only" in sys.argv:
+        run_trstk_only(db)
+        print("체결내역 재수집 완료", flush=True)
+        return
 
     targets = _target_tickers(db)
     if not targets:
