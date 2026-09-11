@@ -28,8 +28,10 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
 from datetime import date, timedelta
+from urllib.parse import urljoin
 import zipfile
 
 import pandas as pd
@@ -265,6 +267,109 @@ def _probe_krx_broker_history() -> None:
         print(f"      첫 행={dict(list(rows[0].items())[:8])}", flush=True)
 
 
+# ============================================================
+# KRX KIND — 자기주식매매 신청/체결내역
+# ============================================================
+#
+# **이게 진짜 소스다.** raoni.xyz 화면의 출처 표기가 "KRX KIND 자기주식매매
+# 신청/체결내역 공시"였다(2026-09-11 사용자 제보). 거기엔 일자별 신청·체결 수량이
+# 그대로 공시된다 — 창구 순매수로 추정할 필요가 없고 **소급도 된다**.
+# 실제로 그 화면은 SK하이닉스 누적 43.0%(10,350,000/24,070,000주)를 보여줬다.
+#
+# ## 왜 HTML만 뒤지면 안 되는가
+#
+# 처음엔 KIND 페이지 HTML에서 `.do` 경로만 정규식으로 뽑았다. 그런데 **데이터
+# 주소는 HTML이 아니라 페이지가 불러오는 .js 안에 적혀 있는 게 보통**이다
+# (2026-09-11 지적받음). 확장자를 .do로 좁힌 것도 실수였다 — KRX 계열은
+# data.krx의 getJsonData.cmd처럼 .cmd도 쓴다.
+#
+# 그래서 이 프로브는 (1) 확장자를 넓게 잡고 (2) **페이지가 부르는 .js를 직접
+# 받아서 그 안을 뒤진다**.
+_KIND_HEADERS = {
+    "User-Agent": HEADERS["User-Agent"],
+    "Referer": "https://kind.krx.co.kr/",
+    "Accept": "text/html,application/xhtml+xml,*/*",
+}
+
+_KIND_PAGES = [
+    ("루트", "https://kind.krx.co.kr/"),
+    ("PC 메인", "https://kind.krx.co.kr/main.do"),
+    ("모바일", "https://mkind.krx.co.kr/"),
+]
+
+# .do만 찾으면 .js·.json·.cmd 경로를 통째로 놓친다.
+_ENDPOINT_RE = re.compile(r"[\w./-]+\.(?:do|js|json|cmd|jsp)\b")
+_SCRIPT_SRC_RE = re.compile(r"""<script[^>]+src=['"]([^'"]+)['"]""", re.I)
+
+# 자기주식 화면을 가리킬 만한 조각들. .js 안에서 이걸 찾는다.
+_OWN_HINTS = ("tsstk", "ownstock", "own_stock", "자기주식", "자사주", "acqstk", "trtstk")
+
+_JS_FETCH_LIMIT = 25
+
+
+def _fetch_text(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=_KIND_HEADERS, timeout=25)
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        print(f"      x {url}: {exc}", flush=True)
+        return None
+    if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+        resp.encoding = "utf-8"
+    return resp.text or ""
+
+
+def _probe_kind() -> None:
+    print("\n[E] KRX KIND — 페이지 + 스크립트(.js)에서 실제 경로 찾기", flush=True)
+
+    endpoints: set[str] = set()
+    scripts: set[str] = set()
+
+    for label, url in _KIND_PAGES:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        print(f"  · {label}: {len(text):,}자", flush=True)
+        # 짧으면 안내·리다이렉트 셸이다. 통째로 찍어 확정한다.
+        if len(text) < 2500:
+            print(f"      본문: {text[:1200]!r}", flush=True)
+
+        endpoints.update(_ENDPOINT_RE.findall(text))
+        for src in _SCRIPT_SRC_RE.findall(text):
+            scripts.add(urljoin(url, src))
+
+    print(f"  o 페이지에서 찾은 경로 {len(endpoints)}개, 스크립트 {len(scripts)}개", flush=True)
+
+    # **여기가 핵심이다.** 데이터 주소는 대개 .js 안에 있다.
+    hit_count = 0
+    for script_url in sorted(scripts)[:_JS_FETCH_LIMIT]:
+        text = _fetch_text(script_url)
+        if text is None:
+            continue
+        found = _ENDPOINT_RE.findall(text)
+        hints = [h for h in _OWN_HINTS if h in text.lower()]
+        if not hints and not found:
+            continue
+        print(f"  · {script_url.rsplit('/', 1)[-1]}: {len(text):,}자, 경로 {len(set(found))}개, 힌트={hints or '없음'}", flush=True)
+        endpoints.update(found)
+        for hint in hints:
+            index = text.lower().find(hint)
+            print(f"      '{hint}' 주변: {text[max(0, index-250):index+250]!r}", flush=True)
+            hit_count += 1
+            break
+
+    by_ext: dict[str, list[str]] = {}
+    for path in sorted(endpoints):
+        by_ext.setdefault(path.rsplit(".", 1)[-1], []).append(path)
+    for ext, paths in sorted(by_ext.items()):
+        print(f"  o .{ext} {len(paths)}개: {paths[:30]}", flush=True)
+
+    own = sorted(p for p in endpoints if any(k in p.lower() for k in _OWN_HINTS))
+    print(f"  o 자기주식 후보 경로: {own[:30]}", flush=True)
+    if not endpoints:
+        print("  - 아무 경로도 못 찾음 — 받은 게 전부 안내/리다이렉트 셸이라는 뜻", flush=True)
+
+
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
@@ -272,6 +377,7 @@ def main() -> int:
     _probe_broker_windows()
     _probe_broker_parser()
     _probe_krx_broker_history()
+    _probe_kind()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
