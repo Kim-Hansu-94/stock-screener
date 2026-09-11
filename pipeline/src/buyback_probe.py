@@ -455,6 +455,7 @@ def main() -> int:
     _probe_kind()
     _probe_kind_bundles()
     _probe_kind_pc_menu()
+    _probe_acptno()
     _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -648,6 +649,116 @@ def _probe_kind_pc_menu() -> None:
 
     own = {p: q for p, q in all_links.items() if any(k in p.lower() for k in _OWN_HINTS_H)}
     print(f"  o 자기주식으로 보이는 경로: {own or '없음'}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [J] 접수번호(acptNo)에서 출발한다 — 사용자가 실제로 열리는 주소를 줬다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11, 사용자가 이 주소에서 자기주식매매 내역이 보인다고 알려줬다:
+#
+#   kind.krx.co.kr/common/disclsviewer.do?method=searchInitInfo&acptNo=20260826000780
+#
+# 여기서 두 가지가 바로 읽힌다.
+#
+# 1. **PC KIND는 살아 있다.** 다만 `?method=`를 줘야 열린다 — `main.do`를
+#    맨손으로 불러 '페이지 오류'를 받고 "막혔다"고 결론 낸 게 틀렸던 것이다.
+# 2. **접수번호가 `YYYYMMDD`+일련번호 6자리다.** 20260826 + 000780.
+#    이건 DART의 `rcept_no`와 **같은 형식**이다.
+#
+# 2번이 핵심이다. 형식만 같은 게 아니라 **같은 번호 체계라면**, 지금 쓰는
+# DART_API_KEY로 `document.xml?rcept_no=...`를 불러 원문을 그대로 받을 수 있다
+# (이 경로는 2026-09-10 프로브에서 이미 응답을 확인했다). 그러면 KIND를
+# 뚫을 필요 자체가 없어진다.
+#
+# 그리고 앞선 "DART에는 없다"는 결론도 다시 봐야 한다. 그때는 필터 없이
+# 목록을 받았다고 생각했지만, DART `list.json`에는 **공시유형(`pblntf_ty`)**이
+# 있고 **`I`가 거래소공시**다. 기본 목록이 거래소공시를 빼고 준다면 자기주식
+# 매매내역은 애초에 보이지 않았을 것이다. 그래서 여기서 `I`를 명시해 다시 묻는다.
+#
+# 날짜마다 훑는 방법(사용자 제안)은 마지막 수단으로 남긴다 — 일련번호가
+# 6자리라 날짜당 최대 100만 번이라 그대로는 못 쓴다. **목록을 주는 경로를
+# 찾는 게 먼저다.**
+_USER_ACPT_NO = "20260826000780"
+
+
+def _probe_acptno() -> None:
+    print("\n[J] 접수번호에서 출발 — KIND acptNo가 DART rcept_no와 같은가", flush=True)
+
+    key = _api_key()
+    if not key:
+        print("  - DART_API_KEY 없음 — 건너뜀", flush=True)
+        return
+
+    # J1. 사용자가 준 접수번호를 DART 원문 API에 그대로 넣어 본다.
+    #     성공하면 KIND를 뚫을 필요가 없다.
+    print(f"  · DART document.xml ← acptNo {_USER_ACPT_NO}", flush=True)
+    try:
+        resp = requests.get(
+            _DOCUMENT_URL,
+            params={"crtfc_key": key, "rcept_no": _USER_ACPT_NO},
+            timeout=TIMEOUT,
+        )
+        ctype = resp.headers.get("Content-Type", "?")
+        print(f"      {resp.status_code} {ctype} {len(resp.content):,}바이트", flush=True)
+        if "xml" in ctype and len(resp.content) < 2000:
+            # 에러는 XML 한 줄로 온다(status/message).
+            print(f"      본문: {resp.text[:400]!r}", flush=True)
+        else:
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                for name in zf.namelist():
+                    raw = zf.read(name)
+                    text = raw.decode("utf-8", errors="replace")
+                    print(f"      · {name}: {len(text):,}자", flush=True)
+                    for hint in ("자기주식", "체결", "신청", "수량"):
+                        idx = text.find(hint)
+                        if idx >= 0:
+                            print(f"          '{hint}' 주변: {text[max(0, idx-200):idx+300]!r}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"      x {exc}", flush=True)
+
+    # J2. 거래소공시(pblntf_ty=I)를 명시해서 목록을 다시 받는다.
+    #     "DART에 없다"던 결론이 필터 탓이었는지 확인하는 자리다.
+    corp_codes = load_corp_codes()
+    begin = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+    today = date.today().strftime("%Y%m%d")
+    for code, name in _SAMPLES:
+        corp = corp_codes.get(code)
+        if not corp:
+            print(f"  - {name}({code}): corp_code 없음", flush=True)
+            continue
+        for ty, label in (("I", "거래소공시"), (None, "전체")):
+            params = {
+                "crtfc_key": key,
+                "corp_code": corp,
+                "bgn_de": begin,
+                "end_de": today,
+                "page_count": 100,
+            }
+            if ty:
+                params["pblntf_ty"] = ty
+            try:
+                payload = _dart_get("list", params)
+            except Exception as exc:  # noqa: BLE001
+                print(f"  x {name} {label}: {exc}", flush=True)
+                continue
+            rows = payload.get("list") or []
+            print(f"  · {name} {label}: {payload.get('status')} {len(rows)}건", flush=True)
+            for row in rows[:25]:
+                print(f"      {row.get('rcept_no')} {row.get('rcept_dt')} | {row.get('report_nm')}", flush=True)
+
+    # J3. KIND 뷰어 자체도 두드린다. 열리면 본문을 어디서 가져오는지가 보인다.
+    viewer = (
+        "https://kind.krx.co.kr/common/disclsviewer.do"
+        f"?method=searchInitInfo&acptNo={_USER_ACPT_NO}"
+    )
+    text = _fetch_text(viewer)
+    if text is None:
+        return
+    print(f"  · KIND 뷰어: {len(text):,}자 ('페이지 오류' {'있음' if '페이지 오류' in text else '없음'})", flush=True)
+    for hint in ("자기주식", "acptNo", "docNo", "viewer", "searchContents"):
+        idx = text.find(hint)
+        if idx >= 0:
+            print(f"      '{hint}' 주변: {text[max(0, idx-300):idx+300]!r}", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
