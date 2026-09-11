@@ -467,7 +467,7 @@ def main() -> int:
         _probe_treasury_screens()
         _probe_dart_all_disclosures()
     else:
-        _probe_trstk_params()
+        _probe_trstk_call()
 
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -1117,6 +1117,102 @@ def _probe_trstk_params() -> None:
         half = _TRSTK_CALL_WINDOW // 2
         print(f"\n  — {label} 호출부 —", flush=True)
         print(unescaped[max(0, idx - half):idx + half], flush=True)
+
+# ---------------------------------------------------------------------------
+# [O] 조건을 실제로 넣어 본다 — SK하이닉스 8/20 이후 체결내역
+# ---------------------------------------------------------------------------
+#
+# [N]에서 화면 소스가 조회 방법을 통째로 보여줬다(2026-09-11 실측, 원문 그대로):
+#
+#     function searchTrstkList(async){
+#         var param = {
+#                 marketType : $("#marketType").val()
+#                 , corpName : $("#corpName").val()
+#                 , repIsuSrtCd : $("#repIsuSrtCd").val()
+#                 , fromDate : $("#fromDate").val()
+#                 , toDate : $("#toDate").val()
+#                 , pageNo: currPageIdx
+#         };
+#         commonAjax("/api/trstk/traded", "get", param, async, searchCallBack);
+#     }
+#
+# 응답 필드도 같은 자리에 있었다 — `item.trd_dd`(매매일),
+# `item.trstk_appl_qty`(신청수량), `item.trstk_acqstdisp_tp_cd`(1=취득/2=처분/0=신탁).
+# 표 머리글은 `['매매일','회사명','취득/처분','신청수량','체결수량']`이다.
+#
+# **아직 모르는 것은 날짜 형식 하나뿐이다.** 화면이 `dateWithDash(item.trd_dd)`로
+# 대시를 붙여 표시하므로 응답은 `20260820`일 가능성이 높지만, 입력(fromDate)이
+# 같은 형식인지는 확인된 바 없다. 그래서 **두 형식을 다 넣어 본다** — 어느 쪽이
+# 값을 주는지는 응답이 말해 준다.
+#
+# 요청은 4번을 넘기지 않는다(쿠키 1 + 화면 1 + 조회 2). 2026-09-11에 한 실행에서
+# 130번을 두드려 403을 맞은 적이 있다.
+_TRSTK_TARGET = ("000660", "SK하이닉스")
+_TRSTK_FROM = "20260820"   # 취득 시작일
+_DATE_FORMATS = [
+    ("대시 없음", lambda d: d),
+    ("대시 있음", lambda d: f"{d[:4]}-{d[4:6]}-{d[6:]}"),
+]
+
+
+def _probe_trstk_call() -> None:
+    print("\n[O] 조건을 넣어 실제 조회 — SK하이닉스 체결내역", flush=True)
+
+    code, name = _TRSTK_TARGET
+    today = date.today().strftime("%Y%m%d")
+
+    session = _browser_session()
+    if _polite_get(session, "https://mkind.krx.co.kr/main", referer="https://www.google.com/") is None:
+        return
+    page_url = "https://mkind.krx.co.kr/trstk-traded"
+    if _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main") is None:
+        return
+    print(f"  · 쿠키: {list(session.cookies.keys())}", flush=True)
+
+    for label, fmt in _DATE_FORMATS:
+        params = {
+            "marketType": "",
+            "corpName": name,
+            "repIsuSrtCd": code,
+            "fromDate": fmt(_TRSTK_FROM),
+            "toDate": fmt(today),
+            "pageNo": 1,
+        }
+        time.sleep(_PAUSE_SECONDS)
+        try:
+            resp = session.get(
+                "https://mkind.krx.co.kr/api/trstk/traded",
+                params=params,
+                headers={
+                    "Referer": page_url,
+                    "Accept": "application/json, text/plain, */*",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=25,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {label}: {exc}", flush=True)
+            continue
+
+        print(f"\n  · {label} {params['fromDate']}~{params['toDate']}: {resp.status_code}", flush=True)
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001
+            print(f"      JSON 아님: {(resp.text or '')[:300]!r}", flush=True)
+            continue
+
+        rows = payload.get("dataList") or []
+        print(
+            f"      resultOk={payload.get('resultOk')} "
+            f"resultCode={payload.get('resultCode')} "
+            f"message={payload.get('message')!r} "
+            f"dataListCount={payload.get('dataListCount')}",
+            flush=True,
+        )
+        for row in rows[:8]:
+            print(f"      {row}", flush=True)
+        if rows:
+            print(f"      필드 이름 전체: {sorted(rows[0].keys())}", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
