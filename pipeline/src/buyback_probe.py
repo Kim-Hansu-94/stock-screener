@@ -454,14 +454,13 @@ def main() -> int:
     _probe_krx_broker_history()
     _probe_kind()
     _probe_kind_bundles()
+    _probe_kind_pc_menu()
     _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
 
 
 # ---------------------------------------------------------------------------
@@ -584,3 +583,71 @@ def _probe_kind_bundles() -> None:
             f"    {resp.status_code} {resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
             flush=True,
         )
+
+# ---------------------------------------------------------------------------
+# [I] PC KIND 정식 입구 — 메뉴 HTML에 전체 화면 목록이 있다
+# ---------------------------------------------------------------------------
+#
+# [H]까지의 실측으로 갈래가 갈렸다(2026-09-11).
+#
+# - `kind.krx.co.kr/` 루트는 **UserAgent 분기 스크립트**만 준다(2,149자).
+# - `main.do`를 파라미터 없이 부르면 **"페이지 오류"**다(1,472자). 404가 아니라
+#   200이라 "살아 있다"고 착각하기 쉬운데, 실제로는 안내 페이지다.
+# - 반면 **모바일(mkind)은 살아 있다** — `/main`이 29,682자를 주고 거기서
+#   `/disclosures-today` 같은 라우트와 `/api/...` 11개가 나왔다.
+#
+# 그래서 PC KIND는 **파라미터를 줘야 여는 구형 JSP 앱**이라고 보는 게 맞다
+# (`.do?method=...`). 이게 사실이라면 **메뉴 HTML에 전체 화면 목록이 그대로
+# 들어 있다** — SPA와 달리 서버가 다 그려서 주기 때문이다. 그러면 메뉴에
+# 노출되지 않는 자기주식 화면도 링크로는 남아 있을 가능성이 높다.
+_PC_ENTRIES = [
+    ("메인(초기화)", "https://kind.krx.co.kr/main.do?method=loadInitPage"),
+    ("오늘의 공시", "https://kind.krx.co.kr/disclosure/todaydisclosure.do?method=searchTodayDisclosureMain"),
+    ("공시 상세검색", "https://kind.krx.co.kr/disclosure/details.do?method=searchDetailsMain"),
+    ("전체 통합검색", "https://kind.krx.co.kr/disclosure/searchtotalinfo.do?method=searchTotalInfoMain"),
+    ("상장법인 상세", "https://kind.krx.co.kr/corpgeneral/corpList.do?method=loadInitPage"),
+    # 모바일은 살아 있는 게 확인됐으니 라우트를 이어서 판다.
+    ("모바일 오늘공시", "https://mkind.krx.co.kr/disclosures-today"),
+]
+
+# `.do` 링크와 붙어 있는 method 값을 짝지어 뽑는다. 구형 KIND는 이 둘이
+# 한 세트라서 경로만 알아도 못 연다.
+_DO_LINK_RE = re.compile(r"""([\w./-]+\.do)\?([^'"\s>]{0,200})""")
+_PC_HINTS = ("자기주식", "자사주", "신청", "체결", "취득", "처분")
+
+
+def _probe_kind_pc_menu() -> None:
+    print("\n[I] PC KIND 정식 입구 — 메뉴 HTML에서 자기주식 화면 찾기", flush=True)
+
+    all_links: dict[str, set[str]] = {}
+
+    for label, url in _PC_ENTRIES:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        is_error = "페이지 오류" in text
+        hits = [h for h in _PC_HINTS if h in text]
+        print(
+            f"  · {label}: {len(text):,}자 {'[페이지 오류]' if is_error else ''} 힌트={hits or '없음'}",
+            flush=True,
+        )
+        if is_error:
+            continue
+
+        for path, query in _DO_LINK_RE.findall(text):
+            all_links.setdefault(path, set()).add(query[:120])
+
+        # 자기주식 관련 글자 주변을 통째로 찍는다 — 링크·onclick이 거기 붙어 있다.
+        for hint in hits[:2]:
+            idx = text.find(hint)
+            print(f"      '{hint}' 주변: {text[max(0, idx-500):idx+500]!r}", flush=True)
+
+    print(f"\n  o .do 링크 {len(all_links)}개", flush=True)
+    for path, queries in sorted(all_links.items()):
+        print(f"    - {path}  ← {sorted(queries)[:4]}", flush=True)
+
+    own = {p: q for p, q in all_links.items() if any(k in p.lower() for k in _OWN_HINTS_H)}
+    print(f"  o 자기주식으로 보이는 경로: {own or '없음'}", flush=True)
+
+if __name__ == "__main__":
+    sys.exit(main())
