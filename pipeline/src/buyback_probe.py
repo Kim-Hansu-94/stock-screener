@@ -295,10 +295,18 @@ _KIND_PAGES = [
     ("루트", "https://kind.krx.co.kr/"),
     ("PC 메인", "https://kind.krx.co.kr/main.do"),
     ("모바일", "https://mkind.krx.co.kr/"),
+    # 모바일 루트가 meta refresh로 여기를 가리킨다 — **확장자가 없다**(2026-09-11 실측).
+    # requests는 meta refresh를 안 따라가므로 직접 넣어야 한다.
+    ("모바일 메인", "https://mkind.krx.co.kr/main"),
 ]
 
-# .do만 찾으면 .js·.json·.cmd 경로를 통째로 놓친다.
-_ENDPOINT_RE = re.compile(r"[\w./-]+\.(?:do|js|json|cmd|jsp)\b")
+# **확장자로 찾으면 안 된다.** 처음엔 `.do`만, 다음엔 `.do|.js|.json|.cmd`로
+# 넓혔는데 둘 다 틀렸다 — 모바일 KIND는 `/main`처럼 **확장자 없는 경로**를 쓴다
+# (2026-09-11 실측: meta refresh가 `url=/main`이었다). 그래서 확장자는 선택으로
+# 두고, "슬래시로 시작하는 경로처럼 생긴 문자열"을 전부 잡는다.
+_ENDPOINT_RE = re.compile(r"/[\w./-]{2,80}")
+# 정적 리소스는 제외한다 — 이걸 안 빼면 이미지·CSS가 목록을 뒤덮는다.
+_STATIC_EXT = (".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf")
 _SCRIPT_SRC_RE = re.compile(r"""<script[^>]+src=['"]([^'"]+)['"]""", re.I)
 
 # 자기주식 화면을 가리킬 만한 조각들. .js 안에서 이걸 찾는다.
@@ -319,6 +327,19 @@ def _fetch_text(url: str) -> str | None:
     return resp.text or ""
 
 
+def _clean_paths(paths: list[str]) -> set[str]:
+    """정적 리소스·중복을 걷어낸 경로 집합. 확장자 유무는 따지지 않는다."""
+    out: set[str] = set()
+    for path in paths:
+        lowered = path.lower()
+        if lowered.endswith(_STATIC_EXT):
+            continue
+        if lowered.startswith("//") or "://" in lowered:
+            continue
+        out.add(path)
+    return out
+
+
 def _probe_kind() -> None:
     print("\n[E] KRX KIND — 페이지 + 스크립트(.js)에서 실제 경로 찾기", flush=True)
 
@@ -334,9 +355,13 @@ def _probe_kind() -> None:
         if len(text) < 2500:
             print(f"      본문: {text[:1200]!r}", flush=True)
 
-        endpoints.update(_ENDPOINT_RE.findall(text))
+        endpoints.update(_clean_paths(_ENDPOINT_RE.findall(text)))
         for src in _SCRIPT_SRC_RE.findall(text):
             scripts.add(urljoin(url, src))
+        # 확장자 없는 경로는 링크/폼에서도 나온다. 속성값을 따로 긁는다.
+        for attr in re.findall(r"""(?:href|action|src|url)\s*[:=]\s*['"]([^'"]{2,120})['"]""", text, re.I):
+            if attr.startswith("/") or attr.startswith("./") or attr.startswith("../"):
+                endpoints.add(urljoin(url, attr).split("?")[0])
 
     print(f"  o 페이지에서 찾은 경로 {len(endpoints)}개, 스크립트 {len(scripts)}개", flush=True)
 
@@ -346,7 +371,7 @@ def _probe_kind() -> None:
         text = _fetch_text(script_url)
         if text is None:
             continue
-        found = _ENDPOINT_RE.findall(text)
+        found = _clean_paths(_ENDPOINT_RE.findall(text))
         hints = [h for h in _OWN_HINTS if h in text.lower()]
         if not hints and not found:
             continue
@@ -358,11 +383,13 @@ def _probe_kind() -> None:
             hit_count += 1
             break
 
-    by_ext: dict[str, list[str]] = {}
+    # 확장자가 없으니 확장자별로 나누는 건 의미가 없다. 첫 경로 조각으로 묶는다.
+    by_prefix: dict[str, list[str]] = {}
     for path in sorted(endpoints):
-        by_ext.setdefault(path.rsplit(".", 1)[-1], []).append(path)
-    for ext, paths in sorted(by_ext.items()):
-        print(f"  o .{ext} {len(paths)}개: {paths[:30]}", flush=True)
+        parts = [p for p in path.split("/") if p]
+        by_prefix.setdefault(parts[0] if parts else "/", []).append(path)
+    for prefix, paths in sorted(by_prefix.items(), key=lambda kv: -len(kv[1]))[:15]:
+        print(f"  o /{prefix} {len(paths)}개: {paths[:15]}", flush=True)
 
     own = sorted(p for p in endpoints if any(k in p.lower() for k in _OWN_HINTS))
     print(f"  o 자기주식 후보 경로: {own[:30]}", flush=True)
