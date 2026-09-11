@@ -40,6 +40,7 @@ from dotenv import load_dotenv
 
 from . import broker_flow
 from .buyback import _api_key, _disclosure_list, load_corp_codes
+from .buyback import _get as _dart_get
 from .naver_api import HEADERS, TIMEOUT
 
 _SAMPLES = [("000660", "SK하이닉스"), ("005930", "삼성전자")]
@@ -397,6 +398,53 @@ def _probe_kind() -> None:
         print("  - 아무 경로도 못 찾음 — 받은 게 전부 안내/리다이렉트 셸이라는 뜻", flush=True)
 
 
+def _probe_dart_all_disclosures() -> None:
+    """DART에 **최근 공시를 키워드 필터 없이 전부** 나열한다.
+
+    지금까지 자기주식 공시를 '자기주식'·'자사주' 키워드로 걸러서 봤다. 그래서
+    일별 신청/체결 내역이 다른 이름으로 올라오고 있었다면 통째로 놓쳤을 수 있다.
+    이름을 짐작하지 말고 **있는 그대로 다 찍어 본다**.
+    
+    이 통로는 이미 된다는 게 확인돼 있다(list.json·document.xml 모두 지금 키로
+    응답). KIND 주소를 계속 찍어 맞히는 것보다, 되는 통로에 원하는 게 있는지부터
+    보는 게 순서다.
+    """
+    print("\n[G] DART 최근 공시 전체 (키워드 필터 없음)", flush=True)
+    api_key = _api_key()
+    if not api_key:
+        print("  x DART_API_KEY 미설정", flush=True)
+        return
+    try:
+        corp_codes = load_corp_codes()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x corp_code 로드 실패: {exc}", flush=True)
+        return
+
+    begin = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+    for ticker, name in _SAMPLES:
+        corp_code = corp_codes.get(ticker)
+        if not corp_code:
+            continue
+        try:
+            payload = _dart_get(
+                "list",
+                {
+                    "crtfc_key": api_key,
+                    "corp_code": corp_code,
+                    "bgn_de": begin,
+                    "end_de": date.today().strftime("%Y%m%d"),
+                    "page_count": 100,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {name}: {exc}", flush=True)
+            continue
+        rows = payload.get("list") or []
+        print(f"  o {name}({ticker}): 최근 30일 공시 {len(rows)}건", flush=True)
+        for row in rows:
+            print(f"      {row.get('rcept_dt')} | {row.get('report_nm')}", flush=True)
+
+
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
@@ -405,6 +453,7 @@ def main() -> int:
     _probe_broker_parser()
     _probe_krx_broker_history()
     _probe_kind()
+    _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
