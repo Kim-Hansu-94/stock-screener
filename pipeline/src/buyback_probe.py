@@ -467,8 +467,7 @@ def main() -> int:
         _probe_treasury_screens()
         _probe_dart_all_disclosures()
     else:
-        _probe_acptno_identity()
-        _probe_trstk_api()
+        _probe_trstk_params()
 
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -1044,6 +1043,80 @@ def _probe_acptno_identity() -> None:
         print(f"      <{tag}> {value.strip()!r}", flush=True)
     if not heads:
         print(f"      머리 태그 없음 — 앞 1,200자: {text[:1200]!r}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [N] `/api/trstk/*`에 붙일 조건 이름을 찾는다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11 [L] 실측으로 창구가 확정됐다.
+#
+#   GET /api/trstk/traded    → 400 {"resultCode":"E0002","message":"파라미터 검증 실패"}
+#   GET /api/trstk/applied   → 400 (동일)
+#   GET /api/trstk/declared  → 400 (동일)
+#
+# **400은 404와 전혀 다르다.** 틀린 주소(`/api/trstk-traded`)는 404에 HTML 안내가
+# 오는데, 이 셋은 JSON으로 "파라미터 검증 실패"를 돌려줬다 — 주소는 맞고
+# 조건만 빠졌다는 뜻이다.
+#
+# 그리고 [M]에서 확인된 것 하나 더. 사용자가 준 접수번호를 DART에 넣어 나온
+# 문서는 **NH투자증권 투자설명서(일괄신고)**였다. 자기주식매매 내역이 아니다.
+# "KIND 번호와 DART 번호가 같다"고 했던 앞선 판단은 **틀렸고**, DART로 원문을
+# 받는 길은 성립하지 않는다. 목록도 원문도 KIND에서 받아야 한다.
+#
+# 조건 이름은 화면이 들고 있다. 두 군데를 본다.
+#   (1) 호출부 주변 — 화면 HTML·스크립트에서 `/api/trstk/...` 앞뒤를 통째로 찍는다.
+#   (2) 빈 표의 머리글 — 표가 0행으로 왔으니 열 이름이 곧 받게 될 항목 이름이다.
+_TRSTK_CALL_WINDOW = 1800
+
+
+def _probe_trstk_params() -> None:
+    print("\n[N] /api/trstk/* 에 붙일 조건 이름 찾기", flush=True)
+
+    session = _browser_session()
+    warm = _polite_get(session, "https://mkind.krx.co.kr/main", referer="https://www.google.com/")
+    if warm is None:
+        return
+    print(f"  · 쿠키 확보: {list(session.cookies.keys())}", flush=True)
+
+    page_url = "https://mkind.krx.co.kr/trstk-traded"
+    resp = _polite_get(session, page_url, referer="https://mkind.krx.co.kr/main")
+    if resp is None or resp.status_code != 200:
+        print(f"  x 화면을 못 받음: {resp.status_code if resp else '실패'}", flush=True)
+        return
+    html = resp.text or ""
+    print(f"  · 체결내역 화면: {len(html):,}자", flush=True)
+
+    # (2) 빈 표의 머리글 — 받게 될 항목 이름이 그대로 적혀 있다.
+    for match in re.finditer(r"<thead[^>]*>(.*?)</thead>", html, re.S | re.I):
+        cells = re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", match.group(1), re.S | re.I)
+        cleaned = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        print(f"      표 머리글: {[c for c in cleaned if c]}", flush=True)
+
+    # 조회 조건 입력칸도 그대로 조건 이름이다.
+    for tag in re.findall(r"<(?:select|input)[^>]+>", html, re.I):
+        if any(k in tag for k in ('name=', 'id=')):
+            ident = re.findall(r"""(?:name|id)=['"]([\w-]{1,40})['"]""", tag)
+            if ident:
+                print(f"      입력칸: {ident}", flush=True)
+
+    # (1) 호출부 주변 — 화면과 그 화면 스크립트를 같이 본다.
+    targets = [("화면", html)]
+    for src in sorted({urljoin(page_url, x) for x in _SCRIPT_SRC_RE.findall(html)}):
+        if "jquery" in src.lower() or "shiv" in src.lower() or "rMate" in src:
+            continue
+        js_resp = _polite_get(session, src, referer=page_url)
+        if js_resp is None or js_resp.status_code != 200:
+            continue
+        targets.append((src.rsplit("/", 1)[-1], js_resp.text or ""))
+
+    for label, text in targets:
+        unescaped = _unescape_js(text)
+        idx = unescaped.find("/api/trstk/")
+        if idx < 0:
+            continue
+        half = _TRSTK_CALL_WINDOW // 2
+        print(f"\n  — {label} 호출부 —", flush=True)
+        print(unescaped[max(0, idx - half):idx + half], flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
