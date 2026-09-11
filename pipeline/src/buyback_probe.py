@@ -28,8 +28,10 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
 from datetime import date, timedelta
+from urllib.parse import urljoin
 import zipfile
 
 import pandas as pd
@@ -38,6 +40,7 @@ from dotenv import load_dotenv
 
 from . import broker_flow
 from .buyback import _api_key, _disclosure_list, load_corp_codes
+from .buyback import _get as _dart_get
 from .naver_api import HEADERS, TIMEOUT
 
 _SAMPLES = [("000660", "SK하이닉스"), ("005930", "삼성전자")]
@@ -265,6 +268,183 @@ def _probe_krx_broker_history() -> None:
         print(f"      첫 행={dict(list(rows[0].items())[:8])}", flush=True)
 
 
+# ============================================================
+# KRX KIND — 자기주식매매 신청/체결내역
+# ============================================================
+#
+# **이게 진짜 소스다.** raoni.xyz 화면의 출처 표기가 "KRX KIND 자기주식매매
+# 신청/체결내역 공시"였다(2026-09-11 사용자 제보). 거기엔 일자별 신청·체결 수량이
+# 그대로 공시된다 — 창구 순매수로 추정할 필요가 없고 **소급도 된다**.
+# 실제로 그 화면은 SK하이닉스 누적 43.0%(10,350,000/24,070,000주)를 보여줬다.
+#
+# ## 왜 HTML만 뒤지면 안 되는가
+#
+# 처음엔 KIND 페이지 HTML에서 `.do` 경로만 정규식으로 뽑았다. 그런데 **데이터
+# 주소는 HTML이 아니라 페이지가 불러오는 .js 안에 적혀 있는 게 보통**이다
+# (2026-09-11 지적받음). 확장자를 .do로 좁힌 것도 실수였다 — KRX 계열은
+# data.krx의 getJsonData.cmd처럼 .cmd도 쓴다.
+#
+# 그래서 이 프로브는 (1) 확장자를 넓게 잡고 (2) **페이지가 부르는 .js를 직접
+# 받아서 그 안을 뒤진다**.
+_KIND_HEADERS = {
+    "User-Agent": HEADERS["User-Agent"],
+    "Referer": "https://kind.krx.co.kr/",
+    "Accept": "text/html,application/xhtml+xml,*/*",
+}
+
+_KIND_PAGES = [
+    ("루트", "https://kind.krx.co.kr/"),
+    ("PC 메인", "https://kind.krx.co.kr/main.do"),
+    ("모바일", "https://mkind.krx.co.kr/"),
+    # 모바일 루트가 meta refresh로 여기를 가리킨다 — **확장자가 없다**(2026-09-11 실측).
+    # requests는 meta refresh를 안 따라가므로 직접 넣어야 한다.
+    ("모바일 메인", "https://mkind.krx.co.kr/main"),
+]
+
+# **확장자로 찾으면 안 된다.** 처음엔 `.do`만, 다음엔 `.do|.js|.json|.cmd`로
+# 넓혔는데 둘 다 틀렸다 — 모바일 KIND는 `/main`처럼 **확장자 없는 경로**를 쓴다
+# (2026-09-11 실측: meta refresh가 `url=/main`이었다). 그래서 확장자는 선택으로
+# 두고, "슬래시로 시작하는 경로처럼 생긴 문자열"을 전부 잡는다.
+_ENDPOINT_RE = re.compile(r"/[\w./-]{2,80}")
+# 정적 리소스는 제외한다 — 이걸 안 빼면 이미지·CSS가 목록을 뒤덮는다.
+_STATIC_EXT = (".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf")
+_SCRIPT_SRC_RE = re.compile(r"""<script[^>]+src=['"]([^'"]+)['"]""", re.I)
+
+# 자기주식 화면을 가리킬 만한 조각들. .js 안에서 이걸 찾는다.
+_OWN_HINTS = ("tsstk", "ownstock", "own_stock", "자기주식", "자사주", "acqstk", "trtstk")
+
+_JS_FETCH_LIMIT = 25
+
+
+def _fetch_text(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=_KIND_HEADERS, timeout=25)
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        print(f"      x {url}: {exc}", flush=True)
+        return None
+    if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+        resp.encoding = "utf-8"
+    return resp.text or ""
+
+
+def _clean_paths(paths: list[str]) -> set[str]:
+    """정적 리소스·중복을 걷어낸 경로 집합. 확장자 유무는 따지지 않는다."""
+    out: set[str] = set()
+    for path in paths:
+        lowered = path.lower()
+        if lowered.endswith(_STATIC_EXT):
+            continue
+        if lowered.startswith("//") or "://" in lowered:
+            continue
+        out.add(path)
+    return out
+
+
+def _probe_kind() -> None:
+    print("\n[E] KRX KIND — 페이지 + 스크립트(.js)에서 실제 경로 찾기", flush=True)
+
+    endpoints: set[str] = set()
+    scripts: set[str] = set()
+
+    for label, url in _KIND_PAGES:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        print(f"  · {label}: {len(text):,}자", flush=True)
+        # 짧으면 안내·리다이렉트 셸이다. 통째로 찍어 확정한다.
+        if len(text) < 2500:
+            print(f"      본문: {text[:1200]!r}", flush=True)
+
+        endpoints.update(_clean_paths(_ENDPOINT_RE.findall(text)))
+        for src in _SCRIPT_SRC_RE.findall(text):
+            scripts.add(urljoin(url, src))
+        # 확장자 없는 경로는 링크/폼에서도 나온다. 속성값을 따로 긁는다.
+        for attr in re.findall(r"""(?:href|action|src|url)\s*[:=]\s*['"]([^'"]{2,120})['"]""", text, re.I):
+            if attr.startswith("/") or attr.startswith("./") or attr.startswith("../"):
+                endpoints.add(urljoin(url, attr).split("?")[0])
+
+    print(f"  o 페이지에서 찾은 경로 {len(endpoints)}개, 스크립트 {len(scripts)}개", flush=True)
+
+    # **여기가 핵심이다.** 데이터 주소는 대개 .js 안에 있다.
+    hit_count = 0
+    for script_url in sorted(scripts)[:_JS_FETCH_LIMIT]:
+        text = _fetch_text(script_url)
+        if text is None:
+            continue
+        found = _clean_paths(_ENDPOINT_RE.findall(text))
+        hints = [h for h in _OWN_HINTS if h in text.lower()]
+        if not hints and not found:
+            continue
+        print(f"  · {script_url.rsplit('/', 1)[-1]}: {len(text):,}자, 경로 {len(set(found))}개, 힌트={hints or '없음'}", flush=True)
+        endpoints.update(found)
+        for hint in hints:
+            index = text.lower().find(hint)
+            print(f"      '{hint}' 주변: {text[max(0, index-250):index+250]!r}", flush=True)
+            hit_count += 1
+            break
+
+    # 확장자가 없으니 확장자별로 나누는 건 의미가 없다. 첫 경로 조각으로 묶는다.
+    by_prefix: dict[str, list[str]] = {}
+    for path in sorted(endpoints):
+        parts = [p for p in path.split("/") if p]
+        by_prefix.setdefault(parts[0] if parts else "/", []).append(path)
+    for prefix, paths in sorted(by_prefix.items(), key=lambda kv: -len(kv[1]))[:15]:
+        print(f"  o /{prefix} {len(paths)}개: {paths[:15]}", flush=True)
+
+    own = sorted(p for p in endpoints if any(k in p.lower() for k in _OWN_HINTS))
+    print(f"  o 자기주식 후보 경로: {own[:30]}", flush=True)
+    if not endpoints:
+        print("  - 아무 경로도 못 찾음 — 받은 게 전부 안내/리다이렉트 셸이라는 뜻", flush=True)
+
+
+def _probe_dart_all_disclosures() -> None:
+    """DART에 **최근 공시를 키워드 필터 없이 전부** 나열한다.
+
+    지금까지 자기주식 공시를 '자기주식'·'자사주' 키워드로 걸러서 봤다. 그래서
+    일별 신청/체결 내역이 다른 이름으로 올라오고 있었다면 통째로 놓쳤을 수 있다.
+    이름을 짐작하지 말고 **있는 그대로 다 찍어 본다**.
+    
+    이 통로는 이미 된다는 게 확인돼 있다(list.json·document.xml 모두 지금 키로
+    응답). KIND 주소를 계속 찍어 맞히는 것보다, 되는 통로에 원하는 게 있는지부터
+    보는 게 순서다.
+    """
+    print("\n[G] DART 최근 공시 전체 (키워드 필터 없음)", flush=True)
+    api_key = _api_key()
+    if not api_key:
+        print("  x DART_API_KEY 미설정", flush=True)
+        return
+    try:
+        corp_codes = load_corp_codes()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x corp_code 로드 실패: {exc}", flush=True)
+        return
+
+    begin = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+    for ticker, name in _SAMPLES:
+        corp_code = corp_codes.get(ticker)
+        if not corp_code:
+            continue
+        try:
+            payload = _dart_get(
+                "list",
+                {
+                    "crtfc_key": api_key,
+                    "corp_code": corp_code,
+                    "bgn_de": begin,
+                    "end_de": date.today().strftime("%Y%m%d"),
+                    "page_count": 100,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x {name}: {exc}", flush=True)
+            continue
+        rows = payload.get("list") or []
+        print(f"  o {name}({ticker}): 최근 30일 공시 {len(rows)}건", flush=True)
+        for row in rows:
+            print(f"      {row.get('rcept_dt')} | {row.get('report_nm')}", flush=True)
+
+
 def main() -> int:
     load_dotenv()
     print("자사주 실제 매입량 소스 탐색", flush=True)
@@ -272,6 +452,8 @@ def main() -> int:
     _probe_broker_windows()
     _probe_broker_parser()
     _probe_krx_broker_history()
+    _probe_kind()
+    _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
     return 0
