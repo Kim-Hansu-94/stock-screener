@@ -49,6 +49,14 @@ export type BuybackBasis = {
   kind: 'amount' | 'estimated' | 'period'
   /** 화면에 붙일 근거 라벨 */
   label: string
+  /**
+   * 이 값이 **"회사가 얼마나 샀나"인가**. false면 달력이 얼마나 흘렀는지일 뿐이다.
+   *
+   * 이 구분이 없으면 화면이 둘을 같은 진행바로 그린다. 실제로 기간 경과 23%를
+   * 보고 "자사주를 23% 샀구나"로 읽히는 일이 있었다(2026-09-11) — 퍼센트를
+   * 진행률 자리에 놓는 순간 사람은 매입량으로 읽는다.
+   */
+  measuresPurchase: boolean
 }
 
 export type BuybackProgress = {
@@ -81,7 +89,12 @@ export function buybackProgress(row: BuybackLike, today: string): BuybackProgres
 
   if (row.amount_progress_pct != null) {
     return {
-      basis: { pct: row.amount_progress_pct, kind: 'amount', label: '취득 금액 기준 (공시 확정)' },
+      basis: {
+        pct: row.amount_progress_pct,
+        kind: 'amount',
+        label: '취득 금액 기준 (공시 확정)',
+        measuresPurchase: true,
+      },
       estimateUnderObserved: false,
       coverage,
     }
@@ -93,6 +106,7 @@ export function buybackProgress(row: BuybackLike, today: string): BuybackProgres
         pct: row.estimated_progress_pct,
         kind: 'estimated',
         label: `${row.broker ?? '위탁 증권사'} 창구 순매수 기준 (추정)`,
+        measuresPurchase: true,
       },
       estimateUnderObserved: false,
       coverage,
@@ -105,7 +119,9 @@ export function buybackProgress(row: BuybackLike, today: string): BuybackProgres
         ? {
             pct: row.period_progress_pct,
             kind: 'period',
-            label: '취득 기간 기준 (실제 매입량 아님)',
+            // "진행률"이라는 말 자체를 쓰지 않는다 — 이건 달력 이야기다.
+            label: '취득 기간 경과 (매입량 아님)',
+            measuresPurchase: false,
           }
         : null,
     // 추정치가 있는데 대표로 못 쓴 경우에만 단서가 필요하다.

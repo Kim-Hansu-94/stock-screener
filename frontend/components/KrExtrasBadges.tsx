@@ -30,7 +30,7 @@ function Chip({ children, className = '' }: { children: React.ReactNode; classNa
 const BUYBACK_BASIS_LABEL: Record<NonNullable<KrExtrasSummary['buybackBasis']>, string> = {
   amount: '',
   estimated: ' 추정',
-  period: ' 기간',
+  period: '',
 }
 
 export function KrExtrasBadges({
@@ -78,15 +78,21 @@ export function KrExtrasBadges({
 
   if (summary.buyback) {
     const isBuy = summary.buyback === 'buy'
+    // **퍼센트는 "얼마나 샀나"일 때만 붙인다.** 취득 기간 경과율에 %를 달면
+    // 사람은 그걸 매입량으로 읽는다 — 실제로 기간 23%를 보고 "23% 샀구나"로
+    // 읽히는 일이 있었다(2026-09-11). 매입량을 모르면 모른다고 두는 게 낫다.
+    const showPct = summary.buybackMeasuresPurchase && summary.buybackPct !== null
     chips.push(
       <Chip
         key="buyback"
         className={isBuy ? 'bg-primary/10 text-primary' : 'bg-down/10 text-down'}
       >
         자사주 {isBuy ? '매입' : '처분'}
-        {summary.buybackPct !== null &&
-          summary.buybackBasis !== null &&
-          ` ${summary.buybackPct.toFixed(0)}%${BUYBACK_BASIS_LABEL[summary.buybackBasis]}`}
+        {showPct
+          ? ` ${summary.buybackPct!.toFixed(0)}%${
+              summary.buybackBasis ? BUYBACK_BASIS_LABEL[summary.buybackBasis] : ''
+            }`
+          : '중'}
       </Chip>,
     )
   }

@@ -33,7 +33,7 @@ describe('buybackProgress', () => {
       row({ amount_progress_pct: 42, estimated_progress_pct: 90, period_progress_pct: 10 }),
       '2026-09-10',
     )
-    expect(r.basis).toMatchObject({ pct: 42, kind: 'amount' })
+    expect(r.basis).toMatchObject({ pct: 42, kind: 'amount', measuresPurchase: true })
     expect(r.estimateUnderObserved).toBe(false)
   })
 
@@ -50,7 +50,10 @@ describe('buybackProgress', () => {
       }),
       '2026-09-10',
     )
-    expect(r.basis).toMatchObject({ kind: 'period' })
+    // 기간 경과율은 **매입량을 재는 값이 아니다** — 화면이 이걸 진행률처럼 그리면
+    // "23% 샀구나"로 읽힌다(2026-09-11 실제로 그렇게 읽혔다).
+    expect(r.basis).toMatchObject({ kind: 'period', measuresPurchase: false })
+    expect(r.basis?.label).not.toContain('진행률')
     expect(r.estimateUnderObserved).toBe(true)
     expect(r.coverage).toBeLessThan(MIN_ESTIMATE_COVERAGE)
   })
@@ -66,7 +69,7 @@ describe('buybackProgress', () => {
       }),
       '2026-09-10',
     )
-    expect(r.basis).toMatchObject({ pct: 35, kind: 'estimated' })
+    expect(r.basis).toMatchObject({ pct: 35, kind: 'estimated', measuresPurchase: true })
     expect(r.basis?.label).toContain('SK증권')
     expect(r.estimateUnderObserved).toBe(false)
   })

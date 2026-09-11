@@ -135,14 +135,31 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
         <>
           <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
             <div
-              className={`h-full rounded-full ${buyback.is_disposal ? 'bg-down' : 'bg-primary'}`}
+              className={`h-full rounded-full ${
+                // 매입량을 재는 값이 아니면 진행바도 옅게 그린다 — 같은 모양으로
+                // 그리면 "회사가 그만큼 샀다"로 읽힌다.
+                !basis.measuresPurchase
+                  ? 'bg-muted-foreground/30'
+                  : buyback.is_disposal
+                    ? 'bg-down'
+                    : 'bg-primary'
+              }`}
               style={{ width: `${Math.min(Math.max(basis.pct, 0), 100)}%` }}
             />
           </div>
           <p className="mt-0.5 text-xs">
             <span className="font-mono font-semibold">{basis.pct.toFixed(0)}%</span>
-            <span className="ml-1 text-muted-foreground">진행 · {basis.label}</span>
+            <span className="ml-1 text-muted-foreground">
+              {basis.measuresPurchase ? `진행 · ${basis.label}` : basis.label}
+            </span>
           </p>
+          {!basis.measuresPurchase && (
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              <b>이 숫자는 달력이 얼마나 지났는지일 뿐입니다.</b> 회사가 실제로 얼마나 샀는지는
+              아직 이 사이트가 받아오지 못합니다 — 일별 체결 수량은 KRX KIND에 공시되는데
+              수집 경로를 아직 못 뚫었습니다.
+            </p>
+          )}
         </>
       )}
 

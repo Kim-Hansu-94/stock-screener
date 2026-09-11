@@ -112,6 +112,8 @@ export type KrExtrasSummary = {
   buybackBasis: 'amount' | 'estimated' | 'period' | null
   /** 창구 추정치가 있는데 관측이 모자라 대표로 못 쓴 상태. 배지가 이를 밝혀야 한다. */
   buybackUnderObserved: boolean
+  /** `buybackPct`가 "회사가 얼마나 샀나"인가. false면 달력 경과율일 뿐이다. */
+  buybackMeasuresPurchase: boolean
 }
 
 function emptySummary(): KrExtrasSummary {
@@ -126,6 +128,7 @@ function emptySummary(): KrExtrasSummary {
     buybackPct: null,
     buybackBasis: null,
     buybackUnderObserved: false,
+    buybackMeasuresPurchase: false,
   }
 }
 
@@ -228,6 +231,7 @@ export async function getKrExtrasSummaries(
     summary.buybackPct = progress.basis?.pct ?? null
     summary.buybackBasis = progress.basis?.kind ?? null
     summary.buybackUnderObserved = progress.estimateUnderObserved
+    summary.buybackMeasuresPurchase = progress.basis?.measuresPurchase ?? false
   }
 
   return result
