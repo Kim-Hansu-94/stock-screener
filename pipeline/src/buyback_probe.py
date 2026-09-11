@@ -456,6 +456,7 @@ def main() -> int:
     _probe_kind_bundles()
     _probe_kind_pc_menu()
     _probe_acptno()
+    _probe_treasury_screens()
     _probe_dart_all_disclosures()
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -759,6 +760,99 @@ def _probe_acptno() -> None:
         idx = text.find(hint)
         if idx >= 0:
             print(f"      '{hint}' 주변: {text[max(0, idx-300):idx+300]!r}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [K] 자기주식 화면을 찾았다 — 이제 그 화면이 부르는 조회를 캔다
+# ---------------------------------------------------------------------------
+#
+# 2026-09-11 [I] 실측으로 화면이 확정됐다. **메뉴에 없다고 화면이 없는 게 아니었다.**
+#
+# PC KIND 메뉴 HTML:
+#     <a href="/corpgeneral/treasurystk.do?method=loadInitPage">자사주취득/처분</a>
+#
+# 모바일 KIND 사이드 메뉴(여기가 진짜다 — 일자별 신청·체결이 통째로 있다):
+#     <strong>자사주</strong>
+#       allMenuNav(this, 'trstk-declared')  → 신고내역
+#       allMenuNav(this, 'trstk-applied')   → 신청내역
+#       allMenuNav(this, 'trstk-traded')    → 체결내역
+#
+# 그리고 PC 상세검색 화면에는 공시유형 체크박스가 있고
+#     <input name="disclosureTypeArr01" value="0134"> 자기주식(신탁포함)
+# 이므로, 유형 0134로 목록을 받으면 접수번호(acptNo)가 통째로 나온다.
+#
+# 즉 길이 세 갈래로 열렸다. 여기서는 셋을 다 두드려 **어느 쪽이 표를 주는지**만
+# 가린다. 판정하지 않고 구조를 찍는 것이 이 프로브의 역할이다.
+_TREASURY_SCREENS = [
+    ("모바일 체결내역", "https://mkind.krx.co.kr/trstk-traded"),
+    ("모바일 신청내역", "https://mkind.krx.co.kr/trstk-applied"),
+    ("모바일 신고내역", "https://mkind.krx.co.kr/trstk-declared"),
+    ("PC 자사주취득/처분", "https://kind.krx.co.kr/corpgeneral/treasurystk.do?method=loadInitPage"),
+]
+
+# 구형 KIND는 폼 하나를 두고 `method` 값만 바꿔 제출한다. 그 값이 조회 주소다.
+_METHOD_ASSIGN_RE = re.compile(r"""method(?:\.value)?\s*[=:]\s*['"]([A-Za-z][\w]{3,60})['"]""")
+_INPUT_NAME_RE = re.compile(r"""<input[^>]+name=['"]([\w\[\]]{1,40})['"]""", re.I)
+_FORM_ACTION_RE = re.compile(r"""<form[^>]+action=['"]([^'"]+)['"]""", re.I)
+_TABLE_MARKERS = ("체결", "신청", "수량", "단가", "일자", "종목")
+
+
+def _probe_treasury_screens() -> None:
+    print("\n[K] 자기주식 화면 실측 — 어느 쪽이 표를 주는가", flush=True)
+
+    for label, url in _TREASURY_SCREENS:
+        text = _fetch_text(url)
+        if text is None:
+            continue
+        is_error = "페이지 오류" in text
+        markers = [m for m in _TABLE_MARKERS if m in text]
+        print(
+            f"\n  · {label}: {len(text):,}자 {'[페이지 오류]' if is_error else ''} 표지={markers or '없음'}",
+            flush=True,
+        )
+        if is_error:
+            continue
+
+        # 조회에 필요한 세 가지: 폼 action, method 값, 입력 필드 이름.
+        actions = sorted(set(_FORM_ACTION_RE.findall(text)))
+        methods = sorted(set(_METHOD_ASSIGN_RE.findall(text)))
+        inputs = sorted(set(_INPUT_NAME_RE.findall(text)))
+        apis = sorted(set(_API_RE.findall(_unescape_js(text))))
+        print(f"      form action: {actions[:6]}", flush=True)
+        print(f"      method 값  : {methods[:20]}", flush=True)
+        print(f"      입력 필드  : {inputs[:30]}", flush=True)
+        print(f"      /api 경로  : {apis[:20]}", flush=True)
+
+        # 화면 전용 스크립트 안에 조회 주소가 있는 경우가 많다.
+        for src in sorted({urljoin(url, s) for s in _SCRIPT_SRC_RE.findall(text)}):
+            if "jquery" in src.lower() or "shiv" in src.lower():
+                continue
+            js = _fetch_text(src)
+            if js is None:
+                continue
+            js = _unescape_js(js)
+            js_apis = sorted(set(_API_RE.findall(js)))
+            js_methods = sorted(set(_METHOD_ASSIGN_RE.findall(js)))
+            hints = [h for h in ("trstk", "자사주", "자기주식", "체결", "신청") if h in js]
+            if not (js_apis or js_methods or hints):
+                continue
+            print(
+                f"      · {src.rsplit('/', 1)[-1]}: api={js_apis[:12]} method={js_methods[:12]} 힌트={hints}",
+                flush=True,
+            )
+            for hint in hints[:2]:
+                idx = js.find(hint)
+                print(f"          '{hint}' 주변: {js[max(0, idx-350):idx+350]!r}", flush=True)
+
+        # 표가 이미 들어 있으면 구조를 바로 찍는다 — 그러면 파싱만 하면 끝이다.
+        try:
+            tables = pd.read_html(io.StringIO(text))
+        except Exception:  # noqa: BLE001
+            tables = []
+        print(f"      표 {len(tables)}개", flush=True)
+        for i, table in enumerate(tables[:4]):
+            print(f"        [표 {i}] shape={table.shape}", flush=True)
+            for row in table.head(3).astype(str).values.tolist():
+                print(f"          {row}", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
