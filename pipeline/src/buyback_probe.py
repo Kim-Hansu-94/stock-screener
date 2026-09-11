@@ -467,6 +467,7 @@ def main() -> int:
         _probe_treasury_screens()
         _probe_dart_all_disclosures()
     else:
+        _probe_acptno_identity()
         _probe_trstk_api()
 
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
@@ -989,6 +990,60 @@ def _probe_trstk_api() -> None:
                 f"      API {api_resp.status_code} {api_resp.headers.get('Content-Type', '?')[:40]} {path} → {body!r}",
                 flush=True,
             )
+
+# ---------------------------------------------------------------------------
+# [M] 그 접수번호가 정말 "자기주식매매 내역"인가 — 문서 머리를 본다
+# ---------------------------------------------------------------------------
+#
+# [J]에서 사용자가 준 acptNo를 DART `document.xml`에 넣었더니 200으로 293,832자
+# 문서가 왔다. 그걸 보고 "KIND 번호와 DART 번호가 같다"고 말했는데, **아직
+# 확인된 게 아니다.**
+#
+# 본문에서 걸린 '자기주식'은 `9 | 삼성전자 | 자기주식처분결과보고서 | 2026.07.16`
+# 같은 **목록 표의 한 줄**이었고, 같은 문서에 '중도상환신청방법'·'최소청약금액'·
+# 'USD 99.5'·'100,000 증권'이 함께 있었다. 이건 자기주식매매 내역이 아니라
+# **파생결합증권 발행 서류**로 보인다.
+#
+# 그렇다면 둘 중 하나다.
+#   (가) 번호 체계는 같은데 사용자가 준 번호가 마침 다른 회사 서류다.
+#   (나) KIND acptNo와 DART rcept_no는 **다른 번호**이고, 우연히 같은 자리에
+#        전혀 다른 문서가 있었다.
+#
+# (나)라면 "DART에서 원문 받으면 되지 않나"가 통째로 무너진다. 그래서
+# **문서의 머리(회사명·보고서명)를 직접 찍어** 어느 쪽인지 가린다.
+# 값이 숫자이고 그럴듯하다는 이유로 맞다고 넘어갔다가 컨센서스에서 세 번
+# 틀렸던 것과 같은 함정이다 — "응답이 왔다"와 "맞는 문서다"는 다르다.
+_DOC_HEAD_RE = re.compile(r"<(COMPANY-NAME|DOCUMENT-NAME|TITLE)[^>]*>(.{0,120}?)</\1>", re.S | re.I)
+
+
+def _probe_acptno_identity() -> None:
+    print("\n[M] 그 접수번호가 정말 자기주식매매 내역인가", flush=True)
+
+    key = _api_key()
+    if not key:
+        print("  - DART_API_KEY 없음 — 건너뜀", flush=True)
+        return
+
+    try:
+        resp = requests.get(
+            _DOCUMENT_URL,
+            params={"crtfc_key": key, "rcept_no": _USER_ACPT_NO},
+            timeout=TIMEOUT,
+        )
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            name = zf.namelist()[0]
+            text = zf.read(name).decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x {exc}", flush=True)
+        return
+
+    print(f"  · {name}: {len(text):,}자", flush=True)
+    # 머리말 태그가 문서 정체를 그대로 말해 준다.
+    heads = _DOC_HEAD_RE.findall(text)
+    for tag, value in heads[:10]:
+        print(f"      <{tag}> {value.strip()!r}", flush=True)
+    if not heads:
+        print(f"      머리 태그 없음 — 앞 1,200자: {text[:1200]!r}", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
