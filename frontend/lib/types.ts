@@ -395,6 +395,13 @@ export interface BuybackRow {
   estimated_progress_pct: number | null
   /** 며칠치를 실제로 관측했는지. 적으면 추정치를 믿을 근거도 약하다. */
   observed_days: number | null
+  /** KRX KIND 자기주식 체결내역 기준 **확정** 누적 매입 수량.
+   *  추정(estimated_*)과 달리 거래소가 공시한 값이고 **소급도 된다**. */
+  confirmed_qty: number | null
+  confirmed_progress_pct: number | null
+  /** 몇 영업일치가 공시됐는지. 결측이 아니라 "그만큼 매매가 있었다"는 뜻이다. */
+  confirmed_days: number | null
+  confirmed_through: string | null
   acquired_amount: number | null
   amount_progress_pct: number | null
   period_progress_pct: number | null

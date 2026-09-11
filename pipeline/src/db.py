@@ -256,6 +256,35 @@ class ScreenerDB:
             print(f"  [buyback] broker_trading 조회 실패: {exc}", flush=True)
             return []
 
+    def save_buyback_trades(self, rows: list[dict]) -> None:
+        """자기주식 매매 체결내역 저장 (KRX KIND, 확정치).
+
+        종목 × 날짜 PK라 upsert만으로 충분하다. **소급이 되는 소스**라
+        broker_trading과 달리 수집 시작일 이전도 채울 수 있다 — 그래서 과거가
+        비어 있으면 그건 결측이 아니라 "그날 매매가 없었다"는 뜻이다.
+        """
+        if not rows:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        _batch_upsert(self.client, "buyback_trades", [{**r, "updated_at": now} for r in rows])
+
+    def get_buyback_trades(self, ticker: str, since: str | None = None) -> list[dict]:
+        """한 종목의 체결 이력. 확정 진행률 계산·화면 표시에 쓴다."""
+        try:
+            query = (
+                self.client.table("buyback_trades")
+                .select("date, applied_qty, traded_qty")
+                .eq("market", "KR")
+                .eq("ticker", ticker)
+            )
+            if since:
+                query = query.gte("date", since)
+            return query.order("date").execute().data or []
+        except Exception as exc:  # noqa: BLE001
+            # 표가 아직 없을 수 있다(마이그레이션 전). 확정 진행률만 비고 나머지는 계속.
+            print(f"  [buyback] buyback_trades 조회 실패: {exc}", flush=True)
+            return []
+
     def prune_buyback(self, keep: list[str]) -> None:
         """자사주 공시가 사라진 종목의 지난 행을 지운다.
 

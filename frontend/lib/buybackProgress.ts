@@ -46,7 +46,7 @@ export function tradingDaysBetween(startISO: string, endISO: string): number {
 
 export type BuybackBasis = {
   pct: number
-  kind: 'amount' | 'estimated' | 'period'
+  kind: 'confirmed' | 'amount' | 'estimated' | 'period'
   /** 화면에 붙일 근거 라벨 */
   label: string
   /**
@@ -73,6 +73,8 @@ export type BuybackProgress = {
 
 type BuybackLike = Pick<
   BuybackRow,
+  | 'confirmed_progress_pct'
+  | 'confirmed_days'
   | 'amount_progress_pct'
   | 'estimated_progress_pct'
   | 'period_progress_pct'
@@ -86,6 +88,22 @@ export function buybackProgress(row: BuybackLike, today: string): BuybackProgres
   const coverage = elapsed > 0 ? Math.min(observed / elapsed, 1) : null
   const estimateUsable =
     row.estimated_progress_pct != null && (coverage === null || coverage >= MIN_ESTIMATE_COVERAGE)
+
+  // **확정 체결내역이 최우선이다** (2026-09-11 추가). KRX KIND가 일자별 체결수량을
+  // 공시하므로 진행 중에도 확정치를 쓸 수 있다 — 결과보고서(amount_progress_pct)를
+  // 기다릴 필요도, 창구로 추정할 필요도 없다. 소급이 되므로 관측 커버리지도 따지지 않는다.
+  if (row.confirmed_progress_pct != null) {
+    return {
+      basis: {
+        pct: row.confirmed_progress_pct,
+        kind: 'confirmed',
+        label: `거래소 체결내역 기준 (확정${row.confirmed_days ? `, ${row.confirmed_days}일` : ''})`,
+        measuresPurchase: true,
+      },
+      estimateUnderObserved: false,
+      coverage,
+    }
+  }
 
   if (row.amount_progress_pct != null) {
     return {

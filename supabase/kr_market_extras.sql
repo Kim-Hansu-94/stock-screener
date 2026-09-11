@@ -131,3 +131,41 @@ alter table stock_buyback add column if not exists estimated_progress_pct numeri
 -- 며칠치를 실제로 관측했는지. 적으면 추정치를 믿을 근거도 약하다는 뜻이라
 -- 화면이 "N일 관측"으로 같이 보여준다.
 alter table stock_buyback add column if not exists observed_days int;
+
+-- ---------------------------------------------------------------------------
+-- 자기주식 매매 체결내역 (KRX KIND) — 자사주 진행률의 **확정** 근거
+-- ---------------------------------------------------------------------------
+--
+-- `/api/trstk/traded`가 종목별·일자별 신청수량과 체결수량을 그대로 준다
+-- (2026-09-11 실측: SK하이닉스 8/20~ 17영업일, 매일 650,000주 체결).
+--
+-- **broker_trading(창구 추정)과 목적이 겹치지만 성격이 정반대다.** 창구 추정은
+-- 과거 소급이 안 되고 남의 주문이 섞이는 추정치인 반면, 이 표는 거래소가 공시한
+-- 확정치이고 **소급도 된다**. 그래서 진행률 근거 우선순위에서 이쪽이 위다.
+-- 창구 추정은 이 값이 없는 종목의 차선책으로 남긴다.
+create table if not exists buyback_trades (
+  market      text not null check (market in ('KR', 'US')),
+  ticker      text not null,
+  name        text,
+  date        date not null,
+  -- 신청수량은 전영업일 저녁에, 체결수량은 18시 이후에 확정 공시된다.
+  -- 둘 다 두는 이유: 당일 장중에는 신청만 있고 체결이 아직 안 붙는다.
+  applied_qty numeric,
+  traded_qty  numeric,
+  source      text,
+  updated_at  timestamptz not null default now(),
+  primary key (market, ticker, date)
+);
+
+create index if not exists buyback_trades_ticker_date_idx
+  on buyback_trades (market, ticker, date desc);
+
+-- 자사주 표에 확정 진행률 열을 추가한다.
+-- amount_progress_pct(결과보고서 기반, 프로그램 종료 후에만 나옴)와 **다른 값**이다 —
+-- 이쪽은 진행 중에도 매일 갱신된다. 합치면 화면에서 어느 근거인지 알 수 없게 된다.
+alter table stock_buyback add column if not exists confirmed_qty numeric;
+alter table stock_buyback add column if not exists confirmed_progress_pct numeric;
+-- 몇 영업일치가 공시됐는지. 창구 추정의 observed_days와 달리 이건 "거래소가 공시한
+-- 매매일 수"라 결측이 아니다 — 화면에 근거의 두께로 같이 보여준다.
+alter table stock_buyback add column if not exists confirmed_days int;
+alter table stock_buyback add column if not exists confirmed_through date;

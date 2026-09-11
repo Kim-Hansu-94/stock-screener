@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 from . import broker_flow as broker_mod
 from . import buyback as buyback_mod
+from . import trstk as trstk_mod
 from . import consensus as consensus_mod
 from . import investor_flow as flow_mod
 from .db import ScreenerDB
@@ -38,6 +39,8 @@ MAX_CONSENSUS_TICKERS = 40
 MAX_BUYBACK_TICKERS = 40
 # 거래원은 자사주 프로그램이 진행 중인 종목만 본다 — 전 종목을 훑을 이유가 없다.
 MAX_BROKER_TICKERS = 30
+# 체결내역은 종목당 페이지 1~2회로 끝나지만 KIND가 403을 주는 소스라 넉넉히 잡지 않는다.
+MAX_TRSTK_TICKERS = 30
 
 FLOW_DAYS = 60
 
@@ -175,6 +178,16 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
     # 거래원은 **자사주보다 나중에 추가된 기능**이라 broker_trading 표가 아직 없을 수
     # 있다(마이그레이션 전). 그 경우에도 자사주 본체는 저장돼야 하므로 따로 감싼다 —
     # 안 그러면 부가 기능 하나 때문에 이미 받아 둔 공시 정보가 통째로 날아간다.
+    # **확정 체결내역이 먼저다.** KIND가 일자별 체결수량을 그대로 주므로, 이게 있으면
+    # 창구 추정은 쓸 이유가 없다. 다만 종목·기간에 따라 없을 수 있어 추정도 계속 받는다.
+    try:
+        _collect_trstk(db, rows)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  체결내역 수집 실패(자사주 본체는 계속 저장): {exc}", flush=True)
+        for row in rows:
+            for key in _TRSTK_KEYS:
+                row.pop(key, None)
+
     try:
         _collect_broker_trading(db, rows, closes)
         _attach_estimated_progress(db, rows)
@@ -198,6 +211,49 @@ def run_buyback(db: ScreenerDB, targets: list[tuple[str, str]]) -> None:
     print(f"  → {len(rows)}개 저장, 자사주 공시 없음 {no_program}개, 실패 {len(failures)}건", flush=True)
     if failures:
         print(f"  사유 예: {'; '.join(failures[:3])}", flush=True)
+
+
+_TRSTK_KEYS = ("confirmed_qty", "confirmed_progress_pct", "confirmed_days", "confirmed_through")
+
+
+def _collect_trstk(db: ScreenerDB, buyback_rows: list[dict]) -> None:
+    """KIND 자기주식 체결내역을 받아 저장하고, 확정 진행률을 행에 붙인다.
+
+    **취득 기간 시작일부터 매번 다시 받는다.** 소급이 되는 소스라 그래도 되고,
+    그래야 수집이 며칠 끊겨도 구멍이 저절로 메워진다 — 거래원(`broker_flow.py`)이
+    그날 못 받으면 영영 구멍인 것과 결정적으로 다른 점이다.
+    """
+    picked = [r for r in buyback_rows if r.get("period_start")][:MAX_TRSTK_TICKERS]
+    if not picked:
+        return
+    print(f"  체결내역 수집 ({len(picked)}개)...", flush=True)
+
+    session = trstk_mod.open_session()
+    saved = 0
+    failures: list[str] = []
+    try:
+        for row in picked:
+            ticker, name = row["ticker"], row.get("name") or row["ticker"]
+            try:
+                start = date.fromisoformat(row["period_start"])
+            except (TypeError, ValueError):
+                continue
+            try:
+                trades = trstk_mod.fetch_trades(ticker, name, start, date.today(), session=session)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{ticker}: {exc}")
+                continue
+            if not trades:
+                continue
+            db.save_buyback_trades(trades)
+            row.update(trstk_mod.summarize(trades, row.get("planned_qty")))
+            saved += len(trades)
+    finally:
+        session.close()
+
+    print(f"    → 체결 {saved}행 저장, 실패 {len(failures)}건", flush=True)
+    if failures:
+        print(f"    사유 예: {'; '.join(failures[:3])}", flush=True)
 
 
 def _collect_broker_trading(db: ScreenerDB, buyback_rows: list[dict], closes: dict[str, float]) -> None:

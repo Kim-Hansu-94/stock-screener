@@ -155,9 +155,18 @@ function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
           </p>
           {!basis.measuresPurchase && (
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              <b>이 숫자는 달력이 얼마나 지났는지일 뿐입니다.</b> 회사가 실제로 얼마나 샀는지는
-              아직 이 사이트가 받아오지 못합니다 — 일별 체결 수량은 KRX KIND에 공시되는데
-              수집 경로를 아직 못 뚫었습니다.
+              <b>이 숫자는 달력이 얼마나 지났는지일 뿐입니다.</b> 이 종목은 아직 거래소
+              체결내역이 안 잡혀서(공시 전이거나 취득 기간이 시작되지 않았을 수 있습니다)
+              회사가 실제로 얼마나 샀는지는 여기 표시되지 않습니다.
+            </p>
+          )}
+          {/* 확정 근거일 때는 근거의 두께를 같이 밝힌다 — 며칠치 공시를 더한 값인지,
+              어느 날짜까지 반영됐는지. 체결량은 18시 이후 공시라 당일치는 늦게 붙는다. */}
+          {basis.kind === 'confirmed' && buyback.confirmed_qty != null && (
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              누적 {Math.round(buyback.confirmed_qty).toLocaleString('ko-KR')}주 체결
+              {buyback.confirmed_through && ` · ${buyback.confirmed_through}까지 반영`}. 거래소가
+              매매일마다 공시하는 확정 수량이라 추정이 아닙니다.
             </p>
           )}
         </>
