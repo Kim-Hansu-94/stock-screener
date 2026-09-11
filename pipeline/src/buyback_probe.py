@@ -467,7 +467,7 @@ def main() -> int:
         _probe_treasury_screens()
         _probe_dart_all_disclosures()
     else:
-        _probe_trstk_call()
+        _probe_trstk_breakdown()
 
     # 탐색 프로브라 성패를 판정하지 않는다 — 출력을 읽고 다음 구현을 정하는 게 목적이다.
     print("\n탐색 완료. 위 출력으로 파싱 대상을 정한다.", flush=True)
@@ -1213,6 +1213,68 @@ def _probe_trstk_call() -> None:
             print(f"      {row}", flush=True)
         if rows:
             print(f"      필드 이름 전체: {sorted(rows[0].keys())}", flush=True)
+
+# ---------------------------------------------------------------------------
+# [P] 진행률 검산 — 일자별 체결량과 분모를 통째로 찍는다
+# ---------------------------------------------------------------------------
+#
+# 화면에 45%가 떴는데 사용자가 다른 화면에서 본 값은 43%였다. 2%p 차이를
+# "날짜가 달라서겠지"로 넘기면 안 된다 — **분자든 분모든 틀렸을 수 있다.**
+#
+# 컨센서스에서 세 번 연속 틀렸을 때도 값이 그럴듯해서 넘어갔다. 여기서는
+# 계산을 요약하지 않고 **일자별 체결량 전부 + 분모 + 나눗셈 결과**를 그대로
+# 찍어서, 사람이 눈으로 검산할 수 있게 한다.
+def _probe_trstk_breakdown() -> None:
+    print("\n[P] 진행률 검산 — 일자별 체결량 전부와 분모", flush=True)
+
+    from . import trstk as trstk_mod
+
+    code, name = "000660", "SK하이닉스"
+
+    # 분모: DART 취득 결정 공시의 취득 예정 수량.
+    key = _api_key()
+    planned_qty = planned_amount = None
+    if key:
+        try:
+            corp_codes = load_corp_codes()
+            row = buyback_mod.build_row(code, name, corp_codes.get(code))
+            if row:
+                planned_qty = row.get("planned_qty")
+                planned_amount = row.get("planned_amount")
+                print(
+                    f"  · DART 공시: {row.get('latest_report')} ({row.get('latest_report_date')})",
+                    flush=True,
+                )
+                print(
+                    f"    취득 예정 수량 {planned_qty!r}주 / 금액 {planned_amount!r}원 "
+                    f"/ 기간 {row.get('period_start')} ~ {row.get('period_end')}",
+                    flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  x DART 조회 실패: {exc}", flush=True)
+
+    # 분자: 일자별 체결량. 한 줄도 빠짐없이 찍는다.
+    try:
+        trades = trstk_mod.fetch_trades(code, name, date(2026, 8, 1), date.today())
+    except Exception as exc:  # noqa: BLE001
+        print(f"  x 체결내역 조회 실패: {exc}", flush=True)
+        return
+
+    total = 0
+    print(f"\n  · 체결 {len(trades)}일치:", flush=True)
+    for t in trades:
+        total += t["traded_qty"] or 0
+        print(
+            f"      {t['date']}  신청 {t['applied_qty']:>9,}  체결 {t['traded_qty']:>9,}  누적 {total:>10,}",
+            flush=True,
+        )
+
+    print(f"\n  · 누적 체결 {total:,}주", flush=True)
+    if planned_qty:
+        pct = total / float(planned_qty) * 100.0
+        print(f"  · {total:,} / {int(planned_qty):,} = {pct:.2f}%", flush=True)
+    else:
+        print("  · 분모(취득 예정 수량)를 못 받아 진행률을 낼 수 없다", flush=True)
 
 if __name__ == "__main__":
     sys.exit(main())
