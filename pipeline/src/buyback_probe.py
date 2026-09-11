@@ -41,7 +41,7 @@ import requests
 from dotenv import load_dotenv
 
 from . import broker_flow
-from .buyback import _api_key, _disclosure_list, load_corp_codes
+from .buyback import _api_key, _disclosure_list, build_row, load_corp_codes
 from .buyback import _get as _dart_get
 from .naver_api import HEADERS, TIMEOUT
 
@@ -1237,7 +1237,7 @@ def _probe_trstk_breakdown() -> None:
     if key:
         try:
             corp_codes = load_corp_codes()
-            row = buyback_mod.build_row(code, name, corp_codes.get(code))
+            row = build_row(code, name, corp_codes.get(code))
             if row:
                 planned_qty = row.get("planned_qty")
                 planned_amount = row.get("planned_amount")
