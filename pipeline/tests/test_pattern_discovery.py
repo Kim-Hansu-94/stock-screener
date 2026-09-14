@@ -192,6 +192,28 @@ def test_저점_높이기_여부가_점수를_바꾸지_않는다():
     assert score_with(rising_low) == score_with(flat_low)
 
 
+def test_가중치는_하락률에_가장_크게_준다():
+    """v7에서 소진일수 0.4 → 0.2, 하락률 0.3 → 0.5로 옮겼다 (2026-09-14).
+
+    소진일수는 표본의 75%가 만점이라 가중치 0.4를 받고도 사실상 상수였다.
+    하락률은 선발 없는 스윕과 선발된 표본 양쪽에서 성과와 같이 움직이는 유일한 조건이다.
+    되돌리려면 백테스트 재검증이 먼저다 — 그냥 바꾸면 이 테스트가 잡는다.
+    """
+    from pipeline.src.pattern_discovery import (
+        WEIGHT_DRAWDOWN,
+        WEIGHT_EXHAUSTION,
+        WEIGHT_VOLUME,
+    )
+
+    assert WEIGHT_DRAWDOWN == 0.5
+    assert WEIGHT_EXHAUSTION == 0.2
+    assert WEIGHT_VOLUME == 0.3
+    # 합이 1.0이어야 보너스 전 점수가 0~1에 들어온다
+    assert WEIGHT_DRAWDOWN + WEIGHT_EXHAUSTION + WEIGHT_VOLUME == pytest.approx(1.0)
+    # 하락률이 가장 커야 한다 — 변별력이 확인된 유일한 조건이다
+    assert WEIGHT_DRAWDOWN > WEIGHT_VOLUME > WEIGHT_EXHAUSTION
+
+
 def test_거래량_점수는_산_모양이다():
     """높을수록 만점이던 것을 1.0~1.5배 정점으로 바꿨다 (v6, 2026-09-14).
 
