@@ -222,20 +222,26 @@ export function patternVerdictOf(card: PatternScorecard): Verdict {
 // 주가차트책』("바닥권 장기 횡보 후 밀집하면 힘있게 상승")이 정면으로 충돌하는
 // 지점이 소진일수다. 어느 쪽이 맞는지는 책으로 못 정하므로 이 구간별 성적으로 본다.
 
-/** `days_since_low` 구간. 코드의 만점 기준이 60일이라 그 앞뒤로 나눈다. */
+/**
+ * `days_since_low` 구간. 커트라인(30일)에서 시작해 만점 기준(60일) 앞뒤로 나눈다.
+ *
+ * 2026-09-14에 커트라인이 15 → 30일로 올라가 15~29일 칸은 더 이상 생기지 않는다.
+ * 대신 60일 이상을 둘로 쪼갰다 — 예전에는 표본의 79%가 그 한 칸에 몰려 있어
+ * 구간을 나눈 의미가 없었다. 파이프라인 상수와 맞춰야 하니 한쪽만 고치지 말 것.
+ */
 export function daysSinceLowBucket(days: number | null): string | null {
   if (days === null) return null
-  if (days < 30) return '1'
-  if (days < 45) return '2'
-  if (days < 60) return '3'
+  if (days < 45) return '1'
+  if (days < 60) return '2'
+  if (days < 90) return '3'
   return '4'
 }
 
 export const DAYS_SINCE_LOW_LABEL: Record<string, string> = {
-  '1': '15~29일',
-  '2': '30~44일',
-  '3': '45~59일',
-  '4': '60일 이상',
+  '1': '30~44일',
+  '2': '45~59일',
+  '3': '60~89일',
+  '4': '90일 이상',
 }
 
 /** 하락률 구간. 하드 필터가 55%부터라 그 위를 셋으로 나눈다. */

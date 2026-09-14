@@ -121,7 +121,7 @@ function CriteriaLegend() {
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">저점 유지 N일</dt>
-          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과 (점수 가중치 40%, 가장 중요)</dd>
+          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 30일 이상만 통과 (점수 가중치 40%, 가장 중요)</dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">거래량 N배</dt>

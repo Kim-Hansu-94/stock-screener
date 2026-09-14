@@ -405,17 +405,39 @@ def _card(sub: pd.DataFrame, horizon: int) -> dict:
     }
 
 
+def _bucket_vol_ratio(v) -> str | None:
+    """거래량비 구간. **가중치가 0.3인데 지금까지 구간 표가 없었다** (v5에서 추가).
+
+    점수는 `(vol_ratio-1)/2`로 3.0배에서 만점인데, 이 값이 성과와 어떤 모양으로
+    연결되는지 한 번도 측정한 적이 없다. 다음 단계에서 가중치를 손대려면 근거가 필요하다.
+    """
+    if v is None or pd.isna(v):
+        return None
+    v = float(v)
+    if v < 1.0:
+        return "1. 1.0배 미만"
+    if v < 1.5:
+        return "2. 1.0~1.5배"
+    if v < 2.0:
+        return "3. 1.5~2.0배"
+    return "4. 2.0배 이상"
+
+
 def _bucket_days_since_low(v) -> str | None:
     if pd.isna(v):
         return None
     v = int(v)
-    if v < 30:
-        return "1. 15~29일"
+    # 커트라인이 30일로 올라가 15~29일 칸은 더 이상 나오지 않는다(v5).
+    # 대신 **60일 이상을 쪼갠다** — 예전에는 694건 중 548건(79%)이 이 한 칸에 몰려
+    # 있어서 "30일만 넘으면 평평한가"를 확인할 수가 없었다. 선발을 바꾸지 않는
+    # 측정 해상도 변경이라 알고리즘 변경과 섞이지 않는다.
     if v < 45:
-        return "2. 30~44일"
+        return "1. 30~44일"
     if v < 60:
-        return "3. 45~59일"
-    return "4. 60일 이상"
+        return "2. 45~59일"
+    if v < 90:
+        return "3. 60~89일"
+    return "4. 90일 이상"
 
 
 def _bucket_drawdown(v) -> str | None:
@@ -487,6 +509,7 @@ SEGMENTS: list[tuple[str, str]] = [
     ("저점 높이기 (15번, 점수 미반영)", "seg_higher_low"),
     ("거래량 배지 (11번 사후검증)", "seg_volume_badge"),
     ("하락률 구간별", "seg_drawdown"),
+    ("거래량비 구간별", "seg_vol_ratio"),
     ("VCP 충족 여부", "seg_vcp"),
     ("이평 정배열 여부", "seg_ma_align"),
     ("점수 순위별", "seg_rank"),
@@ -498,6 +521,7 @@ SEGMENTS: list[tuple[str, str]] = [
 def add_segment_keys(df: pd.DataFrame) -> pd.DataFrame:
     df["seg_days_since_low"] = df["days_since_low"].map(_bucket_days_since_low)
     df["seg_drawdown"] = df["drawdown_pct"].map(_bucket_drawdown)
+    df["seg_vol_ratio"] = df["vol_ratio"].map(_bucket_vol_ratio)
     df["seg_decline_days"] = df["decline_days"].map(_bucket_decline_days)
     df["seg_rank"] = df["rank"].map(_bucket_rank)
     df["seg_score"] = df["score"].map(_bucket_score)
