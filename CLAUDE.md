@@ -65,7 +65,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `us_financial_health_main.py` | US 종목 재무건전성(대차대조표) 전용 수집 — 실적(`fundamentals.py`의 income_stmt)과 별도 낮은 빈도(21:00 KST, 같은 30일 주기)로 독립 실행. yfinance는 대차대조표가 손익계산서와 별도 호출이라 종목당 요청이 두 배가 되므로 매일 도는 본 파이프라인에 얹지 않음. 유니버스는 재수집하지 않고 그날 아침 본 파이프라인이 저장해 둔 `stock_universe`를 그대로 읽는다(`ScreenerDB.get_universe_tickers`). `stock_fundamentals.financial_health_updated_at`으로 실적용 `updated_at`과 신선도를 분리 추적 — 같은 컬럼을 쓰면 재무건전성만 갱신해도 "실적도 최근 갱신됐다"고 착각해 진짜 실적 갱신을 건너뛰게 된다. 별도 워크플로(`.github/workflows/us_financial_health.yml`) + 별도 pg_cron(`supabase/pg_cron_us_financial_health_trigger.sql`, 매일 21:00 KST) |
 | `long_history.py` | 10년 월봉 수집 → `stock_long_monthly`. 과거 확정 구간이라 미시드 종목만 1회 |
 | `split_guard.py` | 액면분할 등 소급 조정 감지 (증분 수집이 만드는 가짜 급락 방지) |
-| `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (저점 매집 후보 탭, 구 "오늘의 추천"). **거래량 트리거(`volume_triggered`, 화면의 ⚡ 배지)는 거래량만으로 판정하지 않는다** — 대량거래 + **양봉 또는 십자형**일 때만 참이다(『매매의 기술』: "거래량은 타이밍만 제공하고 방향은 봉의 모양이 결정한다"). 예전엔 거래량 2배만 봐서 투매(대량거래 장대음봉)에도 같은 배지가 붙어 정반대 신호가 구분되지 않았다(2026-09-14 수정). 시가가 없는 소스를 종가로 메우면 몸통이 0이라 **모든 대량거래일이 십자형으로 잡히므로**, 전 구간 시가=종가면 트리거를 끈다. 추천 결과에는 집계용 원본 수치(`drawdown_pct`·`days_since_low`·`vol_ratio`·`vcp`·`ma_align`)도 함께 실어 `recommendation_history`에 남긴다 |
+| `pattern_discovery.py` | Gold Standard 바닥 패턴 유사도 (저점 매집 후보 탭, 구 "오늘의 추천"). **거래량 트리거(`volume_triggered`, 화면의 ⚡ 배지)는 거래량만으로 판정하지 않는다** — 대량거래 + **양봉 또는 십자형**일 때만 참이다(『매매의 기술』: "거래량은 타이밍만 제공하고 방향은 봉의 모양이 결정한다"). 예전엔 거래량 2배만 봐서 투매(대량거래 장대음봉)에도 같은 배지가 붙어 정반대 신호가 구분되지 않았다(2026-09-14 수정). 시가가 없는 소스를 종가로 메우면 몸통이 0이라 **모든 대량거래일이 십자형으로 잡히므로**, 전 구간 시가=종가면 트리거를 끈다. 추천 결과에는 집계용 원본 수치(`drawdown_pct`·`days_since_low`·`vol_ratio`·`vcp`·`ma_align`)도 함께 실어 `recommendation_history`에 남긴다. **`_score_candidate`는 일봉 배열만 받는 순수 함수라 과거 날짜로 되돌려 돌릴 수 있다** — 알고리즘 상수를 고칠 근거가 필요하면 실전 성적이 쌓이기를 기다리지 말고 `pipeline/research/backtest_pattern_features.py`로 3년치를 재생할 것 (`docs/backtest-guide.md` 맨 아래 절) |
 | `db.py` | Supabase 클라이언트 래퍼 (`ScreenerDB`), 모든 `save_*`/`upsert` 메서드 |
 | `naver_api.py` | 네이버 증권 내부 API 공통 헬퍼 — JSON이 아닌 응답(봇 차단 페이지는 200+HTML로 온다)을 사유가 드러나는 에러로 바꾸고, 감싸는 키 이름을 고정하지 않고 구조로 찾는다(`rows_from_json`/`find_first`). `universe_us.py`에 같은 함수가 있지만 그쪽은 손대지 않았다 — 유니버스 수집은 본 파이프라인 첫 단계라 리팩터링하다 깨지면 스크리닝 전체가 멈춘다 |
 | `investor_flow.py` | **수급** — 국내 종목 일별 외국인·기관 순매매 → `investor_flow`. 소스는 네이버 금융 `item/frgn.naver` HTML 표(10년 넘게 같은 형태) 1순위, `m.stock.naver.com/api/stock/{code}/trend` 2순위. **네이버 금융은 아직 EUC-KR이라 인코딩을 지정 안 하면 컬럼명이 깨져 '외국인'을 못 찾고 조용히 빈 결과가 된다.** 원본 단위는 **수량(주)**이고 금액은 종가를 곱한 근사치다(장중 평균단가 아님) |
@@ -499,8 +499,10 @@ DART 접수번호가 같은 번호였습니다"**라고 단정했다. 확인해 
   `save_recommendation_history`가 실패를 감지해 기본 컬럼만으로 다시 저장하고,
   성적 화면은 특성별 표만 비운다. 다만 그동안 쌓이는 추천은 근거가 없어
   **나중에 소급할 수 없다**(`pattern_match_results`는 매 실행 전체 삭제라 지난 근거가
-  어디에도 안 남는다). 즉 늦게 실행할수록 2·3번 개선안(소진일수 가중치·하락 속도)을
-  검증할 표본이 늦게 모인다
+  어디에도 안 남는다). 즉 늦게 실행할수록 **실전 성적** 표본이 늦게 모인다.
+  다만 알고리즘 개선안(소진일수 가중치·하락 속도 등)을 판정하는 데는 이걸 기다릴
+  필요가 없다 — `pipeline/research/backtest_pattern_features.py`가 과거 3년을
+  재생해 같은 질문에 답한다(`docs/backtest-guide.md` 맨 아래 절)
 - **`supabase/kr_market_extras.sql`을 실행할 것.** 이미 실행했다면 파일 맨 아래의
   **`buyback_trades` 표 + `confirmed_*` 열**만 더 실행하면 된다(2026-09-11 추가).
   이걸 안 하면 체결내역 수집이 통째로 건너뛰어지고(본체는 계속 저장된다) 화면은

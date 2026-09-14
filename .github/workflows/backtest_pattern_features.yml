@@ -1,0 +1,42 @@
+name: Backtest Pattern Features (저점 매집 후보 특성별 성적)
+
+# 개선안 12~15번(소진일수 가중치·하락 속도·50% 룰·저점 높이기)을 판정하기 위한
+# 워크포워드 백테스트. 책 두 권이 정면으로 충돌하는 지점이라 과거 데이터로만 정할 수 있다.
+#
+# 여기서 도는 이유: 작업 컨테이너는 yfinance가 막혀 있다(실측 2026-09-14:
+# `CONNECT tunnel failed, response 403`). backtest_turn_signal.yml과 같은 사정.
+#
+# 스케줄 없음 — 수동 실행 전용. 결과 CSV는 아티팩트로 받아서 구간을 다시 나눠 보면
+# 되므로(특성이 행마다 다 들어 있다) 기준만 바꿔 보려고 재다운로드할 필요가 없다.
+on:
+  workflow_dispatch:
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    # 다운로드 10~20분 + 전 종목 워크포워드 채점. 넉넉하게 잡는다 —
+    # 시간이 모자라 중간에 끊기면 20분치 다운로드가 통째로 버려진다.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Run backtest
+        run: python -m pipeline.research.backtest_pattern_features
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-pattern-features
+          path: |
+            pipeline/research/backtest_pattern_features_trades.csv
+            pipeline/research/backtest_pattern_features_summary.csv
+          if-no-files-found: warn
