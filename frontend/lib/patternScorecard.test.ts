@@ -17,7 +17,7 @@ import {
 
 const NO_FEATURES: PatternFeatures = {
   score: null, drawdownPct: null, daysSinceLow: null, volRatio: null,
-  vcp: null, higherLow: null, volumeTriggered: null,
+  vcp: null, maAlign: null, higherLow: null, volumeTriggered: null,
 }
 
 function bars(specs: Array<{ high: number; low: number; close: number }>): PriceBar[] {

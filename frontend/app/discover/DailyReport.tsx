@@ -132,12 +132,8 @@ function CriteriaLegend() {
           <dd>단기(10일) 변동성이 장기(50일) 대비 60% 이하로 수축했는지 여부 — 충족 시 +10점 보너스</dd>
         </div>
         <div>
-          <dt className="font-medium text-secondary-foreground">저점↑ ✓ / ✗</dt>
-          <dd>
-            최근 20일 저점이 그 직전 20일 저점보다 높은지 — 바닥을 기는 것과 들어올리는 것을
-            가릅니다. <strong className="font-medium">점수에는 넣지 않고 참고로만 표시</strong>합니다
-            (백테스트에서 점수에 넣으면 오히려 나빠졌습니다)
-          </dd>
+          <dt className="font-medium text-secondary-foreground">이평 ✓ / ✗</dt>
+          <dd>현재가 &gt; 5일선 &gt; 10일선 &gt; 20일선 정배열 여부 — 충족 시 +10점 보너스</dd>
         </div>
       </dl>
       <p className="mt-2 text-[11px] text-muted-foreground">

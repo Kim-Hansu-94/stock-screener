@@ -18,7 +18,8 @@
   12번 소진일수(`days_since_low`)    — 구간별 성적이 갈리는가
   13번 하락 속도(`decline_days`)      — 급락한 종목이 완만히 내린 종목보다 나은가
   14번 50% 룰(`bull_50_rule`)         — 전일 음봉의 50% 회복이 유효한 신호인가
-  15번 저점 높이기(`higher_low`)      — **2026-09-14 점수에 반영됨**. 계속 감시한다
+  15번 저점 높이기(`higher_low`)      — 관측만 한다. 가산점으로 줬다가 되돌렸다
+                                        (우위가 사라졌다 — `_is_higher_low` 주석 참고)
   11번 거래량 배지(`volume_badge`)    — 봉 방향 조건을 붙인 것이 실제로 맞았는가 (사후 검증)
 
 13~15번 지표는 **점수에 넣지 않고 측정만 한다.** 먼저 성과와 연결되는지 보고,
@@ -285,9 +286,10 @@ def scan(ohlcv: dict[str, pd.DataFrame], min_score: float | None = MIN_SCORE) ->
                 "days_since_low": int(stats["days_since_low"]),
                 "vol_ratio": round(float(stats["vol_ratio"]), 4),
                 "vcp": bool(stats["vcp"]),
-                # 2026-09-14부터 점수에 들어간 조건. 여기서 따로 계산하지 않고
-                # production이 낸 값을 그대로 쓴다 — 같은 값을 두 곳에서 계산하면
-                # 조용히 어긋난다(이 저장소가 반복해서 당한 사고다).
+                "ma_align": bool(stats["ma_align"]),
+                # 점수에는 안 들어가지만 production이 기록해 두는 관측 지표.
+                # 여기서 따로 계산하지 않고 production이 낸 값을 그대로 쓴다 —
+                # 같은 값을 두 곳에서 계산하면 조용히 어긋난다(반복해서 당한 사고다).
                 "higher_low": bool(stats["higher_low"]),
                 # 아직 점수에 안 들어간 후보 지표
                 "volume_badge": _is_volume_trigger_today(w_open, w_high, w_low, w_close, w_vol),
@@ -482,10 +484,11 @@ SEGMENTS: list[tuple[str, str]] = [
     ("저점 유지 기간별 (12번)", "seg_days_since_low"),
     ("하락 속도별 (13번)", "seg_decline_days"),
     ("50% 룰 (14번)", "seg_bull_50"),
-    ("저점 높이기 (2026-09-14부터 점수 반영)", "seg_higher_low"),
+    ("저점 높이기 (15번, 점수 미반영)", "seg_higher_low"),
     ("거래량 배지 (11번 사후검증)", "seg_volume_badge"),
     ("하락률 구간별", "seg_drawdown"),
     ("VCP 충족 여부", "seg_vcp"),
+    ("이평 정배열 여부", "seg_ma_align"),
     ("점수 순위별", "seg_rank"),
     ("점수 구간별(절대값)", "seg_score"),
     ("진입 연도별", "seg_year"),
@@ -500,6 +503,7 @@ def add_segment_keys(df: pd.DataFrame) -> pd.DataFrame:
     df["seg_score"] = df["score"].map(_bucket_score)
     df["seg_year"] = df["date"].map(_bucket_year)
     df["seg_vcp"] = df["vcp"].map(lambda v: _bool_label(v, "VCP 충족", "VCP 미충족"))
+    df["seg_ma_align"] = df["ma_align"].map(lambda v: _bool_label(v, "이평 정배열", "정배열 아님"))
     df["seg_volume_badge"] = df["volume_badge"].map(lambda v: _bool_label(v, "배지 있음", "배지 없음"))
     df["seg_higher_low"] = df["higher_low"].map(lambda v: _bool_label(v, "저점 높임", "저점 안 높임"))
     df["seg_bull_50"] = df["bull_50_rule"].map(lambda v: _bool_label(v, "50% 회복", "회복 실패"))

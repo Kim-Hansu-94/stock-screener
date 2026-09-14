@@ -121,6 +121,7 @@ def test_추천_결과에_집계용_원본_수치가_담긴다():
     assert m["days_since_low"] >= 15
     assert isinstance(m["vol_ratio"], float)
     assert isinstance(m["vcp"], bool)
+    assert isinstance(m["ma_align"], bool)
     assert isinstance(m["higher_low"], bool)
 
 
@@ -203,9 +204,41 @@ def test_만점_지점은_넓게_유지한다():
     assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 60.0
 
 
-def test_이평_정배열은_더_이상_점수에_없다():
-    """백테스트에서 정배열이 오히려 나쁜 조건으로 나와 뺐다 — 되살아나면 이 테스트가 잡는다."""
-    from pipeline.src import pattern_discovery
+def test_이평_정배열_보너스는_점수에_남아_있다():
+    """빼봤다가 되돌린 조건이다 (2026-09-14).
 
-    assert not hasattr(pattern_discovery, "_ma_align_bonus_val")
-    assert not hasattr(pattern_discovery, "MA_ALIGN_BONUS")
+    관측만 보면 정배열 종목이 나빴지만, 실제로 빼고 재검증하니 전체가 나아지지
+    않았고(순위 1~5위 중간값 0.00% → -2.25%) 다른 조건의 관측값까지 뒤집혔다.
+    **다시 빼려면 백테스트 재검증이 먼저다** — 그냥 지우면 이 테스트가 잡는다.
+    """
+    from pipeline.src import pattern_discovery
+    from pipeline.src.pattern_discovery import MA_ALIGN_BONUS, _ma_align_bonus_val
+
+    # 값이 전부 같으면 현재가 > SMA5가 성립하지 않는다 → 정배열 아님
+    assert _ma_align_bonus_val(np.full(60, 10.0)) == 0.0
+    # 매일 오르면 현재가 > SMA5 > SMA10 > SMA20
+    assert _ma_align_bonus_val(np.arange(60, dtype=float)) == MA_ALIGN_BONUS
+    # 20봉이 안 되면 판정하지 않는다
+    assert _ma_align_bonus_val(np.full(pattern_discovery.MA_SHORT3 - 1, 10.0)) == 0.0
+
+
+def test_정배열이면_점수가_실제로_올라간다():
+    """상수만 남고 채점에서 빠지는 일이 없도록 `_score_candidate`까지 확인한다."""
+    from pipeline.src.pattern_discovery import MA_ALIGN_BONUS, _score_candidate
+
+    n = 150
+    close = np.full(n, 6.0)
+    close[0] = 20.0
+    close[-70] = 5.0
+    vol = np.full(n, 100_000.0)
+
+    ok_flat, flat = _score_candidate(close + 0.3, close - 0.3, close, vol, 20.3)
+
+    aligned = close.copy()
+    aligned[-20:] = np.linspace(5.9, 6.0, 20)   # 최근 20봉만 우상향 → 정배열
+    ok_up, up = _score_candidate(aligned + 0.3, aligned - 0.3, aligned, vol, 20.3)
+
+    assert ok_flat and ok_up
+    assert flat["ma_align"] is False
+    assert up["ma_align"] is True
+    assert up["score"] == flat["score"] + MA_ALIGN_BONUS
