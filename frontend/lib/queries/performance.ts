@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '../supabase'
 import { computeStopTarget, filterBarsAsOf, type PriceBar } from '../risk'
 import { fetchPriceRowsPaged, SCREENER_CACHE_TAG } from './shared'
 import { resolveTrade, type ResolvedTrade } from '../scorecard'
+import { resolvePatternRec, type PatternFeatures, type ResolvedPatternRec } from '../patternScorecard'
 import { getUniverseNameMap } from './universe'
 import type { DayReturn, Market, PriceHistoryRow, ScreenedStockPerf, ScreenedStockWithRisk } from '../types'
 
@@ -285,4 +286,174 @@ export async function getScorecardTrades(market: Market, days = 180): Promise<Re
   }
 
   return trades
+}
+
+
+// ── 저점 매집 후보(Gold Standard 패턴) 추천 성적 ────────────────────────────
+
+/** 하루 최대 20행 × 수개월이라 1000행을 넘는다. shared.ts의 절단 주의사항과 같은 이유. */
+const PATTERN_REC_PAGE = 1000
+
+/** 추천 월별 일봉 조회 창(달력일). 월 길이 31일 + 60거래일(≈90일) + 여유. */
+const PATTERN_PRICE_WINDOW_DAYS = 140
+
+const PATTERN_REC_BASE_COLUMNS = 'recommended_date, ticker, name, sector, entry_price, rank'
+const PATTERN_REC_FEATURE_COLUMNS =
+  'score, drawdown_pct, days_since_low, vol_ratio, vcp, ma_align, volume_triggered'
+
+type PatternRecRow = {
+  recommended_date: string
+  ticker: string
+  name: string
+  sector: string | null
+  entry_price: number | null
+  rank: number
+  score?: number | null
+  drawdown_pct?: number | null
+  days_since_low?: number | null
+  vol_ratio?: number | null
+  vcp?: boolean | null
+  ma_align?: boolean | null
+  volume_triggered?: boolean | null
+}
+
+/**
+ * recommendation_history를 페이지 단위로 끝까지 읽는다.
+ *
+ * 특성 컬럼(score 등)은 supabase/recommendation_history_features.sql을 실행해야 생긴다.
+ * 아직 실행 전이면 select 자체가 실패하는데, 그때 예외를 올리면 성적 섹션이 통째로
+ * 사라진다 — 그래서 기본 컬럼만으로 한 번 더 시도한다(특성별 표만 비고 나머지는 보인다).
+ */
+async function fetchPatternRecRows(cutoffStr: string, today: string): Promise<PatternRecRow[]> {
+  const supabase = createServerSupabaseClient()
+
+  const page = async (columns: string, from: number) =>
+    supabase
+      .from('recommendation_history')
+      .select(columns)
+      .lt('recommended_date', today)
+      .gte('recommended_date', cutoffStr)
+      // 같은 종목의 첫 추천만 세려면 날짜 오름차순이어야 한다. ticker까지 정렬해야
+      // 1000행 경계에 걸린 행이 페이지마다 순서가 달라 빠지거나 두 번 들어오지 않는다.
+      .order('recommended_date', { ascending: true })
+      .order('ticker', { ascending: true })
+      .range(from, from + PATTERN_REC_PAGE - 1)
+
+  let columns = `${PATTERN_REC_BASE_COLUMNS}, ${PATTERN_REC_FEATURE_COLUMNS}`
+  const probe = await page(columns, 0)
+  if (probe.error) {
+    console.warn(
+      `[patternScorecard] 특성 컬럼 조회 실패(${probe.error.message}) → 기본 컬럼만 사용. ` +
+        'supabase/recommendation_history_features.sql을 실행하면 특성별 표가 채워진다.',
+    )
+    columns = PATTERN_REC_BASE_COLUMNS
+  }
+
+  const rows: PatternRecRow[] = []
+  for (let from = 0; ; from += PATTERN_REC_PAGE) {
+    const { data, error } = from === 0 && !probe.error ? probe : await page(columns, from)
+    if (error) throw new Error(error.message)
+    const batch = (data ?? []) as unknown as PatternRecRow[]
+    rows.push(...batch)
+    if (batch.length < PATTERN_REC_PAGE) break
+  }
+  return rows
+}
+
+/**
+ * 저점 매집 후보 추천을 앞으로 걸어 결과를 낸다 (app/history의 전용 섹션).
+ *
+ * 기본 창이 270일인 이유: 판정에 PATTERN_HOLD_BARS(60거래일 ≈ 3개월)가 걸리므로
+ * 그보다 짧으면 판정 완료 표본이 거의 안 남는다. 270일이면 앞쪽 약 6개월이 판정
+ * 완료로 쌓이고 최근 3개월은 pending으로 분리된다.
+ *
+ * 이 탭은 미국 종목 전용이다(pattern_discovery가 US 유니버스만 스캔한다).
+ */
+export async function getPatternRecommendations(days = 270): Promise<ResolvedPatternRec[]> {
+  'use cache'
+  cacheLife('hours')
+  cacheTag(SCREENER_CACHE_TAG)
+
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+  const rows = await fetchPatternRecRows(cutoffStr, today)
+  if (rows.length === 0) return []
+
+  // 같은 종목이 바닥 구간 내내 며칠씩 반복 추천된다. 그걸 다 세면 한 종목의 결과가
+  // 표본을 장악하므로, 창 안의 첫 추천 하나만 트레이드로 센다(눌림목 성적과 같은 규칙).
+  // 위에서 날짜 오름차순으로 받았으므로 먼저 들어온 쪽이 첫 추천이다.
+  const firstByTicker = new Map<string, PatternRecRow>()
+  for (const row of rows) {
+    // 진입가가 없으면 수익률을 못 낸다. 0으로 세면 성적이 왜곡되므로 표본에서 뺀다.
+    if (!row.entry_price || row.entry_price <= 0) continue
+    if (!firstByTicker.has(row.ticker)) firstByTicker.set(row.ticker, row)
+  }
+  const picks = [...firstByTicker.values()]
+  if (picks.length === 0) return []
+
+  const tickers = picks.map((p) => p.ticker)
+
+  // 종목마다 필요한 건 "자기 추천일 이후 60거래일"뿐인데, 가장 오래된 추천일 하나로
+  // 전부 받으면 9개월치를 통째로 끌어온다(종목 수 × 창 길이가 그대로 행 수다).
+  // 그래서 추천 월별로 묶어 그 구간만 받는다 — 한 종목은 첫 추천 하나만 남기므로
+  // 정확히 한 묶음에만 들어간다.
+  const byMonth = new Map<string, PatternRecRow[]>()
+  for (const pick of picks) {
+    const month = pick.recommended_date.slice(0, 7)
+    const bucket = byMonth.get(month)
+    if (bucket) bucket.push(pick)
+    else byMonth.set(month, [pick])
+  }
+
+  const [priceGroups, nameKrMap] = await Promise.all([
+    Promise.all(
+      [...byMonth.values()].map((group) => {
+        const from = group.reduce((min, p) => (p.recommended_date < min ? p.recommended_date : min), group[0].recommended_date)
+        const until = new Date(from)
+        // 한 묶음의 마지막 추천은 월초보다 최대 31일 늦고, 거기서 60거래일(주말 포함
+        // 약 90일)이 더 필요하다. 여유가 모자라 봉이 잘리면 그 추천이 조용히
+        // settled=false가 되어 표본에서 빠지므로 넉넉하게 잡는다.
+        until.setDate(until.getDate() + PATTERN_PRICE_WINDOW_DAYS)
+        return fetchPriceRowsPaged<PriceBar & { ticker: string }>(
+          // 손절·목표를 계산하지 않으므로 추천일 앞쪽 봉은 필요 없다 — 추천일부터 받는다.
+          'US', group.map((p) => p.ticker), 'ticker, date, high, low, close',
+          from, until.toISOString().slice(0, 10),
+        )
+      }),
+    ),
+    getUniverseNameMap('US', tickers),
+  ])
+
+  const priceMap: Record<string, PriceBar[]> = {}
+  for (const row of priceGroups.flat()) {
+    priceMap[row.ticker] ??= []
+    priceMap[row.ticker].push({ date: row.date, high: row.high, low: row.low, close: row.close })
+  }
+
+  return picks.map((pick) => {
+    const features: PatternFeatures = {
+      score: pick.score ?? null,
+      drawdownPct: pick.drawdown_pct ?? null,
+      daysSinceLow: pick.days_since_low ?? null,
+      volRatio: pick.vol_ratio ?? null,
+      vcp: pick.vcp ?? null,
+      maAlign: pick.ma_align ?? null,
+      volumeTriggered: pick.volume_triggered ?? null,
+    }
+
+    return resolvePatternRec({
+      date: pick.recommended_date,
+      ticker: pick.ticker,
+      name: pick.name,
+      nameKr: nameKrMap[pick.ticker],
+      sector: pick.sector,
+      rank: pick.rank,
+      entry: pick.entry_price as number,
+      futureBars: (priceMap[pick.ticker] ?? []).filter((b) => b.date > pick.recommended_date),
+      features,
+    })
+  })
 }

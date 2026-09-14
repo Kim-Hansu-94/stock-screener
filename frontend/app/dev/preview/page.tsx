@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { DailyAlertPreview } from './DailyAlertPreview'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
+import { PatternScorecardVerdict, PatternSegmentTable } from '@/components/PatternScorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
 import { WatchlistCard } from '@/components/WatchlistCard'
 import { PositionCard } from '@/components/PositionCard'
@@ -11,6 +12,7 @@ import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
+import type { PatternScorecard, PatternSegment } from '@/lib/patternScorecard'
 import { AREA_BANDS, regionOverview, withMomChange, type DetailMonthRow } from '@/lib/realestateTrend'
 import { calculateChangePercent } from '@/lib/calculations'
 import { computeStopTarget } from '@/lib/risk'
@@ -52,6 +54,29 @@ const SECTORS: Segment[] = [
   { key: 'semi', label: '반도체', card: card({ expectancyR: 0.71, resolved: 9 }) },
   { key: 'fin', label: '금융', card: card({ expectancyR: 0.08, resolved: 12 }) },
   { key: 'bio', label: '제약·바이오', card: card({ expectancyR: -0.43, resolved: 7 }) },
+]
+
+// 저점 매집 후보 성적 — 분포가 쏠린 상태(평균은 플러스, 중간값은 마이너스)가
+// 이 탭의 흔한 모습이라 반드시 미리 보고 문구를 확인해야 한다.
+function patternCard(over: Partial<PatternScorecard>): PatternScorecard {
+  return {
+    settled: 63, pending: 21, winRate: 0.44, avgReturnPct: 7.8, medianReturnPct: 2.1,
+    bigWinRate: 0.17, bigLossRate: 0.13, avgMaxGainPct: 34.2, avgMaxDropPct: -21.6,
+    skewed: false,
+    ...over,
+  }
+}
+
+const PATTERN_BY_DAYS: PatternSegment[] = [
+  { key: '1', label: '15~29일', card: patternCard({ avgReturnPct: 14.2, settled: 22 }) },
+  { key: '2', label: '30~44일', card: patternCard({ avgReturnPct: 6.1, settled: 18 }) },
+  { key: '3', label: '45~59일', card: patternCard({ avgReturnPct: -2.4, settled: 13 }) },
+  { key: '4', label: '60일 이상', card: patternCard({ avgReturnPct: -11.7, settled: 10 }) },
+]
+
+const PATTERN_BY_VCP: PatternSegment[] = [
+  { key: 'y', label: 'VCP 충족', card: patternCard({ avgReturnPct: 12.5, settled: 29 }) },
+  { key: 'n', label: 'VCP 미충족', card: patternCard({ avgReturnPct: 3.1, settled: 34 }) },
 ]
 
 function pos(id: string, over: Partial<PaperPosition>): PaperPosition {
@@ -359,6 +384,45 @@ export default function PreviewPage() {
             title="표본 부족"
           />
           <ScorecardVerdict card={card({ resolved: 0, pending: 5 })} title="판정 완료 0건" />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          저점 매집 후보 성적 카드 — 상태별
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PatternScorecardVerdict card={patternCard({})} title="평균·중간값 같은 방향" />
+          <PatternScorecardVerdict
+            card={patternCard({ avgReturnPct: 9.4, medianReturnPct: -6.2, skewed: true, winRate: 0.33 })}
+            title="쏠림 (소수가 평균을 끌어올림)"
+          />
+          <PatternScorecardVerdict
+            card={patternCard({ avgReturnPct: -8.3, medianReturnPct: -11.0, winRate: 0.27 })}
+            title="우위 없음"
+          />
+          <PatternScorecardVerdict
+            card={patternCard({ settled: 11, pending: 40, avgReturnPct: 31.2, medianReturnPct: 18.0 })}
+            title="표본 부족"
+          />
+          <PatternScorecardVerdict
+            card={patternCard({ settled: 0, pending: 7 })}
+            title="판정 완료 0건"
+          />
+        </div>
+      </section>
+
+      <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+        <h2 className="text-base font-semibold text-foreground">어떤 후보가 잘 맞았나</h2>
+        <div className="space-y-5">
+          <PatternSegmentTable
+            title="저점 유지 기간별"
+            hint="점수 가중치가 가장 큰 항목"
+            segments={PATTERN_BY_DAYS}
+          />
+          <PatternSegmentTable title="VCP 충족 여부" segments={PATTERN_BY_VCP} />
+          {/* 특성이 아직 기록되지 않은 상태 — 표가 통째로 사라지는 게 맞는지 확인용 */}
+          <PatternSegmentTable title="하락률 구간별 (기록 없음)" segments={[]} />
         </div>
       </section>
 

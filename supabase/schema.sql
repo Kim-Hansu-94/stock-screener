@@ -273,8 +273,13 @@ create table if not exists watchlist_status (
 -- 아래 정의는 pipeline/src/db.py의 save_recommendation_history가 쓰는 컬럼에 맞춘 것이고,
 -- `if not exists`라 이미 있는 테이블은 건드리지 않는다(실제 컬럼이 다르면 실제 쪽이 유지됨).
 --
--- 현재 읽는 화면은 없다. 파이프라인이 쓰기만 하고 쌓아 두는 상태이며, 하루 몇 행이라
--- 용량 부담은 없다. 성적 집계를 붙일 때 이 기록을 쓰면 된다.
+-- 읽는 곳: app/history의 "저점 매집 후보 성적" 섹션
+-- (frontend/lib/queries/performance.ts의 getPatternRecommendations).
+--
+-- 아래 특성 컬럼(score ~ volume_triggered)은 추천 시점의 계산 근거다. 이게 없으면
+-- 성적을 내도 "어떤 특성의 후보가 잘 맞았나"를 알 수 없어 알고리즘의 어느 조건을
+-- 고쳐야 하는지 판단할 수 없다. 이미 만들어진 테이블에 추가하는 마이그레이션은
+-- supabase/recommendation_history_features.sql에 있다.
 create table if not exists recommendation_history (
   recommended_date  date not null,
   ticker            text not null,
@@ -282,6 +287,13 @@ create table if not exists recommendation_history (
   sector            text,
   entry_price       numeric,
   rank              int not null,
+  score             numeric,
+  drawdown_pct      numeric,
+  days_since_low    int,
+  vol_ratio         numeric,
+  vcp               boolean,
+  ma_align          boolean,
+  volume_triggered  boolean,
   primary key (recommended_date, ticker)
 );
 

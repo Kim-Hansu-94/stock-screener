@@ -219,3 +219,53 @@ def test_get_latest_regime_date_returns_none_when_no_rows():
     query.execute.return_value = MagicMock(data=[])
 
     assert db.get_latest_regime_date("KR") is None
+
+
+def _recommendation_matches() -> list[dict]:
+    return [
+        {
+            "ticker": "QBTS", "name": "D-Wave", "sector": "Technology",
+            "close": 3.2, "similarity": 0.62, "drawdown_pct": 68.4,
+            "days_since_low": 41, "vol_ratio": 1.35, "vcp": True, "ma_align": False,
+            "volume_triggered": True,
+        }
+    ]
+
+
+def test_save_recommendation_history_stores_features():
+    """추천 시점의 계산 근거를 같이 남겨야 나중에 특성별로 성적을 쪼갤 수 있다."""
+    client, tables = _client_with_per_table_mocks()
+    tables["recommendation_history"].select.return_value.eq.return_value.execute.return_value.count = 0
+    db = ScreenerDB(client)
+
+    db.save_recommendation_history(_recommendation_matches(), "2026-09-14")
+
+    row = tables["recommendation_history"].insert.call_args_list[0].args[0][0]
+    assert row["score"] == 0.62
+    assert row["drawdown_pct"] == 68.4
+    assert row["days_since_low"] == 41
+    assert row["vol_ratio"] == 1.35
+    assert row["vcp"] is True
+    assert row["ma_align"] is False
+    assert row["volume_triggered"] is True
+    assert row["rank"] == 1
+
+
+def test_save_recommendation_history_falls_back_without_feature_columns():
+    """마이그레이션 전이라 특성 컬럼이 없으면 기본 컬럼만으로 다시 넣는다.
+
+    여기서 예외를 그냥 올리면 그날 추천이 통째로 안 남아 성적 표본에 구멍이 난다.
+    """
+    client, tables = _client_with_per_table_mocks()
+    table = tables["recommendation_history"]
+    table.select.return_value.eq.return_value.execute.return_value.count = 0
+    table.insert.side_effect = [Exception("column \"vcp\" does not exist"), MagicMock()]
+    db = ScreenerDB(client)
+
+    db.save_recommendation_history(_recommendation_matches(), "2026-09-14")
+
+    assert table.insert.call_count == 2
+    retried = table.insert.call_args_list[1].args[0][0]
+    assert "vcp" not in retried
+    assert retried["ticker"] == "QBTS"
+    assert retried["entry_price"] == 3.2

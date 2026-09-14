@@ -37,6 +37,11 @@ export async function fetchPriceRowsPaged<T>(
   tickers: string[],
   columns: string,
   cutoffStr: string,
+  /**
+   * 받을 마지막 날짜(포함). 생략하면 오늘까지 전부 받는다.
+   * 과거 한 구간만 필요한 호출부(성적 집계 등)가 필요 없는 최근 봉까지 끌어오지 않도록.
+   */
+  untilStr?: string,
 ): Promise<T[]> {
   if (tickers.length === 0) return []
   const supabase = createServerSupabaseClient()
@@ -49,12 +54,14 @@ export async function fetchPriceRowsPaged<T>(
     batches.map(async (batch) => {
       const rows: T[] = []
       for (let from = 0; ; from += PRICE_HISTORY_PAGE) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('stock_price_history')
           .select(columns)
           .eq('market', market)
           .in('ticker', batch)
           .gte('date', cutoffStr)
+        if (untilStr) query = query.lte('date', untilStr)
+        const { data, error } = await query
           .order('ticker', { ascending: true })
           .order('date', { ascending: true })
           .range(from, from + PRICE_HISTORY_PAGE - 1)

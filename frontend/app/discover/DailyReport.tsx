@@ -137,7 +137,10 @@ function CriteriaLegend() {
         </div>
       </dl>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상일 때 표시됩니다.
+        ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상이고{' '}
+        <strong className="font-medium">봉이 양봉 또는 십자형(몸통이 거의 없는 봉)</strong>일 때만
+        표시됩니다. 거래량이 터져도 음봉이면 매수세가 아니라 매물이 쏟아진 것이라 배지가 붙지
+        않습니다.
       </p>
     </div>
   )
