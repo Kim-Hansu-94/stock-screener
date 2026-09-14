@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import pandas as pd
 
 from pipeline.src.pattern_discovery import (
@@ -189,6 +190,39 @@ def test_저점_높이기_여부가_점수를_바꾸지_않는다():
     rising_low[-20:] += 0.2          # 최근 20봉 저점만 들어올린다
 
     assert score_with(rising_low) == score_with(flat_low)
+
+
+def test_거래량_점수는_산_모양이다():
+    """높을수록 만점이던 것을 1.0~1.5배 정점으로 바꿨다 (v6, 2026-09-14).
+
+    실측에서 1.0~1.5배가 중간값 15.93%로 가장 좋고 1.5배 위는 2.68%/2.83%로 무너졌는데,
+    옛 공식은 3.0배에서 만점이라 **정확히 반대 방향**이었다.
+    다시 단조 증가로 돌리려면 백테스트 재검증이 먼저다 — 그냥 바꾸면 이 테스트가 잡는다.
+    """
+    from pipeline.src.pattern_discovery import (
+        MIN_VOL_RATIO,
+        VOL_FADE_END,
+        VOL_PEAK_HIGH,
+        VOL_PEAK_LOW,
+        _vol_score_val,
+    )
+
+    # 만점 구간
+    assert _vol_score_val(VOL_PEAK_LOW) == 1.0
+    assert _vol_score_val(1.2) == 1.0
+    assert _vol_score_val(VOL_PEAK_HIGH) == 1.0
+
+    # 정점 위로는 **떨어진다** — 이게 v6의 핵심이다
+    assert _vol_score_val(1.75) < 1.0
+    assert _vol_score_val(VOL_FADE_END) == 0.0
+    assert _vol_score_val(5.0) == 0.0
+
+    # 하한 아래는 하드 필터가 막으므로 점수는 바닥값에서 시작해 정점까지 오른다
+    assert _vol_score_val(MIN_VOL_RATIO) == pytest.approx(0.5)
+    assert _vol_score_val(0.85) == pytest.approx(0.75)
+
+    # 실측 순서와 같은 순서여야 한다: 1.0~1.5 > 1.0 미만 > 1.5 초과
+    assert _vol_score_val(1.25) > _vol_score_val(0.85) > _vol_score_val(1.9)
 
 
 def test_소진일수_커트라인은_15일이다():
