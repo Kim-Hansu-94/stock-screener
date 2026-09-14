@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import pickle
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +49,7 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pipeline.src import pattern_discovery  # noqa: E402
 from pipeline.src.pattern_discovery import (  # noqa: E402
     MIN_DOLLAR_VOL,
     MIN_SCORE,
@@ -73,10 +75,16 @@ MIN_SEGMENT_SAMPLE = 20  # 구간별 표에서 이보다 적으면 빼다 (백�
 
 HIGHER_LOW_SPAN = 20     # 저점 높이기 비교 구간(거래일). supportSignals.ts와 같은 길이
 
+# 하락률 스윕: 하한을 여기까지 낮춰 "55%가 맞는 지점인가"를 본다.
+# 지금 표본은 55% 이상만 들어 있어 그 아래가 더 좋았을 가능성을 아예 못 본다.
+SWEEP_MIN_DRAWDOWN = 0.25
+
 OUT_DIR = Path(__file__).parent
 CACHE_DIR = OUT_DIR / "_cache"
 TRADES_CSV = OUT_DIR / "backtest_pattern_features_trades.csv"
 SUMMARY_CSV = OUT_DIR / "backtest_pattern_features_summary.csv"
+SWEEP_TRADES_CSV = OUT_DIR / "backtest_drawdown_sweep_trades.csv"
+SWEEP_SUMMARY_CSV = OUT_DIR / "backtest_drawdown_sweep_summary.csv"
 
 
 # ── 유니버스 · 가격 데이터 ────────────────────────────────────────────
@@ -238,8 +246,13 @@ def _bull_50_rule(w_open: np.ndarray, w_close: np.ndarray) -> bool | None:
 
 # ── 워크포워드 스캔 ───────────────────────────────────────────────────
 
-def scan(ohlcv: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """모든 거래일 × 모든 종목을 채점해 자격 후보를 모은다 (lookahead 없음)."""
+def scan(ohlcv: dict[str, pd.DataFrame], min_score: float | None = MIN_SCORE) -> pd.DataFrame:
+    """모든 거래일 × 모든 종목을 채점해 자격 후보를 모은다 (lookahead 없음).
+
+    `min_score=None`이면 점수 하한을 걸지 않는다 — 하락률 스윕에서 쓴다. 점수 공식의
+    `drawdown_score`가 55%에 고정돼 있어서, 하한만 낮추고 점수로 또 거르면 얕은 종목이
+    전부 탈락해 스윕이 아무것도 못 본다.
+    """
     rows: list[dict] = []
     total = len(ohlcv)
 
@@ -269,7 +282,7 @@ def scan(ohlcv: dict[str, pd.DataFrame]) -> pd.DataFrame:
                 continue
 
             ok, stats = _score_candidate(w_high, w_low, w_close, w_vol, float(w_high.max()))
-            if not ok or stats["score"] < MIN_SCORE:
+            if not ok or (min_score is not None and stats["score"] < min_score):
                 continue
 
             entry = float(close[i])
@@ -320,22 +333,28 @@ def select_screen_candidates(df: pd.DataFrame) -> pd.DataFrame:
     )
     ranked["rank"] = ranked.groupby("date")["score"].rank(method="first", ascending=False).astype(int)
 
-    # 같은 종목이 바닥 구간 내내 매일 뽑히므로 쿨다운으로 솎는다. 아예 첫 등장만
-    # 남기면 days_since_low가 항상 하한(15일) 근처라 12번을 판정할 변화가 사라진다 —
-    # 30일 간격이면 같은 종목이 15일·45일·75일…로 다시 들어와 구간이 채워진다.
+    out = apply_cooldown(ranked)
+    print(f"  화면 기준(상위 {TOP_N} + 쿨다운 {COOLDOWN_DAYS}일) 적용 → {len(out)}건")
+    return out
+
+
+def apply_cooldown(df: pd.DataFrame) -> pd.DataFrame:
+    """같은 종목의 재진입 간격을 COOLDOWN_DAYS로 제한한다.
+
+    같은 종목이 바닥 구간 내내 매일 뽑히므로 솎아야 한다. 다만 아예 첫 등장만
+    남기면 days_since_low가 항상 하한(15일) 근처라 12번을 판정할 변화가 사라진다 —
+    30일 간격이면 같은 종목이 15일·45일·75일…로 다시 들어와 구간이 채워진다.
+    """
     kept: list[int] = []
     last_seen: dict[str, pd.Timestamp] = {}
-    for idx, ticker, date in zip(ranked.index, ranked["ticker"], ranked["date"]):
+    for idx, ticker, date in zip(df.index, df["ticker"], df["date"]):
         ts = pd.Timestamp(date)
         prev = last_seen.get(ticker)
         if prev is not None and (ts - prev).days < COOLDOWN_DAYS:
             continue
         last_seen[ticker] = ts
         kept.append(idx)
-
-    out = ranked.loc[kept]
-    print(f"  화면 기준(상위 {TOP_N} + 쿨다운 {COOLDOWN_DAYS}일) 적용 → {len(out)}건")
-    return out
+    return df.loc[kept]
 
 
 def add_benchmark(df: pd.DataFrame, spy: pd.Series | None) -> pd.DataFrame:
@@ -533,6 +552,102 @@ def print_summary(summary: pd.DataFrame) -> None:
         print(sub.drop(columns=["구분"]).to_string(index=False))
 
 
+# ── 하락률 스윕 — "55%가 맞는 지점인가" ───────────────────────────────
+
+@contextmanager
+def _relaxed_drawdown(value: float):
+    """production `_score_candidate`를 그대로 쓰되 하락률 게이트만 잠시 낮춘다.
+
+    지표 계산을 여기서 다시 구현하지 않는 이유: 같은 값을 두 곳에서 따로 계산하면
+    조용히 어긋난다(이 저장소가 반복해서 당한 사고다). 모듈 상수 하나만 바꾸면
+    나머지 판정은 production과 글자 그대로 같다.
+
+    `drawdown_score`의 기준점도 같이 움직이지만, 스윕은 점수를 쓰지 않으므로 상관없다.
+    """
+    original = pattern_discovery.MIN_DRAWDOWN
+    pattern_discovery.MIN_DRAWDOWN = value
+    try:
+        yield
+    finally:
+        pattern_discovery.MIN_DRAWDOWN = original
+
+
+def _bucket_drawdown_wide(v) -> str | None:
+    """스윕용 하락률 구간 — 현재 하한(55%) **아래까지** 내려간다."""
+    if pd.isna(v):
+        return None
+    if v < 35:
+        return "1. 25~35%"
+    if v < 45:
+        return "2. 35~45%"
+    if v < 55:
+        return "3. 45~55%"
+    if v < 65:
+        return "4. 55~65%"
+    if v < 75:
+        return "5. 65~75%"
+    if v < 85:
+        return "6. 75~85%"
+    return "7. 85% 이상"
+
+
+def run_drawdown_sweep(ohlcv: dict[str, pd.DataFrame], spy: pd.Series | None) -> pd.DataFrame:
+    """하락률 하한을 SWEEP_MIN_DRAWDOWN까지 낮춰 수익률 곡선의 **모양**을 본다.
+
+    본 분석과 두 가지가 다르다:
+      - **점수 하한(MIN_SCORE)을 걸지 않는다** — 점수가 55%에 고정돼 있어서 걸면
+        얕은 종목이 전부 탈락한다
+      - **날짜별 상위 TOP_N 선별을 하지 않는다** — 같은 이유로, 상위 20에는 얕은
+        종목이 영원히 못 든다. 점수 공식과 무관하게 "하락률 자체가 성과와 어떤
+        관계인가"만 본다
+
+    나머지 하드 필터(가격 범위·저점 유지 15일·거래량 유지율·유동성)와 쿨다운은
+    그대로 둔다 — 한 번에 하나만 바꿔야 원인을 알 수 있다.
+
+    ⚠️ 생존 편향이 구간마다 다르게 걸린다. 깊게 빠진 종목일수록 그 뒤 상장폐지될
+    확률이 높고 그런 종목은 오늘 유니버스에 없다. 즉 **깊은 구간일수록 생존자만
+    남아 성적이 좋아 보인다.** '종목수'와 '최다종목%'를 같이 보고 걸러 읽을 것.
+    """
+    print(f"\n하락률 스윕 (하한 {SWEEP_MIN_DRAWDOWN:.0%}, 점수·상위선별 없음)...")
+    with _relaxed_drawdown(SWEEP_MIN_DRAWDOWN):
+        cand = scan(ohlcv, min_score=None)
+    if cand.empty:
+        print("  스윕 후보가 없습니다.")
+        return pd.DataFrame()
+
+    picks = apply_cooldown(cand)
+    print(f"  쿨다운 {COOLDOWN_DAYS}일 적용 → {len(picks)}건")
+    picks = add_benchmark(picks, spy)
+    picks["seg_dd"] = picks["drawdown_pct"].map(_bucket_drawdown_wide)
+
+    rows: list[dict] = []
+    for horizon in (PRIMARY_HORIZON, 250):
+        for key, sub in sorted(picks.groupby("seg_dd", dropna=True), key=lambda kv: str(kv[0])):
+            card = _card(sub, horizon)
+            if not card or card["n"] < MIN_SEGMENT_SAMPLE:
+                continue
+            rows.append({"구분": f"하락률 구간 ({horizon}거래일 보유)", "구간": str(key), **card})
+
+    summary = pd.DataFrame(rows)
+    if summary.empty:
+        print("  집계할 표본이 없습니다.")
+        return summary
+
+    print("\n" + "=" * 96)
+    print(f"하락률 스윕 — 현재 하한 55%가 맞는 지점인가 (하한을 {SWEEP_MIN_DRAWDOWN:.0%}로 낮춰 재생)")
+    print("=" * 96)
+    print("⚠️ 깊은 구간일수록 생존 편향이 세다(망한 종목이 유니버스에 없다).")
+    print("   '종목수'가 적거나 '최다종목%'가 크면 그 구간 숫자는 조건이 아니라 특정 종목의 성적이다.")
+    for group, sub in summary.groupby("구분", sort=False):
+        print(f"\n[{group}]")
+        print(sub.drop(columns=["구분"]).to_string(index=False))
+
+    summary.to_csv(SWEEP_SUMMARY_CSV, index=False)
+    picks.to_csv(SWEEP_TRADES_CSV, index=False)
+    print(f"\n저장: {SWEEP_TRADES_CSV.name} ({len(picks)}건) / {SWEEP_SUMMARY_CSV.name}")
+    return summary
+
+
 def main() -> None:
     tickers = get_universe()
     if not tickers:
@@ -550,8 +665,9 @@ def main() -> None:
         print("자격 후보가 없습니다.")
         return
 
+    spy = download_spy()
     picks = select_screen_candidates(candidates)
-    picks = add_benchmark(picks, download_spy())
+    picks = add_benchmark(picks, spy)
     picks = add_segment_keys(picks)
 
     summary = summarize(picks)
@@ -560,6 +676,9 @@ def main() -> None:
     picks.to_csv(TRADES_CSV, index=False)
     summary.to_csv(SUMMARY_CSV, index=False)
     print(f"\n저장: {TRADES_CSV.name} ({len(picks)}건) / {SUMMARY_CSV.name}")
+
+    # 같은 다운로드를 재활용해 스윕까지 한 번에 돌린다(스캔은 수십 초라 부담 없다).
+    run_drawdown_sweep(ohlcv, spy)
 
 
 if __name__ == "__main__":

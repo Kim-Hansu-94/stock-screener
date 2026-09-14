@@ -39,4 +39,6 @@ jobs:
           path: |
             pipeline/research/backtest_pattern_features_trades.csv
             pipeline/research/backtest_pattern_features_summary.csv
+            pipeline/research/backtest_drawdown_sweep_trades.csv
+            pipeline/research/backtest_drawdown_sweep_summary.csv
           if-no-files-found: warn
