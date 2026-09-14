@@ -365,20 +365,33 @@ def add_benchmark(df: pd.DataFrame, spy: pd.Series | None) -> pd.DataFrame:
 
 def _card(sub: pd.DataFrame, horizon: int) -> dict:
     """프론트 patternScorecard.summarizePattern과 같은 지표를 낸다 — 백테스트와
-    화면이 다른 말을 하면 어느 쪽을 믿을지 알 수 없다."""
+    화면이 다른 말을 하면 어느 쪽을 믿을지 알 수 없다.
+
+    거기에 **쏠림 진단**을 더한다. 구간 하나가 소수 종목이나 한 시기에 몰려 있으면
+    그 구간의 평균은 "그 조건이 좋다"가 아니라 "그 종목/그 시기가 좋았다"는 뜻인데,
+    n만 봐서는 구분이 안 된다. 실제로 순위 구간에서 그 의심이 생겨 추가했다.
+    """
     rets = sub[f"ret_{horizon}d_pct"].dropna()
     if rets.empty:
         return {}
     excess_col = f"excess_{horizon}d_pct"
     excess = sub[excess_col].dropna() if excess_col in sub.columns else pd.Series(dtype=float)
+
+    valid = sub.loc[rets.index]
+    counts = valid["ticker"].value_counts()
+    dates = pd.to_datetime(valid["date"])
+
     return {
         "n": len(rets),
+        "종목수": int(counts.size),
+        "최다종목%": round(counts.iloc[0] / len(rets) * 100, 1),
         "평균%": round(rets.mean(), 2),
         "중간값%": round(rets.median(), 2),
         "승률%": round((rets > 0).mean() * 100, 1),
         f"+{BIG_MOVE_PCT}%이상": round((rets >= BIG_MOVE_PCT).mean() * 100, 1),
         f"-{BIG_MOVE_PCT}%이하": round((rets <= -BIG_MOVE_PCT).mean() * 100, 1),
         "SPY대비%": round(excess.mean(), 2) if not excess.empty else None,
+        "중앙진입월": dates.median().strftime("%Y-%m"),
     }
 
 
@@ -419,6 +432,29 @@ def _bucket_decline_days(v) -> str | None:
     return "4. 150일 이상(완만)"
 
 
+def _bucket_score(v) -> str | None:
+    """점수 절대값 구간.
+
+    순위(`_bucket_rank`)는 "그날 다른 종목들에 비해"라는 상대 기준이라, 순위별 성적
+    차이가 점수 공식 때문인지 그날 경쟁자 구성 때문인지 섞인다. 절대 점수로도 같은
+    방향이 나와야 "점수가 높을수록 나쁘다"고 말할 수 있다.
+    """
+    if pd.isna(v):
+        return None
+    if v < 0.50:
+        return "1. 40~49점"
+    if v < 0.60:
+        return "2. 50~59점"
+    if v < 0.70:
+        return "3. 60~69점"
+    return "4. 70점 이상"
+
+
+def _bucket_year(v) -> str:
+    """진입 연도. 구간별 차이가 사실은 시기 차이일 수 있어 따로 본다."""
+    return str(pd.Timestamp(v).year)
+
+
 def _bucket_rank(v) -> str:
     v = int(v)
     if v <= 5:
@@ -444,6 +480,8 @@ SEGMENTS: list[tuple[str, str]] = [
     ("VCP 충족 여부", "seg_vcp"),
     ("이평 정배열 여부", "seg_ma_align"),
     ("점수 순위별", "seg_rank"),
+    ("점수 구간별(절대값)", "seg_score"),
+    ("진입 연도별", "seg_year"),
 ]
 
 
@@ -452,6 +490,8 @@ def add_segment_keys(df: pd.DataFrame) -> pd.DataFrame:
     df["seg_drawdown"] = df["drawdown_pct"].map(_bucket_drawdown)
     df["seg_decline_days"] = df["decline_days"].map(_bucket_decline_days)
     df["seg_rank"] = df["rank"].map(_bucket_rank)
+    df["seg_score"] = df["score"].map(_bucket_score)
+    df["seg_year"] = df["date"].map(_bucket_year)
     df["seg_vcp"] = df["vcp"].map(lambda v: _bool_label(v, "VCP 충족", "VCP 미충족"))
     df["seg_ma_align"] = df["ma_align"].map(lambda v: _bool_label(v, "정배열", "정배열 아님"))
     df["seg_volume_badge"] = df["volume_badge"].map(lambda v: _bool_label(v, "배지 있음", "배지 없음"))
