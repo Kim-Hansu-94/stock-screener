@@ -186,12 +186,14 @@ describe('segmentPatternBy', () => {
 })
 
 describe('구간 나누기', () => {
-  it('소진일수 구간', () => {
+  it('소진일수 구간 (60일 이상을 둘로 쪼갠다)', () => {
     expect(daysSinceLowBucket(15)).toBe('1')
     expect(daysSinceLowBucket(29)).toBe('1')
     expect(daysSinceLowBucket(30)).toBe('2')
-    expect(daysSinceLowBucket(59)).toBe('3')
+    expect(daysSinceLowBucket(45)).toBe('3')
     expect(daysSinceLowBucket(60)).toBe('4')
+    expect(daysSinceLowBucket(89)).toBe('4')
+    expect(daysSinceLowBucket(90)).toBe('5')
     expect(daysSinceLowBucket(null)).toBeNull()
   })
 

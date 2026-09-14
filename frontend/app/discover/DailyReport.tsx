@@ -117,15 +117,26 @@ function CriteriaLegend() {
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">하락률</dt>
-          <dd>52주 최고가 대비 하락폭. 55% 이상만 통과 (점수 가중치 30%)</dd>
+          <dd>
+            52주 최고가 대비 하락폭. 55% 이상만 통과{' '}
+            <strong className="font-medium">(점수 가중치 50%, 가장 중요)</strong> — 백테스트에서
+            성적과 가장 일관되게 연결된 조건이라 비중을 키웠습니다
+          </dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">저점 유지 N일</dt>
-          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과 (점수 가중치 40%, 가장 중요)</dd>
+          <dd>
+            저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과 (점수 가중치 20%).
+            30일을 넘으면 그 뒤로는 성적 차이가 거의 없어서 비중을 줄였습니다
+          </dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">거래량 N배</dt>
-          <dd>최근 20일 거래량 ÷ 직전 40일 거래량. 70% 이상 유지해야 통과 (점수 가중치 30%)</dd>
+          <dd>
+            최근 20일 거래량 ÷ 직전 40일 거래량. 70% 이상 유지해야 통과 (점수 가중치 30%).{' '}
+            <strong className="font-medium">1.0~1.5배에서 만점</strong>이고 2배를 넘으면 0점입니다 —
+            백테스트에서 거래량이 과하게 터진 종목의 성적이 오히려 나빴습니다
+          </dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">VCP ✓ / ✗</dt>
