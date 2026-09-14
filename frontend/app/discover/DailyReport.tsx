@@ -117,11 +117,11 @@ function CriteriaLegend() {
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">하락률</dt>
-          <dd>52주 최고가 대비 하락폭 (점수 가중치 30%)</dd>
+          <dd>52주 최고가 대비 하락폭. 55% 이상만 통과하고 65%에서 만점 (점수 가중치 30%)</dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">저점 유지 N일</dt>
-          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도 (점수 가중치 40%, 가장 중요)</dd>
+          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과하고 50일에서 만점 (점수 가중치 40%, 가장 중요)</dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">거래량 N배</dt>
@@ -132,8 +132,11 @@ function CriteriaLegend() {
           <dd>단기(10일) 변동성이 장기(50일) 대비 60% 이하로 수축했는지 여부 — 충족 시 +10점 보너스</dd>
         </div>
         <div>
-          <dt className="font-medium text-secondary-foreground">이평 ✓ / ✗</dt>
-          <dd>현재가 &gt; 5일선 &gt; 10일선 &gt; 20일선 정배열 여부 — 충족 시 +10점 보너스</dd>
+          <dt className="font-medium text-secondary-foreground">저점↑ ✓ / ✗</dt>
+          <dd>
+            최근 20일 저점이 그 직전 20일 저점보다 높은지 — 바닥을 기는 것과 들어올리는 것을
+            가른다. 충족 시 +10점 보너스
+          </dd>
         </div>
       </dl>
       <p className="mt-2 text-[11px] text-muted-foreground">

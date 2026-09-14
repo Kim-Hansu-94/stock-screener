@@ -18,7 +18,7 @@
   12번 소진일수(`days_since_low`)    — 구간별 성적이 갈리는가
   13번 하락 속도(`decline_days`)      — 급락한 종목이 완만히 내린 종목보다 나은가
   14번 50% 룰(`bull_50_rule`)         — 전일 음봉의 50% 회복이 유효한 신호인가
-  15번 저점 높이기(`higher_low`)      — 저점 '미하향'만 보는 지금보다 나은가
+  15번 저점 높이기(`higher_low`)      — **2026-09-14 점수에 반영됨**. 계속 감시한다
   11번 거래량 배지(`volume_badge`)    — 봉 방향 조건을 붙인 것이 실제로 맞았는가 (사후 검증)
 
 13~15번 지표는 **점수에 넣지 않고 측정만 한다.** 먼저 성과와 연결되는지 보고,
@@ -72,8 +72,6 @@ PRIMARY_HORIZON = 60
 
 BIG_MOVE_PCT = 30        # 프론트와 같은 경계
 MIN_SEGMENT_SAMPLE = 20  # 구간별 표에서 이보다 적으면 빼다 (백테스트는 표본이 많아 프론트보다 엄격하게)
-
-HIGHER_LOW_SPAN = 20     # 저점 높이기 비교 구간(거래일). supportSignals.ts와 같은 길이
 
 # 하락률 스윕: 하한을 여기까지 낮춰 "55%가 맞는 지점인가"를 본다.
 # 지금 표본은 55% 이상만 들어 있어 그 아래가 더 좋았을 가능성을 아예 못 본다.
@@ -220,17 +218,6 @@ def _decline_days(w_high: np.ndarray, w_close: np.ndarray) -> int | None:
     return trough_i - peak_i if trough_i > peak_i else None
 
 
-def _higher_low(w_low: np.ndarray, span: int = HIGHER_LOW_SPAN) -> bool | None:
-    """최근 span봉 저점이 그 직전 span봉 저점보다 높은가 (15번).
-
-    지금 점수는 저점을 '안 깨는 기간'만 본다. 책은 역헤드앤숄더를 "저점을 **높이며**
-    거래량 증가"로 설명한다 — 같은 15일이라도 바닥을 기는 것과 들어올리는 것은 다르다.
-    """
-    if len(w_low) < 2 * span:
-        return None
-    return bool(w_low[-span:].min() > w_low[-2 * span : -span].min())
-
-
 def _bull_50_rule(w_open: np.ndarray, w_close: np.ndarray) -> bool | None:
     """황소의 50% 룰 — 전일 음봉의 50%를 넘겨 마감했는가 (14번).
 
@@ -298,11 +285,13 @@ def scan(ohlcv: dict[str, pd.DataFrame], min_score: float | None = MIN_SCORE) ->
                 "days_since_low": int(stats["days_since_low"]),
                 "vol_ratio": round(float(stats["vol_ratio"]), 4),
                 "vcp": bool(stats["vcp"]),
-                "ma_align": bool(stats["ma_align"]),
+                # 2026-09-14부터 점수에 들어간 조건. 여기서 따로 계산하지 않고
+                # production이 낸 값을 그대로 쓴다 — 같은 값을 두 곳에서 계산하면
+                # 조용히 어긋난다(이 저장소가 반복해서 당한 사고다).
+                "higher_low": bool(stats["higher_low"]),
                 # 아직 점수에 안 들어간 후보 지표
                 "volume_badge": _is_volume_trigger_today(w_open, w_high, w_low, w_close, w_vol),
                 "decline_days": _decline_days(w_high, w_close),
-                "higher_low": _higher_low(w_low),
                 "bull_50_rule": _bull_50_rule(w_open, w_close),
                 # 성과
                 "max_gain_pct": round((float(high[seg].max()) / entry - 1) * 100, 2),
@@ -493,11 +482,10 @@ SEGMENTS: list[tuple[str, str]] = [
     ("저점 유지 기간별 (12번)", "seg_days_since_low"),
     ("하락 속도별 (13번)", "seg_decline_days"),
     ("50% 룰 (14번)", "seg_bull_50"),
-    ("저점 높이기 (15번)", "seg_higher_low"),
+    ("저점 높이기 (2026-09-14부터 점수 반영)", "seg_higher_low"),
     ("거래량 배지 (11번 사후검증)", "seg_volume_badge"),
     ("하락률 구간별", "seg_drawdown"),
     ("VCP 충족 여부", "seg_vcp"),
-    ("이평 정배열 여부", "seg_ma_align"),
     ("점수 순위별", "seg_rank"),
     ("점수 구간별(절대값)", "seg_score"),
     ("진입 연도별", "seg_year"),
@@ -512,7 +500,6 @@ def add_segment_keys(df: pd.DataFrame) -> pd.DataFrame:
     df["seg_score"] = df["score"].map(_bucket_score)
     df["seg_year"] = df["date"].map(_bucket_year)
     df["seg_vcp"] = df["vcp"].map(lambda v: _bool_label(v, "VCP 충족", "VCP 미충족"))
-    df["seg_ma_align"] = df["ma_align"].map(lambda v: _bool_label(v, "정배열", "정배열 아님"))
     df["seg_volume_badge"] = df["volume_badge"].map(lambda v: _bool_label(v, "배지 있음", "배지 없음"))
     df["seg_higher_low"] = df["higher_low"].map(lambda v: _bool_label(v, "저점 높임", "저점 안 높임"))
     df["seg_bull_50"] = df["bull_50_rule"].map(lambda v: _bool_label(v, "50% 회복", "회복 실패"))

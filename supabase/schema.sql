@@ -292,8 +292,9 @@ create table if not exists recommendation_history (
   days_since_low    int,
   vol_ratio         numeric,
   vcp               boolean,
-  ma_align          boolean,
+  ma_align          boolean,   -- 2026-09-14 이후 미사용 (과거 기록 조회용으로 남김)
   volume_triggered  boolean,
+  higher_low        boolean,
   primary key (recommended_date, ticker)
 );
 

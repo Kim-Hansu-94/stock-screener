@@ -435,7 +435,7 @@ class ScreenerDB:
                 "days_since_low": m.get("days_since_low"),
                 "vol_ratio": m.get("vol_ratio"),
                 "vcp": m.get("vcp"),
-                "ma_align": m.get("ma_align"),
+                "higher_low": m.get("higher_low"),
                 "volume_triggered": m.get("volume_triggered"),
             }
             for row, m in zip(base, matches)

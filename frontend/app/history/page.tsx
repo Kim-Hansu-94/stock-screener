@@ -106,10 +106,10 @@ function PatternFeatureSegments({ recs }: { recs: ResolvedPatternRec[] }) {
     (k) => DRAWDOWN_LABEL[k],
   )
   const byVcp = boolSegments((f) => f.vcp, 'VCP 충족', 'VCP 미충족')
-  const byMaAlign = boolSegments((f) => f.maAlign, '이평 정배열', '정배열 아님')
+  const byHigherLow = boolSegments((f) => f.higherLow, '저점 높임', '저점 안 높임')
   const byVolume = boolSegments((f) => f.volumeTriggered, '거래량 터짐', '거래량 평범')
 
-  const hasAny = [byDays, byDrawdown, byVcp, byMaAlign, byVolume].some((s) => s.length > 0)
+  const hasAny = [byDays, byDrawdown, byVcp, byHigherLow, byVolume].some((s) => s.length > 0)
   if (!hasAny) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -129,7 +129,7 @@ function PatternFeatureSegments({ recs }: { recs: ResolvedPatternRec[] }) {
       />
       <PatternSegmentTable title="하락률 구간별" segments={byDrawdown} />
       <PatternSegmentTable title="VCP 충족 여부" segments={byVcp} />
-      <PatternSegmentTable title="이평 정배열 여부" segments={byMaAlign} />
+      <PatternSegmentTable title="저점 높이기 여부" segments={byHigherLow} />
       <PatternSegmentTable title="거래량 배지 여부" segments={byVolume} />
     </div>
   )

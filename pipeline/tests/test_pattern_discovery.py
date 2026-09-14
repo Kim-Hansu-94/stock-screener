@@ -121,7 +121,7 @@ def test_추천_결과에_집계용_원본_수치가_담긴다():
     assert m["days_since_low"] >= 15
     assert isinstance(m["vol_ratio"], float)
     assert isinstance(m["vcp"], bool)
-    assert isinstance(m["ma_align"], bool)
+    assert isinstance(m["higher_low"], bool)
 
 
 def test_대량거래_음봉_종목은_배지가_안_붙는다():
@@ -144,3 +144,40 @@ def test_시가가_전부_종가와_같으면_트리거를_끈다():
     matches = compute_pattern_matches({"TEST": hist}, _universe())
 
     assert matches[0]["volume_triggered"] is False
+
+
+def test_저점_높이기_보너스():
+    """최근 20봉 저점이 직전 20봉 저점보다 높으면 +0.10 (2026-09-14 백테스트 근거)."""
+    from pipeline.src.pattern_discovery import HIGHER_LOW_BONUS, _higher_low_bonus_val
+
+    span = 20
+    rising = np.concatenate([np.full(span, 5.0), np.full(span, 6.0)])   # 직전 5.0 → 최근 6.0
+    flat_low = np.full(2 * span, 5.0)                                   # 같으면 미충족
+    falling = np.concatenate([np.full(span, 6.0), np.full(span, 5.0)])
+
+    assert _higher_low_bonus_val(rising) == HIGHER_LOW_BONUS
+    assert _higher_low_bonus_val(flat_low) == 0.0
+    assert _higher_low_bonus_val(falling) == 0.0
+    # 봉이 모자라면 판정하지 않는다(보너스 없음)
+    assert _higher_low_bonus_val(np.full(2 * span - 1, 5.0)) == 0.0
+
+
+def test_만점_지점이_하한_바로_위로_당겨졌다():
+    """하락률 65% · 소진일수 50일에서 만점. 그 위로 더 줘도 성과가 안 좋아진다는 백테스트 결과."""
+    from pipeline.src.pattern_discovery import (
+        DRAWDOWN_FULL_SPAN,
+        EXHAUSTION_FULL_SPAN,
+        MIN_DAYS_SINCE_LOW,
+        MIN_DRAWDOWN,
+    )
+
+    assert MIN_DRAWDOWN + DRAWDOWN_FULL_SPAN == 0.65
+    assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 50.0
+
+
+def test_이평_정배열은_더_이상_점수에_없다():
+    """백테스트에서 정배열이 오히려 나쁜 조건으로 나와 뺐다 — 되살아나면 이 테스트가 잡는다."""
+    from pipeline.src import pattern_discovery
+
+    assert not hasattr(pattern_discovery, "_ma_align_bonus_val")
+    assert not hasattr(pattern_discovery, "MA_ALIGN_BONUS")

@@ -46,7 +46,7 @@ export interface PatternFeatures {
   daysSinceLow: number | null
   volRatio: number | null
   vcp: boolean | null
-  maAlign: boolean | null
+  higherLow: boolean | null
   volumeTriggered: boolean | null
 }
 

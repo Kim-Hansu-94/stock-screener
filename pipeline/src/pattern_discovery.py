@@ -13,8 +13,33 @@ v3 (2026-09-14, 『매매의 기술』 근거):
     `volume_triggered`. 예전에는 거래량 2배만 보고 투매(대량거래 장대음봉)에도
     ⚡ 배지가 붙었다 (`_is_volume_trigger_today` 주석 참고)
   - 추천 결과에 집계용 원본 수치(`drawdown_pct`·`days_since_low`·`vol_ratio`·
-    `vcp`·`ma_align`)를 함께 실어 `recommendation_history`에 남긴다 — 나중에
+    `vcp`·`higher_low`)를 함께 실어 `recommendation_history`에 남긴다 — 나중에
     "어떤 특성의 후보가 잘 맞았나"로 성적을 쪼개려면 추천 시점 수치가 필요하다
+
+v4 (2026-09-14, **백테스트 근거** — `pipeline/research/backtest_pattern_features.py`
+    3년 워크포워드 재생, 표본 694건 + 하락률 스윕 10,433건):
+
+  - **`MIN_DRAWDOWN`(55%)은 그대로 둔다.** 하한을 25%까지 낮춰 재생해 보니
+    45~55% → 55~65% 구간에서 60거래일 중간값이 5.92% → 14.06%로 뛰고
+    승률도 58.0% → 64.2%로 올랐다(250거래일도 같은 자리에서 점프). 계단이
+    정확히 55%에 있다. 표본 1439/749건, 쏠림 0.7/0.9%로 가장 깨끗한 증거다.
+  - **만점 지점을 하한 바로 위로 당겼다.** 하락률 90% → **65%**,
+    소진일수 60일 → **50일**. 더 깊게·더 오래 가도 성과가 좋아지지 않는데
+    (하락률 65~75%는 중간값 9.68로 오히려 하락, 소진일수 60일+는 승률 59.5%로
+    45~59일 65.6%보다 낮다) 계속 가산하니 극단적인 종목이 상위를 독식했다 —
+    실제로 **점수 70점 이상 구간이 중간값 -3.09%·승률 48.3%로 무너져 있었다**
+    (40~69점은 정상: 중간값 3.46 → 11.06 → 20.77로 점수가 잘 작동했다).
+  - **이평 정배열 보너스를 뺐다.** 정배열이 오히려 나빴다 — 중간값 5.86%·
+    승률 56.5% vs 정배열 아님 10.84%·59.3%. 쏠림이 없고, 정배열 쪽이 더
+    유리한 시기(2025)에 몰렸는데도 졌다.
+  - **저점 높이기 보너스를 넣었다** (`_higher_low_bonus_val`). 가장 깨끗하게
+    갈린 조건이다 — 중간값 11.72%·승률 59.9% vs 8.62%·57.8%, 쏠림 없음,
+    두 구간의 중앙진입월이 동일해 시기 효과도 배제된다.
+  - 하락 속도·50% 룰은 **넣지 않았다** — 전자는 책과 반대로 나왔고(급락이 가장
+    나빴다) 후자는 차이가 없었다(승률 56.6 vs 56.2).
+
+  ⚠️ 이 근거들은 2024~2025년 표본의 **구간 간 상대 비교**다. 유니버스가 오늘
+  시점 목록이라 상장폐지 종목이 빠져 있어(생존 편향) 절대 수익률은 믿을 수 없다.
 """
 from __future__ import annotations
 
@@ -42,16 +67,18 @@ WEIGHT_DRAWDOWN = 0.3
 WEIGHT_EXHAUSTION = 0.4
 WEIGHT_VOLUME = 0.3
 
+# 점수 만점 지점 (2026-09-14 백테스트로 조정 — 근거는 모듈 docstring v4 참고)
+DRAWDOWN_FULL_SPAN = 0.10    # 하한(55%) + 이만큼 = 65%에서 하락률 만점
+EXHAUSTION_FULL_SPAN = 35.0  # 하한(15일) + 이만큼 = 50일에서 소진일수 만점
+
 # 보너스 점수 (최종 점수는 1.0으로 상한)
 VCP_ATR_SHORT = 10           # 단기 ATR 기간
 VCP_ATR_LONG = 50            # 장기 ATR 기간
 VCP_ATR_THRESHOLD = 0.6      # ATR_SHORT / ATR_LONG ≤ 이 값 → 변동성 수축
 VCP_BONUS = 0.10
 
-MA_SHORT1 = 5
-MA_SHORT2 = 10
-MA_SHORT3 = 20
-MA_ALIGN_BONUS = 0.10        # 현재가 > SMA5 > SMA10 > SMA20
+HIGHER_LOW_SPAN = 20         # 저점 높이기 비교 구간(거래일). supportSignals.ts와 같은 길이
+HIGHER_LOW_BONUS = 0.10      # 최근 20봉 저점 > 직전 20봉 저점
 
 VOL_TRIGGER_MULTIPLIER = 2.0  # 오늘 거래량이 90일 평균 2배 이상 → 거래량 트리거
 DOJI_BODY_RATIO = 0.1         # 몸통 ÷ (고가-저가) 이 값 이하면 십자형(도지)로 본다
@@ -78,13 +105,21 @@ def _vcp_bonus_val(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> floa
     return VCP_BONUS if (atr_long > 0 and atr_short / atr_long <= VCP_ATR_THRESHOLD) else 0.0
 
 
-def _ma_align_bonus_val(close: np.ndarray) -> float:
-    if len(close) < MA_SHORT3:
+def _higher_low_bonus_val(low: np.ndarray) -> float:
+    """최근 20봉 저점이 그 직전 20봉 저점보다 높은가.
+
+    저점을 **안 깨는 기간**(`days_since_low`)만으로는 바닥을 기는 종목과 바닥을
+    들어올리는 종목이 구분되지 않는다. 『매매의 기술』은 역헤드앤숄더를 "저점을
+    높이며 거래량 증가"로 설명하는데, 지금까지 점수는 앞쪽만 보고 있었다.
+
+    2026-09-14 백테스트에서 가장 깨끗하게 갈린 조건이다 — 60거래일 중간값
+    11.72% / 승률 59.9% vs 8.62% / 57.8%. 쏠림이 없고(144종목 vs 210종목)
+    두 구간의 중앙진입월이 같아 시기 효과도 배제된다.
+    """
+    span = HIGHER_LOW_SPAN
+    if len(low) < 2 * span:
         return 0.0
-    sma5 = close[-MA_SHORT1:].mean()
-    sma10 = close[-MA_SHORT2:].mean()
-    sma20 = close[-MA_SHORT3:].mean()
-    return MA_ALIGN_BONUS if (close[-1] > sma5 > sma10 > sma20) else 0.0
+    return HIGHER_LOW_BONUS if low[-span:].min() > low[-2 * span : -span].min() else 0.0
 
 
 def _is_volume_trigger_today(
@@ -176,9 +211,11 @@ def _score_candidate(
     if vol_ratio < MIN_VOL_RATIO:
         return False, {}
 
-    # 복합 스코어
-    drawdown_score = min(1.0, (drawdown - MIN_DRAWDOWN) / 0.35)
-    exhaustion_score = min(1.0, (days_since_low - MIN_DAYS_SINCE_LOW) / 45.0)
+    # 복합 스코어. 만점 지점을 하한 바로 위로 당긴 이유는 모듈 docstring v4 참고 —
+    # 더 깊게·더 오래 가도 성과가 안 좋아지는데 계속 가산하면 극단적인 종목이
+    # 상위를 독식한다(실제로 70점 이상 구간이 중간값 -3.09%로 무너져 있었다).
+    drawdown_score = min(1.0, (drawdown - MIN_DRAWDOWN) / DRAWDOWN_FULL_SPAN)
+    exhaustion_score = min(1.0, (days_since_low - MIN_DAYS_SINCE_LOW) / EXHAUSTION_FULL_SPAN)
     vol_score = min(1.0, max(0.0, (vol_ratio - 1.0) / 2.0))
 
     base = (
@@ -188,8 +225,8 @@ def _score_candidate(
     )
 
     vcp_b = _vcp_bonus_val(high, low, close)
-    ma_b = _ma_align_bonus_val(close)
-    score = min(1.0, base + vcp_b + ma_b)
+    hl_b = _higher_low_bonus_val(low)
+    score = min(1.0, base + vcp_b + hl_b)
 
     return True, {
         "score": score,
@@ -197,7 +234,7 @@ def _score_candidate(
         "days_since_low": days_since_low,
         "vol_ratio": vol_ratio,
         "vcp": vcp_b > 0,
-        "ma_align": ma_b > 0,
+        "higher_low": hl_b > 0,
     }
 
 
@@ -260,11 +297,11 @@ def compute_pattern_matches(
         days = stats["days_since_low"]
         vr = stats["vol_ratio"]
         vcp_tag = "VCP ✓" if stats["vcp"] else "VCP ✗"
-        ma_tag = "이평 ✓" if stats["ma_align"] else "이평 ✗"
+        hl_tag = "저점↑ ✓" if stats["higher_low"] else "저점↑ ✗"
 
         matched_bottom = (
             f"하락률 {drawdown_pct:.0f}% · 저점 유지 {days}일 · "
-            f"거래량 {vr:.2f}배 · {vcp_tag} · {ma_tag}"
+            f"거래량 {vr:.2f}배 · {vcp_tag} · {hl_tag}"
         )
 
         meta = universe_map.get(ticker, {})
@@ -289,7 +326,7 @@ def compute_pattern_matches(
                 "days_since_low": stats["days_since_low"],
                 "vol_ratio": round(stats["vol_ratio"], 4),
                 "vcp": stats["vcp"],
-                "ma_align": stats["ma_align"],
+                "higher_low": stats["higher_low"],
             }
         )
         passed += 1
