@@ -497,16 +497,15 @@ DART 접수번호가 같은 번호였습니다"**라고 단정했다. 확인해 
   텍스트로 읽음). 값이 숫자이고 범위 안이라는 검사로는 안 잡힌다. 그래서
   프로브는 (1) 수급에서 받은 **현재가로 목표가를 검산**하고, (2) 성공했을 때도
   **표 구조를 통째로 찍는다**. 새 HTML 소스를 붙일 때 같은 함정을 조심할 것
-- **`supabase/recommendation_history_features.sql`을 실행할 것** (2026-09-14 추가).
-  `recommendation_history`에 추천 시점 특성(점수·하락률·저점 유지 일수·거래량비·VCP·이평·
-  거래량 트리거) 컬럼을 더한다. 안 해도 파이프라인은 안 죽고 화면도 뜬다 —
-  `save_recommendation_history`가 실패를 감지해 기본 컬럼만으로 다시 저장하고,
-  성적 화면은 특성별 표만 비운다. 다만 그동안 쌓이는 추천은 근거가 없어
-  **나중에 소급할 수 없다**(`pattern_match_results`는 매 실행 전체 삭제라 지난 근거가
-  어디에도 안 남는다). 즉 늦게 실행할수록 **실전 성적** 표본이 늦게 모인다.
-  다만 알고리즘 개선안(소진일수 가중치·하락 속도 등)을 판정하는 데는 이걸 기다릴
-  필요가 없다 — `pipeline/research/backtest_pattern_features.py`가 과거 3년을
-  재생해 같은 질문에 답한다(`docs/backtest-guide.md` 맨 아래 절)
+- ~~`supabase/recommendation_history_features.sql`을 실행할 것~~ — **2026-09-14 실행 완료**
+  (사용자 확인). `recommendation_history`에 추천 시점 특성(점수·하락률·저점 유지 일수·
+  거래량비·VCP·이평·거래량 트리거·저점 높이기) 컬럼이 들어갔다. **컬럼이 있는 것과 값이
+  차 있는 것은 다르다** — 과거 행은 소급되지 않으므로(`pattern_match_results`가 매 실행
+  전체 삭제라 지난 추천의 근거가 어디에도 안 남는다) 실행일 **이후** 추천부터만 채워진다.
+  실제로 들어갔는지·값이 쌓이는지는 `.github/workflows/db_probe.yml`
+  (`python -m src.db_probe`)이 찍어 준다 — **다른 데서는 티가 안 난다**:
+  `save_recommendation_history`가 컬럼 없음을 감지하면 기본 컬럼으로 다시 저장하므로
+  실행 로그는 초록불이고, 성적 화면은 특성별 표만 조용히 빈다
 - **`supabase/kr_market_extras.sql`을 실행할 것.** 이미 실행했다면 파일 맨 아래의
   **`buyback_trades` 표 + `confirmed_*` 열**만 더 실행하면 된다(2026-09-11 추가).
   이걸 안 하면 체결내역 수집이 통째로 건너뛰어지고(본체는 계속 저장된다) 화면은
