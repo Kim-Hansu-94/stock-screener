@@ -226,7 +226,7 @@ def _recommendation_matches() -> list[dict]:
         {
             "ticker": "QBTS", "name": "D-Wave", "sector": "Technology",
             "close": 3.2, "similarity": 0.62, "drawdown_pct": 68.4,
-            "days_since_low": 41, "vol_ratio": 1.35, "vcp": True, "ma_align": False,
+            "days_since_low": 41, "vol_ratio": 1.35, "vcp": True, "ma_align": False, "higher_low": True,
             "volume_triggered": True,
         }
     ]
@@ -247,6 +247,7 @@ def test_save_recommendation_history_stores_features():
     assert row["vol_ratio"] == 1.35
     assert row["vcp"] is True
     assert row["ma_align"] is False
+    assert row["higher_low"] is True
     assert row["volume_triggered"] is True
     assert row["rank"] == 1
 

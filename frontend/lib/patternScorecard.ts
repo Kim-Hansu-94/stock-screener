@@ -46,7 +46,10 @@ export interface PatternFeatures {
   daysSinceLow: number | null
   volRatio: number | null
   vcp: boolean | null
+  /** 이평 정배열 — 점수에 들어간다(+10점) */
   maAlign: boolean | null
+  /** 저점 높이기 — 점수에는 안 들어가고 관측만 한다 */
+  higherLow: boolean | null
   volumeTriggered: boolean | null
 }
 

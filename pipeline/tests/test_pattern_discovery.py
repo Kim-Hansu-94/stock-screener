@@ -122,6 +122,7 @@ def test_추천_결과에_집계용_원본_수치가_담긴다():
     assert isinstance(m["vol_ratio"], float)
     assert isinstance(m["vcp"], bool)
     assert isinstance(m["ma_align"], bool)
+    assert isinstance(m["higher_low"], bool)
 
 
 def test_대량거래_음봉_종목은_배지가_안_붙는다():
@@ -144,3 +145,100 @@ def test_시가가_전부_종가와_같으면_트리거를_끈다():
     matches = compute_pattern_matches({"TEST": hist}, _universe())
 
     assert matches[0]["volume_triggered"] is False
+
+
+def test_저점_높이기는_기록만_하고_점수에는_안_들어간다():
+    """관측에서는 뚜렷했지만 가산점으로 주니 선발 구성이 바뀌어 역효과였다(2026-09-14).
+
+    되살리려면 백테스트 재검증이 먼저다 — 그냥 보너스를 더하면 이 테스트가 잡는다.
+    """
+    from pipeline.src import pattern_discovery
+    from pipeline.src.pattern_discovery import _is_higher_low
+
+    span = pattern_discovery.HIGHER_LOW_SPAN
+    rising = np.concatenate([np.full(span, 5.0), np.full(span, 6.0)])   # 직전 5.0 → 최근 6.0
+    falling = np.concatenate([np.full(span, 6.0), np.full(span, 5.0)])
+
+    assert _is_higher_low(rising) is True
+    assert _is_higher_low(np.full(2 * span, 5.0)) is False   # 같으면 미충족
+    assert _is_higher_low(falling) is False
+    assert _is_higher_low(np.full(2 * span - 1, 5.0)) is False  # 봉 부족
+
+    # 점수에 더하는 상수가 없어야 한다
+    assert not hasattr(pattern_discovery, "HIGHER_LOW_BONUS")
+    assert not hasattr(pattern_discovery, "_higher_low_bonus_val")
+
+
+def test_저점_높이기_여부가_점수를_바꾸지_않는다():
+    """같은 봉인데 저점만 높인 종목이 더 높은 점수를 받으면 안 된다(기록만 하므로)."""
+    from pipeline.src.pattern_discovery import _score_candidate
+
+    n = 150
+    base_close = np.full(n, 6.0)
+    base_close[0] = 20.0
+    base_close[-70] = 5.0
+    vol = np.full(n, 100_000.0)
+
+    def score_with(low: np.ndarray) -> float:
+        ok, stats = _score_candidate(base_close + 0.3, low, base_close, vol, 20.3)
+        assert ok
+        return stats["score"]
+
+    flat_low = base_close - 0.3
+    rising_low = flat_low.copy()
+    rising_low[-20:] += 0.2          # 최근 20봉 저점만 들어올린다
+
+    assert score_with(rising_low) == score_with(flat_low)
+
+
+def test_만점_지점은_넓게_유지한다():
+    """당겨봤다가 되돌린 값 — 65%/50일로 당기면 대부분이 만점이라 줄이 안 선다."""
+    from pipeline.src.pattern_discovery import (
+        DRAWDOWN_FULL_SPAN,
+        EXHAUSTION_FULL_SPAN,
+        MIN_DAYS_SINCE_LOW,
+        MIN_DRAWDOWN,
+    )
+
+    assert MIN_DRAWDOWN + DRAWDOWN_FULL_SPAN == 0.90
+    assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 60.0
+
+
+def test_이평_정배열_보너스는_점수에_남아_있다():
+    """빼봤다가 되돌린 조건이다 (2026-09-14).
+
+    관측만 보면 정배열 종목이 나빴지만, 실제로 빼고 재검증하니 전체가 나아지지
+    않았고(순위 1~5위 중간값 0.00% → -2.25%) 다른 조건의 관측값까지 뒤집혔다.
+    **다시 빼려면 백테스트 재검증이 먼저다** — 그냥 지우면 이 테스트가 잡는다.
+    """
+    from pipeline.src import pattern_discovery
+    from pipeline.src.pattern_discovery import MA_ALIGN_BONUS, _ma_align_bonus_val
+
+    # 값이 전부 같으면 현재가 > SMA5가 성립하지 않는다 → 정배열 아님
+    assert _ma_align_bonus_val(np.full(60, 10.0)) == 0.0
+    # 매일 오르면 현재가 > SMA5 > SMA10 > SMA20
+    assert _ma_align_bonus_val(np.arange(60, dtype=float)) == MA_ALIGN_BONUS
+    # 20봉이 안 되면 판정하지 않는다
+    assert _ma_align_bonus_val(np.full(pattern_discovery.MA_SHORT3 - 1, 10.0)) == 0.0
+
+
+def test_정배열이면_점수가_실제로_올라간다():
+    """상수만 남고 채점에서 빠지는 일이 없도록 `_score_candidate`까지 확인한다."""
+    from pipeline.src.pattern_discovery import MA_ALIGN_BONUS, _score_candidate
+
+    n = 150
+    close = np.full(n, 6.0)
+    close[0] = 20.0
+    close[-70] = 5.0
+    vol = np.full(n, 100_000.0)
+
+    ok_flat, flat = _score_candidate(close + 0.3, close - 0.3, close, vol, 20.3)
+
+    aligned = close.copy()
+    aligned[-20:] = np.linspace(5.9, 6.0, 20)   # 최근 20봉만 우상향 → 정배열
+    ok_up, up = _score_candidate(aligned + 0.3, aligned - 0.3, aligned, vol, 20.3)
+
+    assert ok_flat and ok_up
+    assert flat["ma_align"] is False
+    assert up["ma_align"] is True
+    assert up["score"] == flat["score"] + MA_ALIGN_BONUS

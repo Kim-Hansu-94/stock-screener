@@ -294,6 +294,7 @@ create table if not exists recommendation_history (
   vcp               boolean,
   ma_align          boolean,
   volume_triggered  boolean,
+  higher_low        boolean,   -- 점수 미반영, 관측 전용
   primary key (recommended_date, ticker)
 );
 

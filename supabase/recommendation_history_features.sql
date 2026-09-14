@@ -20,8 +20,15 @@ alter table recommendation_history
   add column if not exists days_since_low   int,       -- 저점 갱신 중단 거래일 수
   add column if not exists vol_ratio        numeric,   -- 최근 20일 ÷ 직전 40일 거래량
   add column if not exists vcp              boolean,   -- ATR10/ATR50 ≤ 0.6 (변동성 수축)
-  add column if not exists ma_align         boolean,   -- 종가 > SMA5 > SMA10 > SMA20
-  add column if not exists volume_triggered boolean;   -- 대량거래 + 양봉/십자형
+  add column if not exists ma_align         boolean,   -- 종가 > SMA5 > SMA10 > SMA20 (+0.10)
+  add column if not exists volume_triggered boolean,   -- 대량거래 + 양봉/십자형
+  add column if not exists higher_low       boolean;   -- 최근 20봉 저점 > 직전 20봉 저점
+
+-- `higher_low`만 **점수에 안 들어가는 관측 전용** 컬럼이다 (2026-09-14 추가).
+-- 가산점으로 줬다가 성적이 나빠져 되돌렸는데, 관측 자체는 계속 쌓아야 나중에
+-- 하드 필터 같은 다른 방식으로 다시 시험해 볼 수 있어서 기록만 남긴다.
+-- 같은 날 이평 정배열(`ma_align`)도 빼봤다가 되돌렸다 — 근거는 pattern_discovery.py
+-- docstring v4.
 
 -- 확인용
 -- select recommended_date, count(*) filter (where days_since_low is not null) as with_features,

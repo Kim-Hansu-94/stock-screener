@@ -299,7 +299,7 @@ const PATTERN_PRICE_WINDOW_DAYS = 140
 
 const PATTERN_REC_BASE_COLUMNS = 'recommended_date, ticker, name, sector, entry_price, rank'
 const PATTERN_REC_FEATURE_COLUMNS =
-  'score, drawdown_pct, days_since_low, vol_ratio, vcp, ma_align, volume_triggered'
+  'score, drawdown_pct, days_since_low, vol_ratio, vcp, ma_align, higher_low, volume_triggered'
 
 type PatternRecRow = {
   recommended_date: string
@@ -314,6 +314,7 @@ type PatternRecRow = {
   vol_ratio?: number | null
   vcp?: boolean | null
   ma_align?: boolean | null
+  higher_low?: boolean | null
   volume_triggered?: boolean | null
 }
 
@@ -441,6 +442,7 @@ export async function getPatternRecommendations(days = 270): Promise<ResolvedPat
       volRatio: pick.vol_ratio ?? null,
       vcp: pick.vcp ?? null,
       maAlign: pick.ma_align ?? null,
+      higherLow: pick.higher_low ?? null,
       volumeTriggered: pick.volume_triggered ?? null,
     }
 
