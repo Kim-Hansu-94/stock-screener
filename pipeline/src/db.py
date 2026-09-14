@@ -413,7 +413,7 @@ class ScreenerDB:
         if existing.count and existing.count > 0:
             print(f"  [history] {recommended_date} 이미 저장됨, 건너뜀", flush=True)
             return
-        rows = [
+        base = [
             {
                 "ticker": m["ticker"],
                 "name": m["name"],
@@ -424,7 +424,35 @@ class ScreenerDB:
             }
             for i, m in enumerate(matches)
         ]
-        self.client.table("recommendation_history").insert(rows).execute()
+        # 추천 시점의 계산 근거를 같이 남긴다. 이게 없으면 나중에 성적을 내도
+        # "어떤 특성의 후보가 잘 맞았나"(저점 유지 일수·하락률·VCP 여부별)를 알 수
+        # 없다 — pattern_match_results는 매 실행 전체 삭제라 지난 근거가 남지 않는다.
+        rows = [
+            {
+                **row,
+                "score": m.get("similarity"),
+                "drawdown_pct": m.get("drawdown_pct"),
+                "days_since_low": m.get("days_since_low"),
+                "vol_ratio": m.get("vol_ratio"),
+                "vcp": m.get("vcp"),
+                "ma_align": m.get("ma_align"),
+                "volume_triggered": m.get("volume_triggered"),
+            }
+            for row, m in zip(base, matches)
+        ]
+
+        try:
+            self.client.table("recommendation_history").insert(rows).execute()
+        except Exception as exc:  # noqa: BLE001
+            # supabase/recommendation_history_features.sql을 아직 실행하지 않은 상태.
+            # 특성만 포기하고 추천 기록 자체는 남긴다 — 여기서 멈추면 그날 추천이
+            # 통째로 사라져 성적 표본에 구멍이 생긴다.
+            print(
+                f"  [history] 특성 컬럼 저장 실패({exc}) → 기본 컬럼만 저장한다. "
+                "supabase/recommendation_history_features.sql을 실행하면 채워진다.",
+                flush=True,
+            )
+            self.client.table("recommendation_history").insert(base).execute()
         print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)
 
     def count_price_bars(self, ticker: str, market: str) -> int:

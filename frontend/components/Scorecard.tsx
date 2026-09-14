@@ -18,6 +18,15 @@ const VERDICT_TINT: Record<Verdict, string> = {
   insufficient: 'bg-muted text-muted-foreground',
 }
 
+/** 판정 배지. 눌림목 성적과 저점 매집 후보 성적이 같은 어휘를 써야 나란히 읽힌다. */
+export function VerdictBadge({ verdict }: { verdict: Verdict }) {
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${VERDICT_TINT[verdict]}`}>
+      {VERDICT_LABEL[verdict]}
+    </span>
+  )
+}
+
 function signedR(r: number, digits = 2): string {
   const sign = r > 0 ? '+' : r < 0 ? '−' : ''
   return `${sign}${Math.abs(r).toFixed(digits)}R`
@@ -48,9 +57,7 @@ export function ScorecardVerdict({ card, title }: { card: Scorecard; title: stri
     <div className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${VERDICT_TINT[verdict]}`}>
-          {VERDICT_LABEL[verdict]}
-        </span>
+        <VerdictBadge verdict={verdict} />
       </div>
 
       <div>
@@ -137,9 +144,51 @@ function HitRateBar({ card }: { card: Scorecard }) {
 
 /** "어떤 종류의 추천이 잘 맞나" — 기댓값을 구간별로 쪼갠다. */
 export function SegmentTable({ title, hint, segments }: { title: string; hint?: string; segments: Segment[] }) {
-  if (segments.length === 0) return null
+  return (
+    <DivergingBarTable
+      title={title}
+      hint={hint}
+      rows={segments.map((s) => ({
+        key: s.key, label: s.label, value: s.card.expectancyR, count: s.card.resolved,
+      }))}
+      format={(v) => signedR(v)}
+    />
+  )
+}
 
-  const widest = Math.max(...segments.map((s) => Math.abs(s.card.expectancyR)), 0.5)
+export interface BarRow {
+  key: string
+  label: string
+  /** 부호가 있는 값. 0을 가운데 두고 좌우로 뻗는다. */
+  value: number
+  /** 그 구간의 표본 수 */
+  count: number
+}
+
+/**
+ * 부호 있는 값을 구간별로 비교하는 막대 표.
+ *
+ * 눌림목 성적(기댓값 R)과 저점 매집 후보 성적(수익률 %)이 단위만 다르고 읽는 방식은
+ * 같아서 한 컴포넌트를 쓴다 — 막대 배치에 폰 화면용 폭 조정이 들어 있어(아래 주석)
+ * 복사하면 한쪽만 고쳐지고 두 표가 서로 다르게 보이게 된다.
+ */
+export function DivergingBarTable({
+  title,
+  hint,
+  rows,
+  format,
+  minSpan = 0.5,
+}: {
+  title: string
+  hint?: string
+  rows: BarRow[]
+  format: (value: number) => string
+  /** 막대 길이의 기준이 되는 최소 폭. 값이 다 작을 때 막대가 화면을 꽉 채우지 않게 한다. */
+  minSpan?: number
+}) {
+  if (rows.length === 0) return null
+
+  const widest = Math.max(...rows.map((r) => Math.abs(r.value)), minSpan)
 
   return (
     <div className="space-y-2">
@@ -148,40 +197,37 @@ export function SegmentTable({ title, hint, segments }: { title: string; hint?: 
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       <div className="space-y-1.5">
-        {segments.map((seg) => {
-          const r = seg.card.expectancyR
-          return (
-            // 폰에서는 고정폭 3개(라벨·값·건수)가 자리를 다 먹어 막대가 남지 않는다.
-            // 좁은 화면에서만 폭을 줄여 막대가 읽을 만한 길이를 갖게 한다.
-            <div key={seg.key} className="flex items-center gap-2 sm:gap-3">
-              <span
-                className="w-16 shrink-0 truncate text-xs text-foreground sm:w-24 sm:text-sm"
-                title={seg.label}
-              >
-                {seg.label}
-              </span>
-              {/* 0을 가운데 두고 좌우로 뻗는 막대 — 부호를 길이가 아니라 방향으로 읽게 한다 */}
-              <div className="relative h-5 flex-1">
-                <div className="absolute left-1/2 top-0 h-5 w-px bg-border" />
-                <div
-                  className={`absolute top-1 h-3 rounded-sm ${r >= 0 ? 'bg-up' : 'bg-down'}`}
-                  style={{
-                    left: r >= 0 ? '50%' : `${50 - (Math.abs(r) / widest) * 50}%`,
-                    width: `${(Math.abs(r) / widest) * 50}%`,
-                  }}
-                />
-              </div>
-              <span
-                className={`w-14 shrink-0 text-right font-mono text-xs sm:w-16 sm:text-sm ${changeTextClass(r)}`}
-              >
-                {signedR(r)}
-              </span>
-              <span className="w-9 shrink-0 text-right text-xs text-muted-foreground sm:w-12">
-                {seg.card.resolved}건
-              </span>
+        {rows.map((row) => (
+          // 폰에서는 고정폭 3개(라벨·값·건수)가 자리를 다 먹어 막대가 남지 않는다.
+          // 좁은 화면에서만 폭을 줄여 막대가 읽을 만한 길이를 갖게 한다.
+          <div key={row.key} className="flex items-center gap-2 sm:gap-3">
+            <span
+              className="w-16 shrink-0 truncate text-xs text-foreground sm:w-24 sm:text-sm"
+              title={row.label}
+            >
+              {row.label}
+            </span>
+            {/* 0을 가운데 두고 좌우로 뻗는 막대 — 부호를 길이가 아니라 방향으로 읽게 한다 */}
+            <div className="relative h-5 flex-1">
+              <div className="absolute left-1/2 top-0 h-5 w-px bg-border" />
+              <div
+                className={`absolute top-1 h-3 rounded-sm ${row.value >= 0 ? 'bg-up' : 'bg-down'}`}
+                style={{
+                  left: row.value >= 0 ? '50%' : `${50 - (Math.abs(row.value) / widest) * 50}%`,
+                  width: `${(Math.abs(row.value) / widest) * 50}%`,
+                }}
+              />
             </div>
-          )
-        })}
+            <span
+              className={`w-14 shrink-0 text-right font-mono text-xs sm:w-16 sm:text-sm ${changeTextClass(row.value)}`}
+            >
+              {format(row.value)}
+            </span>
+            <span className="w-9 shrink-0 text-right text-xs text-muted-foreground sm:w-12">
+              {row.count}건
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )

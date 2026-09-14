@@ -7,6 +7,14 @@ v2 개선 사항:
   - 이평선 정배열 보너스: 현재가 > SMA5 > SMA10 > SMA20 이면 +0.10점
   - NumPy 벡터 연산으로 내부 지표 계산 최적화
   - MIN_SCORE 미달 종목 자동 드롭 후 상위 TOP_N 반환
+
+v3 (2026-09-14, 『매매의 기술』 근거):
+  - 거래량 트리거에 **봉 방향 조건** 추가 — 대량거래 + (양봉 또는 십자형)일 때만
+    `volume_triggered`. 예전에는 거래량 2배만 보고 투매(대량거래 장대음봉)에도
+    ⚡ 배지가 붙었다 (`_is_volume_trigger_today` 주석 참고)
+  - 추천 결과에 집계용 원본 수치(`drawdown_pct`·`days_since_low`·`vol_ratio`·
+    `vcp`·`ma_align`)를 함께 실어 `recommendation_history`에 남긴다 — 나중에
+    "어떤 특성의 후보가 잘 맞았나"로 성적을 쪼개려면 추천 시점 수치가 필요하다
 """
 from __future__ import annotations
 
@@ -46,6 +54,7 @@ MA_SHORT3 = 20
 MA_ALIGN_BONUS = 0.10        # 현재가 > SMA5 > SMA10 > SMA20
 
 VOL_TRIGGER_MULTIPLIER = 2.0  # 오늘 거래량이 90일 평균 2배 이상 → 거래량 트리거
+DOJI_BODY_RATIO = 0.1         # 몸통 ÷ (고가-저가) 이 값 이하면 십자형(도지)로 본다
 
 
 # ── 기술 지표 (NumPy 벡터 연산) ─────────────────────────────────────
@@ -78,12 +87,43 @@ def _ma_align_bonus_val(close: np.ndarray) -> float:
     return MA_ALIGN_BONUS if (close[-1] > sma5 > sma10 > sma20) else 0.0
 
 
-def _is_volume_trigger_today(vol: np.ndarray) -> bool:
+def _is_volume_trigger_today(
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    vol: np.ndarray,
+) -> bool:
+    """오늘 터진 대량거래가 '매수' 쪽 신호인지 판정.
+
+    거래량만으로는 방향을 알 수 없다 — 『매매의 기술』(2장 거래량):
+    **"거래량은 타이밍만 제공한다. 방향은 봉의 모양이 결정한다."**
+    같은 책의 매수 제3원칙(20일선 아래 급락 중)은 "거래량 증가 + **양봉 또는
+    십자형**이 나올 때" 매수하라고 하고, 거래량 8원칙 2번은 "거래량 증가 +
+    장대음봉 = **매물**"이라고 정반대로 못 박는다.
+
+    예전에는 거래량 2배 조건만 보고 True를 돌려줬다. 그래서 악재로 투매가 터진 날
+    (대량거래 장대음봉)도 반등 신호와 똑같이 ⚡ 배지가 붙어, 화면에서 정반대 신호가
+    구분되지 않았다. 지금은 대량거래 **+ (양봉 또는 십자형)** 일 때만 True다.
+    """
     if len(vol) < 2:
         return False
     n = min(90, len(vol) - 1)
     baseline = vol[-n - 1 : -1].mean()
-    return bool(baseline > 0 and vol[-1] >= baseline * VOL_TRIGGER_MULTIPLIER)
+    if not (baseline > 0 and vol[-1] >= baseline * VOL_TRIGGER_MULTIPLIER):
+        return False
+
+    o, h, l, c = float(open_[-1]), float(high[-1]), float(low[-1]), float(close[-1])
+    if c > o:
+        return True  # 양봉
+
+    # 십자형(도지) = 대량거래인데 몸통이 거의 없다 → 황소와 곰이 치열하게 싸워
+    # 우열이 안 갈린 상태. 책은 "큰 폭 하락 후 십자형"을 매수 신호로 본다.
+    # 고가=저가(가격이 하루 내내 안 움직인 봉)는 싸움 자체가 없었다는 뜻이라 제외한다.
+    bar_range = h - l
+    if bar_range <= 0:
+        return False
+    return bool(abs(c - o) / bar_range <= DOJI_BODY_RATIO)
 
 
 # ── 핵심 스코어링 ───────────────────────────────────────────────────
@@ -196,6 +236,14 @@ def compute_pattern_matches(
         vol = hist["Volume"].to_numpy(dtype=float)
         high = hist["High"].to_numpy(dtype=float) if "High" in hist.columns else close.copy()
         low = hist["Low"].to_numpy(dtype=float) if "Low" in hist.columns else close.copy()
+        # 시가는 거래량 트리거의 봉 방향(양봉/십자형) 판정에만 쓴다.
+        # **시가가 없는 소스를 종가로 메우면 조용히 틀린다** — 그러면 몸통이 0이라
+        # 모든 대량거래일이 십자형(=매수 신호)으로 잡혀, 고치려던 "방향을 안 본다"는
+        # 문제가 그대로 남는다. prices_us._rows_to_df가 KIS 응답에 시가 칸이 없으면
+        # 종가로 채우므로(`_first(r, _OPEN_KEYS) or c`) 실제로 생길 수 있는 상황이다.
+        # 전 구간 시가=종가면 진짜 봉이 아니라 메운 값이므로 트리거를 끈다.
+        open_ = hist["Open"].to_numpy(dtype=float) if "Open" in hist.columns else close.copy()
+        has_open = "Open" in hist.columns and not np.array_equal(open_, close)
 
         # 최소 유동성 (벡터 연산)
         if (close * vol).mean() < MIN_DOLLAR_VOL:
@@ -229,8 +277,19 @@ def compute_pattern_matches(
                 "matched_standard": "Gold Standard 바닥 특성",
                 "matched_standard_ticker": None,
                 "matched_bottom": matched_bottom,
-                "volume_triggered": _is_volume_trigger_today(vol),
+                "volume_triggered": (
+                    has_open and _is_volume_trigger_today(open_, high, low, close, vol)
+                ),
                 "close": float(close[-1]),
+                # 추천 성적을 나중에 "어떤 특성의 후보가 잘 맞았나"로 쪼개려면
+                # 추천 시점의 원본 수치가 남아 있어야 한다. matched_bottom은 사람이
+                # 읽는 문자열이라 집계에 못 쓴다 → db.save_recommendation_history가
+                # 이 값들을 recommendation_history에 같이 저장한다.
+                "drawdown_pct": round(stats["drawdown"] * 100, 2),
+                "days_since_low": stats["days_since_low"],
+                "vol_ratio": round(stats["vol_ratio"], 4),
+                "vcp": stats["vcp"],
+                "ma_align": stats["ma_align"],
             }
         )
         passed += 1
