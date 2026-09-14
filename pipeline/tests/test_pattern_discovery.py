@@ -146,24 +146,52 @@ def test_시가가_전부_종가와_같으면_트리거를_끈다():
     assert matches[0]["volume_triggered"] is False
 
 
-def test_저점_높이기_보너스():
-    """최근 20봉 저점이 직전 20봉 저점보다 높으면 +0.10 (2026-09-14 백테스트 근거)."""
-    from pipeline.src.pattern_discovery import HIGHER_LOW_BONUS, _higher_low_bonus_val
+def test_저점_높이기는_기록만_하고_점수에는_안_들어간다():
+    """관측에서는 뚜렷했지만 가산점으로 주니 선발 구성이 바뀌어 역효과였다(2026-09-14).
 
-    span = 20
+    되살리려면 백테스트 재검증이 먼저다 — 그냥 보너스를 더하면 이 테스트가 잡는다.
+    """
+    from pipeline.src import pattern_discovery
+    from pipeline.src.pattern_discovery import _is_higher_low
+
+    span = pattern_discovery.HIGHER_LOW_SPAN
     rising = np.concatenate([np.full(span, 5.0), np.full(span, 6.0)])   # 직전 5.0 → 최근 6.0
-    flat_low = np.full(2 * span, 5.0)                                   # 같으면 미충족
     falling = np.concatenate([np.full(span, 6.0), np.full(span, 5.0)])
 
-    assert _higher_low_bonus_val(rising) == HIGHER_LOW_BONUS
-    assert _higher_low_bonus_val(flat_low) == 0.0
-    assert _higher_low_bonus_val(falling) == 0.0
-    # 봉이 모자라면 판정하지 않는다(보너스 없음)
-    assert _higher_low_bonus_val(np.full(2 * span - 1, 5.0)) == 0.0
+    assert _is_higher_low(rising) is True
+    assert _is_higher_low(np.full(2 * span, 5.0)) is False   # 같으면 미충족
+    assert _is_higher_low(falling) is False
+    assert _is_higher_low(np.full(2 * span - 1, 5.0)) is False  # 봉 부족
+
+    # 점수에 더하는 상수가 없어야 한다
+    assert not hasattr(pattern_discovery, "HIGHER_LOW_BONUS")
+    assert not hasattr(pattern_discovery, "_higher_low_bonus_val")
 
 
-def test_만점_지점이_하한_바로_위로_당겨졌다():
-    """하락률 65% · 소진일수 50일에서 만점. 그 위로 더 줘도 성과가 안 좋아진다는 백테스트 결과."""
+def test_저점_높이기_여부가_점수를_바꾸지_않는다():
+    """같은 봉인데 저점만 높인 종목이 더 높은 점수를 받으면 안 된다(기록만 하므로)."""
+    from pipeline.src.pattern_discovery import _score_candidate
+
+    n = 150
+    base_close = np.full(n, 6.0)
+    base_close[0] = 20.0
+    base_close[-70] = 5.0
+    vol = np.full(n, 100_000.0)
+
+    def score_with(low: np.ndarray) -> float:
+        ok, stats = _score_candidate(base_close + 0.3, low, base_close, vol, 20.3)
+        assert ok
+        return stats["score"]
+
+    flat_low = base_close - 0.3
+    rising_low = flat_low.copy()
+    rising_low[-20:] += 0.2          # 최근 20봉 저점만 들어올린다
+
+    assert score_with(rising_low) == score_with(flat_low)
+
+
+def test_만점_지점은_넓게_유지한다():
+    """당겨봤다가 되돌린 값 — 65%/50일로 당기면 대부분이 만점이라 줄이 안 선다."""
     from pipeline.src.pattern_discovery import (
         DRAWDOWN_FULL_SPAN,
         EXHAUSTION_FULL_SPAN,
@@ -171,8 +199,8 @@ def test_만점_지점이_하한_바로_위로_당겨졌다():
         MIN_DRAWDOWN,
     )
 
-    assert MIN_DRAWDOWN + DRAWDOWN_FULL_SPAN == 0.65
-    assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 50.0
+    assert MIN_DRAWDOWN + DRAWDOWN_FULL_SPAN == 0.90
+    assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 60.0
 
 
 def test_이평_정배열은_더_이상_점수에_없다():

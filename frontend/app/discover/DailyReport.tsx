@@ -117,11 +117,11 @@ function CriteriaLegend() {
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">하락률</dt>
-          <dd>52주 최고가 대비 하락폭. 55% 이상만 통과하고 65%에서 만점 (점수 가중치 30%)</dd>
+          <dd>52주 최고가 대비 하락폭. 55% 이상만 통과 (점수 가중치 30%)</dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">저점 유지 N일</dt>
-          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과하고 50일에서 만점 (점수 가중치 40%, 가장 중요)</dd>
+          <dd>저점을 갱신하지 않고 버틴 거래일 수 — 매도 소진 정도. 15일 이상만 통과 (점수 가중치 40%, 가장 중요)</dd>
         </div>
         <div>
           <dt className="font-medium text-secondary-foreground">거래량 N배</dt>
@@ -135,7 +135,8 @@ function CriteriaLegend() {
           <dt className="font-medium text-secondary-foreground">저점↑ ✓ / ✗</dt>
           <dd>
             최근 20일 저점이 그 직전 20일 저점보다 높은지 — 바닥을 기는 것과 들어올리는 것을
-            가른다. 충족 시 +10점 보너스
+            가릅니다. <strong className="font-medium">점수에는 넣지 않고 참고로만 표시</strong>합니다
+            (백테스트에서 점수에 넣으면 오히려 나빠졌습니다)
           </dd>
         </div>
       </dl>
