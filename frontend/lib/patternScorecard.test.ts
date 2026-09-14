@@ -156,7 +156,7 @@ describe('segmentPatternBy', () => {
   it('표본이 적은 구간은 착시라 잘라낸다', () => {
     const segments = segmentPatternBy(
       [
-        ...Array.from({ length: 6 }, () => withDays(35, 12)),
+        ...Array.from({ length: 6 }, () => withDays(20, 12)),
         ...Array.from({ length: 2 }, () => withDays(70, 30)), // 2건뿐 — 빠져야 한다
       ],
       (r) => daysSinceLowBucket(r.features.daysSinceLow),
@@ -176,24 +176,24 @@ describe('segmentPatternBy', () => {
   it('평균 수익률 내림차순으로 정렬한다', () => {
     const segments = segmentPatternBy(
       [
-        ...Array.from({ length: 5 }, () => withDays(35, 9)),
+        ...Array.from({ length: 5 }, () => withDays(20, 9)),
         ...Array.from({ length: 5 }, () => withDays(70, 15)),
       ],
       (r) => daysSinceLowBucket(r.features.daysSinceLow),
     )
-    expect(segments.map((s) => s.key)).toEqual(['3', '1'])
+    expect(segments.map((s) => s.key)).toEqual(['4', '1'])
   })
 })
 
 describe('구간 나누기', () => {
-  it('소진일수 구간 (커트라인 30일 기준)', () => {
-    expect(daysSinceLowBucket(30)).toBe('1')
-    expect(daysSinceLowBucket(44)).toBe('1')
-    expect(daysSinceLowBucket(45)).toBe('2')
-    expect(daysSinceLowBucket(59)).toBe('2')
-    expect(daysSinceLowBucket(60)).toBe('3')
-    expect(daysSinceLowBucket(89)).toBe('3')
-    expect(daysSinceLowBucket(90)).toBe('4')
+  it('소진일수 구간 (60일 이상을 둘로 쪼갠다)', () => {
+    expect(daysSinceLowBucket(15)).toBe('1')
+    expect(daysSinceLowBucket(29)).toBe('1')
+    expect(daysSinceLowBucket(30)).toBe('2')
+    expect(daysSinceLowBucket(45)).toBe('3')
+    expect(daysSinceLowBucket(60)).toBe('4')
+    expect(daysSinceLowBucket(89)).toBe('4')
+    expect(daysSinceLowBucket(90)).toBe('5')
     expect(daysSinceLowBucket(null)).toBeNull()
   })
 

@@ -191,16 +191,16 @@ def test_저점_높이기_여부가_점수를_바꾸지_않는다():
     assert score_with(rising_low) == score_with(flat_low)
 
 
-def test_소진일수_커트라인은_30일이다():
-    """15 → 30으로 올린 값이다 (2026-09-14). 15~29일이 유일한 마이너스 구간이었다.
+def test_소진일수_커트라인은_15일이다():
+    """30으로 올려봤다가 되돌린 값이다 (2026-09-14, docstring v5).
 
-    되돌리려면 백테스트 재검증이 먼저다 — 그냥 낮추면 이 테스트가 잡는다.
-    만점 지점(60일)은 커트라인과 **함께** 움직여야 한다. 한쪽만 바꾸면 커트라인
-    변경과 만점 지점 변경이 섞여서 원인을 알 수 없게 된다.
+    15~29일이 유일한 마이너스 구간이라 잘라냈는데, 그 자리를 다른 나쁜 종목이
+    메워서(30~44일 중간값 12.44% → 0.99%) 합격 기준을 못 넘겼다.
+    다시 올리려면 백테스트 재검증이 먼저다 — 그냥 바꾸면 이 테스트가 잡는다.
     """
     from pipeline.src.pattern_discovery import EXHAUSTION_FULL_SPAN, MIN_DAYS_SINCE_LOW
 
-    assert MIN_DAYS_SINCE_LOW == 30
+    assert MIN_DAYS_SINCE_LOW == 15
     assert MIN_DAYS_SINCE_LOW + EXHAUSTION_FULL_SPAN == 60.0
 
 
