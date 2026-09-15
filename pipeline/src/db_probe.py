@@ -213,6 +213,34 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
         mark = "✓" if bars > 0 else "✗"
         print(f"    {mark} {market} {ticker} ({r['name']}): {bars}봉, 최신 {latest_date}", flush=True)
 
+    # 가장 최근에 추가한 종목의 실제 일봉을 몇 개 찍는다. **봉 수만으로는 데이터가
+    # 쓸 만한지 알 수 없다** — 값이 0이거나 거래량이 비어 있어도 "N봉 있음"으로는
+    # 똑같이 보이기 때문이다(차트는 그때 빈 화면이 된다).
+    newest = rows[0]
+    print(f"\n  가장 최근 추가 종목({newest['market']} {newest['ticker']})의 최근 일봉 5개:", flush=True)
+    sample = _attempt(
+        "최근 추가 종목 일봉 샘플",
+        lambda: (
+            db.client.table("stock_price_history")
+            .select("date, open, high, low, close, volume")
+            .eq("ticker", newest["ticker"])
+            .eq("market", newest["market"])
+            .order("date", desc=True)
+            .limit(5)
+            .execute()
+        ).data
+        or [],
+    )
+    if not sample:
+        print("    (없음 — 아직 백필 전이거나 수집이 실패했다)", flush=True)
+    else:
+        for row in sample:
+            print(
+                f"    {row['date']}  시 {row['open']}  고 {row['high']}  "
+                f"저 {row['low']}  종 {row['close']}  거래량 {row['volume']}",
+                flush=True,
+            )
+
 
 def main() -> None:
     load_dotenv()
