@@ -481,6 +481,15 @@ export function EtfWatchCard({
               미국 정부가 10년 동안 돈을 빌릴 때 주는 이자율입니다. {yieldMeaning.meaning}
             </p>
           )}
+          {/* 언제 기준인지 반드시 밝힌다 — 미국장은 한국 새벽에 닫히고 이 사이트는 하루 두 번만
+              값을 받아오므로, 장중 뉴스에 나오는 숫자와 다를 수밖에 없다. 날짜가 없으면
+              "뉴스는 5%인데 여기는 왜 4.96%냐"가 된다(2026-09-15 실제 질문). */}
+          {tenYearYield && (
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              {tenYearYield.date} 미국장 마감 종가 · 실시간이 아니라 하루 두 번(아침·저녁) 갱신하므로
+              장중 뉴스에 나오는 값과는 다를 수 있습니다.
+            </p>
+          )}
           {nasdaqChangePct !== null && (
             <p className="mt-1 text-xs text-muted-foreground">
               나스닥 등락 {nasdaqChangePct >= 0 ? '+' : ''}

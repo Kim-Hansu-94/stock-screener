@@ -466,8 +466,11 @@ export function assessStopSignals(
   const yieldChange = tenYearYield ? tenYearYield.close - tenYearYield.prevClose : null
   const yieldSpike = yieldChange !== null ? yieldChange >= YIELD_SPIKE_THRESHOLD_PCT : null
   // %p라는 말을 안 쓰고 "어제 4.99% → 오늘 5.02%"로 보여준다 — 단위를 몰라도 읽힌다.
+  // "오늘"이라고 쓰면 안 된다 — 미국장은 한국 새벽에 닫히고 파이프라인은 하루 두 번만
+  // 도는데, 둘 다 미국장이 닫혀 있는 시각이라 여기 들어오는 건 **직전에 끝난 미국장
+  // 종가**다(2026-09-15 16:49 KST 실행 기준 9/14 종가). 날짜는 화면이 따로 밝힌다.
   const yieldText = tenYearYield
-    ? `어제 ${tenYearYield.prevClose.toFixed(2)}% → 오늘 ${tenYearYield.close.toFixed(2)}%`
+    ? `직전 ${tenYearYield.prevClose.toFixed(2)}% → 최근 ${tenYearYield.close.toFixed(2)}%`
     : ''
 
   const proxyStages = PROXY_TICKERS.map((t) => classifyStage(proxyBars[t] ?? []))

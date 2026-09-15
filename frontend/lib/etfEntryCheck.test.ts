@@ -170,11 +170,12 @@ describe('assessStopSignals', () => {
     expect(s.state).toBe('alert')
   })
 
-  it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 어제→오늘 값을 보여준다', () => {
+  it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 직전→최근 값을 보여준다', () => {
     const signals = assessStopSignals(bars([]), noProxy, { close: 4.52, prevClose: 4.5 })
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('ok')
-    expect(s.detail).toContain('어제 4.50% → 오늘 4.52%')
+    // "오늘"이 아니라 "최근" — 미국장 종가는 항상 하루 전 것이다.
+    expect(s.detail).toContain('직전 4.50% → 최근 4.52%')
   })
 
   it('금리 데이터가 없으면 확인 불가로 남긴다', () => {
