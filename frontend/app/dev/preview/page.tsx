@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { DailyAlertPreview } from './DailyAlertPreview'
+import { CriteriaLegend } from '@/app/discover/DailyReport'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PatternScorecardVerdict, PatternSegmentTable } from '@/components/PatternScorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
@@ -369,6 +370,13 @@ export default function PreviewPage() {
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">사이트 진입 알림 팝업</h2>
         <DailyAlertPreview />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          저점 매집 후보 — 선정 기준 안내 (표가 있어 폰 폭에서 깨지기 쉽다)
+        </h2>
+        <CriteriaLegend />
       </section>
 
       <section className="space-y-3">
