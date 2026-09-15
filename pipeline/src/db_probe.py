@@ -223,7 +223,19 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     # 쓸 만한지 알 수 없다** — 값이 0이거나 거래량이 비어 있어도 "N봉 있음"으로는
     # 똑같이 보이기 때문이다(차트는 그때 빈 화면이 된다).
     newest = rows[0]
-    print(f"\n  가장 최근 추가 종목({newest['market']} {newest['ticker']})의 최근 일봉 5개:", flush=True)
+    newest_bars = _attempt(
+        "최근 추가 종목 봉 수",
+        lambda: db.count_price_bars(newest["ticker"], newest["market"]),
+    )
+    # 66봉은 프론트(etfEntryCheck.classifyStage)가 A/B/C를 판정하는 최소치다 —
+    # 이보다 적으면 일봉은 있는데 화면은 "판정 불가"로 뜬다.
+    verdict = "판정 가능" if (newest_bars or 0) >= 66 else "66봉 미만 — 화면은 판정 불가로 뜬다"
+    print(
+        f"\n  가장 최근 추가 종목({newest['market']} {newest['ticker']}): "
+        f"총 {newest_bars}봉 → {verdict}",
+        flush=True,
+    )
+    print("  최근 일봉 5개:", flush=True)
     sample = _attempt(
         "최근 추가 종목 일봉 샘플",
         lambda: (
