@@ -1,4 +1,4 @@
-// 부동산 동향 탭(app/page.tsx, 홈) 쿼리.
+// 부동산 동향 탭(app/realestate/page.tsx, 구 홈 — 2026-09-15에 490590 매수체크에게 루트를 내줌) 쿼리.
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'
