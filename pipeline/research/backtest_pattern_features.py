@@ -663,6 +663,34 @@ def _bucket_drawdown_wide(v) -> str | None:
     return "7. 85% 이상"
 
 
+def _bucket_drawdown_fine(v) -> str | None:
+    """스윕용 하락률 구간을 **5% 단위로** 쪼갠다 (2026-09-15, 65~75% 골 진단용).
+
+    굵은 구간(10%폭)에서 65~75%만 60거래일 중간값이 꺼졌다(13.51% → 9.64% → 17.70%).
+    10%는 넓어서 그 안에 골이 어디 있는지, 애초에 골이 실재하는지 알 수 없다.
+
+    **하한(55%) 아래는 굵게 둔다** — 거기는 이미 계단이 확인됐고 화면에 안 들어오는
+    구간이라 해상도를 올릴 이유가 없다. 55% 위만 잘게 본다.
+    """
+    if pd.isna(v):
+        return None
+    if v < 55:
+        return "0. 55% 미만"
+    if v < 60:
+        return "1. 55~60%"
+    if v < 65:
+        return "2. 60~65%"
+    if v < 70:
+        return "3. 65~70%"
+    if v < 75:
+        return "4. 70~75%"
+    if v < 80:
+        return "5. 75~80%"
+    if v < 85:
+        return "6. 80~85%"
+    return "7. 85% 이상"
+
+
 def run_drawdown_sweep(ohlcv: dict[str, pd.DataFrame], spy: pd.Series | None) -> pd.DataFrame:
     """하락률 하한을 SWEEP_MIN_DRAWDOWN까지 낮춰 수익률 곡선의 **모양**을 본다.
 
@@ -691,6 +719,7 @@ def run_drawdown_sweep(ohlcv: dict[str, pd.DataFrame], spy: pd.Series | None) ->
     print(f"  쿨다운 {COOLDOWN_DAYS}일 적용 → {len(picks)}건")
     picks = add_benchmark(picks, spy)
     picks["seg_dd"] = picks["drawdown_pct"].map(_bucket_drawdown_wide)
+    picks["seg_dd_fine"] = picks["drawdown_pct"].map(_bucket_drawdown_fine)
 
     rows: list[dict] = []
     for horizon in (PRIMARY_HORIZON, 250):
@@ -699,6 +728,16 @@ def run_drawdown_sweep(ohlcv: dict[str, pd.DataFrame], spy: pd.Series | None) ->
             if not card or card["n"] < MIN_SEGMENT_SAMPLE:
                 continue
             rows.append({"구분": f"하락률 구간 ({horizon}거래일 보유)", "구간": str(key), **card})
+
+    # 65~75% 골이 실재하는지, 실재한다면 **느린 것인지 나쁜 것인지** 가른다.
+    # 120거래일을 끼워 넣는 이유가 이것이다 — 60일엔 골이 있고 250일엔 없다면
+    # "나쁜 구간"이 아니라 "회복이 늦는 구간"이라는 뜻이다.
+    for horizon in (PRIMARY_HORIZON, 120, 250):
+        for key, sub in sorted(picks.groupby("seg_dd_fine", dropna=True), key=lambda kv: str(kv[0])):
+            card = _card(sub, horizon)
+            if not card or card["n"] < MIN_SEGMENT_SAMPLE:
+                continue
+            rows.append({"구분": f"하락률 5% 단위 ({horizon}거래일 보유)", "구간": str(key), **card})
 
     summary = pd.DataFrame(rows)
     if summary.empty:
