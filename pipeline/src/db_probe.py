@@ -186,6 +186,33 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     for r in rows[:5]:
         print(f"    {r['added_at']} {r['market']} {r['ticker']} ({r['name']}, {r['category']})", flush=True)
 
+    # 목록에 있는 것과 **차트가 그려지는 것은 다르다** — 감시 종목은 정규 유니버스
+    # 수집 루프를 안 타서, main.py의 _backfill_missing_watchlist_history가 돌기
+    # 전까지 일봉이 0개다(화면엔 "평가 대기"로만 뜬다). 몇 봉이 언제까지 쌓였는지는
+    # 여기서만 알 수 있다.
+    print("\n  감시 종목별 일봉 현황 (0봉이면 아직 백필 전):", flush=True)
+    for r in rows:
+        ticker, market = r["ticker"], r["market"]
+        bars = _attempt(f"{market} {ticker} 일봉 수", lambda t=ticker, m=market: db.count_price_bars(t, m))
+        if bars is None:
+            continue
+        latest = _attempt(
+            f"{market} {ticker} 최신 일봉",
+            lambda t=ticker, m=market: (
+                db.client.table("stock_price_history")
+                .select("date")
+                .eq("ticker", t)
+                .eq("market", m)
+                .order("date", desc=True)
+                .limit(1)
+                .execute()
+            ).data
+            or [],
+        )
+        latest_date = latest[0]["date"] if latest else "—"
+        mark = "✓" if bars > 0 else "✗"
+        print(f"    {mark} {market} {ticker} ({r['name']}): {bars}봉, 최신 {latest_date}", flush=True)
+
 
 def main() -> None:
     load_dotenv()
