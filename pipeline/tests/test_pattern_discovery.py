@@ -214,37 +214,39 @@ def test_가중치는_하락률에_가장_크게_준다():
     assert WEIGHT_DRAWDOWN > WEIGHT_VOLUME > WEIGHT_EXHAUSTION
 
 
-def test_거래량_점수는_산_모양이다():
-    """높을수록 만점이던 것을 1.0~1.5배 정점으로 바꿨다 (v6, 2026-09-14).
+def test_거래량_점수는_1_5배_계단_하나다():
+    """높을수록 만점 → 1.0~1.5배 정점 → **1.5배 미만 전부 만점**으로 두 번 고쳤다.
 
-    실측에서 1.0~1.5배가 중간값 15.93%로 가장 좋고 1.5배 위는 2.68%/2.83%로 무너졌는데,
-    옛 공식은 3.0배에서 만점이라 **정확히 반대 방향**이었다.
-    다시 단조 증가로 돌리려면 백테스트 재검증이 먼저다 — 그냥 바꾸면 이 테스트가 잡는다.
+    v6에서 방향을 뒤집었고(3.0배 만점은 성과와 반대였다), v8에서 1.0 미만을 깎던
+    기울기를 걷어냈다 — 그 기울기는 측정값이 아니라 가정이었고, 실제로는 0.85~1.0배가
+    중간값 16.05%로 1등인데도 만점을 못 받고 있었다.
+
+    1.5배 아래에 순위를 다시 매기려면 백테스트 재검증이 먼저다 — 그냥 바꾸면 이 테스트가 잡는다.
     """
     from pipeline.src.pattern_discovery import (
         MIN_VOL_RATIO,
         VOL_FADE_END,
         VOL_PEAK_HIGH,
-        VOL_PEAK_LOW,
         _vol_score_val,
     )
 
-    # 만점 구간
-    assert _vol_score_val(VOL_PEAK_LOW) == 1.0
-    assert _vol_score_val(1.2) == 1.0
+    # 1.5배 미만은 **전부** 만점 — 이 구간에 순서를 매기지 않는 것이 v8의 핵심이다
+    assert _vol_score_val(MIN_VOL_RATIO) == 1.0
+    assert _vol_score_val(0.85) == 1.0
+    assert _vol_score_val(1.0) == 1.0
+    assert _vol_score_val(1.25) == 1.0
     assert _vol_score_val(VOL_PEAK_HIGH) == 1.0
 
-    # 정점 위로는 **떨어진다** — 이게 v6의 핵심이다
-    assert _vol_score_val(1.75) < 1.0
+    # 경계 위로는 떨어진다 — 여기가 유일하게 확인된 진짜 경계다
+    assert _vol_score_val(1.75) == pytest.approx(0.5)
     assert _vol_score_val(VOL_FADE_END) == 0.0
     assert _vol_score_val(5.0) == 0.0
 
-    # 하한 아래는 하드 필터가 막으므로 점수는 바닥값에서 시작해 정점까지 오른다
-    assert _vol_score_val(MIN_VOL_RATIO) == pytest.approx(0.5)
-    assert _vol_score_val(0.85) == pytest.approx(0.75)
+    # 걷어낸 상수가 되살아나면 잡는다
+    from pipeline.src import pattern_discovery
 
-    # 실측 순서와 같은 순서여야 한다: 1.0~1.5 > 1.0 미만 > 1.5 초과
-    assert _vol_score_val(1.25) > _vol_score_val(0.85) > _vol_score_val(1.9)
+    assert not hasattr(pattern_discovery, "VOL_PEAK_LOW")
+    assert not hasattr(pattern_discovery, "VOL_FLOOR_SCORE")
 
 
 def test_소진일수_커트라인은_15일이다():
