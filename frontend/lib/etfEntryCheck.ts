@@ -327,16 +327,51 @@ export function buildTrancheGuide(
 }
 
 // ── 매수 중단 신호 ────────────────────────────────────────────────────────
+//
+// **상태에 따라 문장 자체가 바뀐다.** 예전에는 "490590이 최근 저점을 재차 이탈"처럼
+// 나쁜 일의 이름을 제목으로 놓고 그 옆에 ✓/🚨를 붙였는데, 그러면 읽는 사람이 제목과
+// 기호를 머릿속에서 곱해야 하고 ✓가 "그 나쁜 일이 일어났다"로 정반대로 읽힌다
+// (2026-09-15 사용자 지적). 지금은 headline이 현재 상태를 그대로 서술하므로
+// 문장만 읽어도 뜻이 통하고, 배지는 글자('이상 없음'/'경고')로 거든다.
+
+/** ok = 이 신호는 안 걸림 / alert = 걸림(멈출 이유) / unknown = 데이터가 없어 판단 불가 */
+export type StopSignalState = 'ok' | 'alert' | 'unknown'
 
 export interface StopSignal {
   id: string
-  label: string
-  /** null = 데이터 부족으로 계산 불가, undefined 아님 — 자동판정 대상인데 데이터가 모자란 경우. */
-  triggered: boolean | null
+  /** 무엇을 보는 항목인지 — 좋고 나쁨이 섞이지 않은 중립적 이름 */
+  topic: string
+  state: StopSignalState
+  /** 지금 상태를 그대로 쓴 한 문장 (상태에 따라 내용이 바뀐다) */
+  headline: string
+  /** 그렇게 판단한 근거를 쉬운 말로 */
   detail: string
-  /** false면 뉴스 등으로 직접 판단해야 하는 항목(계산하지 않음). */
-  automatic: boolean
 }
+
+/**
+ * 뉴스를 읽어야 알 수 있어 자동으로 판단하지 않는 항목. 계산이 없으므로 상수다 —
+ * 화면은 이걸 "직접 확인할 것" 목록으로 따로 떼어 보여준다(자동 판정과 섞지 않는다).
+ */
+export interface ManualStopCheck {
+  id: string
+  /** 사용자가 스스로 답할 수 있는 질문 형태 */
+  question: string
+  /** 왜 자동으로 못 보는지 */
+  why: string
+}
+
+export const MANUAL_STOP_CHECKS: ManualStopCheck[] = [
+  {
+    id: 'nasdaqGiveback',
+    question: '나스닥이 크게 올랐다가 그날 오른 만큼을 다시 다 반납했나요?',
+    why: '이 사이트는 하루 종가만 받고 장중 가격은 안 받아서 자동으로 알 수 없습니다.',
+  },
+  {
+    id: 'hawkishFomc',
+    question: 'FOMC 뒤에도 연준이 계속 매파적인가요? (금리를 더 올리거나 높은 채로 오래 두겠다는 태도)',
+    why: '발언의 분위기는 뉴스를 읽어야 알 수 있습니다 — 아래 뉴스를 참고하세요.',
+  },
+]
 
 export function assessStopSignals(
   etfBars: PriceHistoryRow[],
@@ -349,11 +384,16 @@ export function assessStopSignals(
     const bars = proxyBars[t]
     return madeFreshLowRecently(bars ?? []) ? count + 1 : count
   }, 0)
+  const proxyEvaluated = PROXY_TICKERS.filter((t) => (proxyBars[t]?.length ?? 0) > 0).length
 
-  // ^TNX는 수익률(%)의 10배로 온다 (4.50% → 45.00) — 1.5 차이가 약 15bp(0.15%p) 급등.
+  // ^TNX는 수익률(%)의 10배로 온다 (4.50% → 45.00) — 1.5 차이가 0.15%p 급등.
   const YIELD_SPIKE_THRESHOLD_RAW = 1.5
   const yieldChange = tenYearYield ? tenYearYield.close - tenYearYield.prevClose : null
   const yieldSpike = yieldChange !== null ? yieldChange >= YIELD_SPIKE_THRESHOLD_RAW : null
+  // %p라는 말을 안 쓰고 "어제 4.49% → 오늘 4.52%"로 보여준다 — 단위를 몰라도 읽힌다.
+  const yieldText = tenYearYield
+    ? `어제 ${(tenYearYield.prevClose / 10).toFixed(2)}% → 오늘 ${(tenYearYield.close / 10).toFixed(2)}%`
+    : ''
 
   const proxyStages = PROXY_TICKERS.map((t) => classifyStage(proxyBars[t] ?? []))
   const evaluatedStages = proxyStages.filter((s): s is StageResult => s !== null)
@@ -364,56 +404,100 @@ export function assessStopSignals(
   return [
     {
       id: 'etfFreshLow',
-      label: '490590이 최근 저점을 재차 이탈',
-      triggered: etfFreshLow,
+      topic: '490590이 바닥을 지키고 있나',
+      state: etfFreshLow === null ? 'unknown' : etfFreshLow ? 'alert' : 'ok',
+      headline:
+        etfFreshLow === null
+          ? '490590 일봉이 아직 모자라 판단할 수 없습니다'
+          : etfFreshLow
+            ? '490590이 최근 바닥을 깨고 더 내려갔습니다'
+            : '490590이 최근 바닥을 잘 지키고 있습니다',
       detail:
         etfFreshLow === null
-          ? '일봉 데이터 부족'
+          ? '가격 데이터가 쌓이면 자동으로 판단합니다'
           : etfFreshLow
-            ? `최근 ${STRUCTURE_WINDOW}거래일 저가보다 더 낮은 저가 발생`
-            : '아직 최근 저점 아래로는 안 내려감',
-      automatic: true,
+            ? `최근 ${STRUCTURE_WINDOW}거래일 중 가장 쌌던 가격보다 더 싸게 거래됐습니다`
+            : `최근 ${STRUCTURE_WINDOW}거래일 중 가장 쌌던 가격 아래로는 안 내려갔습니다`,
     },
     {
       id: 'proxyFreshLow',
-      label: '대장주 여러 개가 동시에 저점 이탈',
-      triggered: proxyFreshLowCount >= 3 ? true : proxyFreshLowCount > 0 ? false : null,
-      detail: `최근 ${FRESH_LOW_RECENT_DAYS}거래일 안에 신저가를 만든 대장주 ${proxyFreshLowCount}/5개 (3개 이상이면 경고)`,
-      automatic: true,
+      topic: '대장주들이 한꺼번에 무너지고 있나',
+      state: proxyEvaluated === 0 ? 'unknown' : proxyFreshLowCount >= 3 ? 'alert' : 'ok',
+      headline:
+        proxyEvaluated === 0
+          ? '대장주 가격 데이터가 없어 판단할 수 없습니다'
+          : proxyFreshLowCount >= 3
+            ? `대장주 ${proxyFreshLowCount}개가 한꺼번에 바닥을 깼습니다`
+            : '대장주가 한꺼번에 무너지는 모습은 아닙니다',
+      detail:
+        proxyEvaluated === 0
+          ? '가격 데이터가 쌓이면 자동으로 판단합니다'
+          : `최근 ${FRESH_LOW_RECENT_DAYS}거래일 안에 바닥을 깬 대장주 ${proxyFreshLowCount}개 (5개 중 3개 이상이면 경고)`,
     },
     {
       id: 'yieldSpike',
-      label: '미국 10년물 금리 급등',
-      triggered: yieldSpike,
+      topic: '미국 금리가 갑자기 튀었나',
+      state: yieldSpike === null ? 'unknown' : yieldSpike ? 'alert' : 'ok',
+      headline:
+        yieldSpike === null
+          ? '금리 데이터가 아직 없습니다'
+          : yieldSpike
+            ? '미국 국채 금리가 하루 만에 크게 올랐습니다'
+            : '미국 국채 금리는 잠잠합니다',
       detail:
-        yieldChange === null
-          ? '금리 데이터 없음 (다음 파이프라인 실행 후 표시)'
-          : `전일 대비 ${(yieldChange / 10).toFixed(2)}%p 변동 (기준: ${(YIELD_SPIKE_THRESHOLD_RAW / 10).toFixed(2)}%p 이상)`,
-      automatic: true,
+        yieldSpike === null
+          ? '다음 자동 수집(하루 2번) 뒤부터 표시됩니다'
+          : `미국 10년물 국채 금리 ${yieldText} · 하루에 0.15%p 넘게 오르면 경고로 봅니다`,
     },
     {
       id: 'allDownTogether',
-      label: 'AI주 전체가 동반 하락',
-      triggered: allDownTogether,
+      topic: 'AI 대장주 전체 분위기',
+      state: allDownTogether === null ? 'unknown' : allDownTogether ? 'alert' : 'ok',
+      headline:
+        allDownTogether === null
+          ? '판정된 대장주가 적어 분위기를 볼 수 없습니다'
+          : allDownTogether
+            ? 'AI 대장주가 거의 다 하락 단계입니다'
+            : 'AI 대장주가 다 같이 무너지지는 않았습니다',
       detail:
         allDownTogether === null
-          ? '판정 종목 부족'
-          : `대장주 ${aStageCount}/${evaluatedStages.length}개가 하락 단계`,
-      automatic: true,
-    },
-    {
-      id: 'nasdaqGiveback',
-      label: '나스닥이 강한 상승 후 상승분을 모두 반납',
-      triggered: null,
-      detail: '장중 고가 데이터가 없어 자동 계산 불가 — 직접 확인 필요',
-      automatic: false,
-    },
-    {
-      id: 'hawkishFomc',
-      label: 'FOMC 이후 매파적 분위기가 계속됨',
-      triggered: null,
-      detail: '뉴스를 읽고 직접 판단 — 아래 뉴스 참고',
-      automatic: false,
+          ? `판정된 대장주 ${evaluatedStages.length}개 (4개 이상이어야 판단합니다)`
+          : `대장주 ${evaluatedStages.length}개 중 ${aStageCount}개가 하락 단계 (거의 전부면 경고)`,
     },
   ]
+}
+
+export interface StopVerdict {
+  /** stop = 멈출 신호가 실제로 켜짐 / clear = 멈출 이유 없음 */
+  level: 'stop' | 'clear'
+  headline: string
+  detail: string
+}
+
+/**
+ * 자동 점검 결과를 한 줄 결론으로 합친다. 항목을 하나씩 다 읽고 머릿속에서 합치게
+ * 두지 않기 위한 것이다 — 화면 맨 위에 이 결론을 먼저 보여준다.
+ */
+export function summarizeStopSignals(signals: StopSignal[]): StopVerdict {
+  const alerts = signals.filter((s) => s.state === 'alert')
+  const unknowns = signals.filter((s) => s.state === 'unknown')
+
+  if (alerts.length > 0) {
+    return {
+      level: 'stop',
+      headline: '지금은 추가 매수를 멈출 때입니다',
+      detail: `자동으로 보는 ${signals.length}가지 중 ${alerts.length}가지에서 위험 신호가 나왔습니다: ${alerts
+        .map((a) => a.headline)
+        .join(' / ')}`,
+    }
+  }
+
+  return {
+    level: 'clear',
+    headline: '지금은 멈출 이유가 없습니다',
+    detail:
+      unknowns.length > 0
+        ? `자동으로 보는 ${signals.length}가지 중 ${signals.length - unknowns.length}가지가 이상 없고, ${unknowns.length}가지는 데이터가 모자라 아직 못 봤습니다.`
+        : `자동으로 보는 ${signals.length}가지 모두 이상 없습니다. 다만 아래 2가지는 뉴스를 보고 직접 확인하세요.`,
+  }
 }

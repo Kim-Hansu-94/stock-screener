@@ -5,8 +5,11 @@ import {
   assessStopSignals,
   buildTrancheGuide,
   classifyStage,
+  summarizeStopSignals,
+  MANUAL_STOP_CHECKS,
   PROXY_TICKERS,
   type ProxyTicker,
+  type StopSignal,
 } from './etfEntryCheck'
 
 function bars(closes: number[], volumes?: number[]): PriceHistoryRow[] {
@@ -141,46 +144,47 @@ describe('buildTrancheGuide', () => {
 describe('assessStopSignals', () => {
   const noProxy = {} as Record<ProxyTicker, PriceHistoryRow[] | undefined>
 
-  it('490590이 최근 저점보다 더 낮은 저가를 만들면 저점 이탈로 판정한다', () => {
+  it('490590이 최근 저점보다 더 낮은 저가를 만들면 경고한다', () => {
     const closes = [...linspace(100, 90, 40), 80]
     const signals = assessStopSignals(bars(closes), noProxy, null)
     const s = signals.find((x) => x.id === 'etfFreshLow')!
-    expect(s.triggered).toBe(true)
+    expect(s.state).toBe('alert')
+    // 문장만 읽어도 뜻이 통해야 한다 — 상태와 제목을 곱해서 읽게 두지 않는다.
+    expect(s.headline).toContain('깨고')
   })
 
-  it('저점을 지키고 있으면 저점 이탈이 아니다', () => {
+  it('저점을 지키고 있으면 이상 없음이고, 문구도 지키는 쪽으로 바뀐다', () => {
     const closes = [...linspace(90, 100, 40), 101]
     const signals = assessStopSignals(bars(closes), noProxy, null)
     const s = signals.find((x) => x.id === 'etfFreshLow')!
-    expect(s.triggered).toBe(false)
+    expect(s.state).toBe('ok')
+    expect(s.headline).toContain('지키고')
   })
 
-  it('10년물 금리가 기준 이상 올랐으면 급등으로 판정한다', () => {
+  it('10년물 금리가 기준 이상 올랐으면 경고한다', () => {
     const signals = assessStopSignals(bars([]), noProxy, { close: 46.5, prevClose: 45.0 })
     const s = signals.find((x) => x.id === 'yieldSpike')!
-    expect(s.triggered).toBe(true)
+    expect(s.state).toBe('alert')
   })
 
-  it('10년물 금리 변동이 작으면 급등이 아니다', () => {
+  it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 어제→오늘 값을 보여준다', () => {
     const signals = assessStopSignals(bars([]), noProxy, { close: 45.2, prevClose: 45.0 })
     const s = signals.find((x) => x.id === 'yieldSpike')!
-    expect(s.triggered).toBe(false)
+    expect(s.state).toBe('ok')
+    expect(s.detail).toContain('어제 4.50% → 오늘 4.52%')
   })
 
-  it('금리 데이터가 없으면 판정 불가로 남긴다', () => {
+  it('금리 데이터가 없으면 확인 불가로 남긴다', () => {
     const signals = assessStopSignals(bars([]), noProxy, null)
     const s = signals.find((x) => x.id === 'yieldSpike')!
-    expect(s.triggered).toBeNull()
+    expect(s.state).toBe('unknown')
   })
 
-  it('뉴스로 직접 판단해야 하는 항목은 계산하지 않고 automatic:false로 남긴다', () => {
+  it('뉴스로 직접 판단해야 하는 항목은 자동 판정 목록에 아예 넣지 않는다', () => {
     const signals = assessStopSignals(bars([]), noProxy, null)
-    const hawkish = signals.find((x) => x.id === 'hawkishFomc')!
-    const giveback = signals.find((x) => x.id === 'nasdaqGiveback')!
-    expect(hawkish.automatic).toBe(false)
-    expect(hawkish.triggered).toBeNull()
-    expect(giveback.automatic).toBe(false)
-    expect(giveback.triggered).toBeNull()
+    expect(signals.map((s) => s.id)).not.toContain('hawkishFomc')
+    expect(signals.map((s) => s.id)).not.toContain('nasdaqGiveback')
+    expect(MANUAL_STOP_CHECKS.map((c) => c.id)).toEqual(['nasdaqGiveback', 'hawkishFomc'])
   })
 
   it('대장주 3개 이상이 동시에 신저가를 만들면 경고한다', () => {
@@ -195,6 +199,36 @@ describe('assessStopSignals', () => {
     }
     const signals = assessStopSignals(bars([]), proxyBars, null)
     const s = signals.find((x) => x.id === 'proxyFreshLow')!
-    expect(s.triggered).toBe(true)
+    expect(s.state).toBe('alert')
+  })
+})
+
+describe('summarizeStopSignals', () => {
+  function signal(state: 'ok' | 'alert' | 'unknown', headline = '샘플'): StopSignal {
+    return { id: `s-${state}-${headline}`, topic: '샘플', state, headline, detail: '' }
+  }
+
+  it('경고가 하나라도 있으면 멈추라는 결론을 내고, 어떤 신호인지 문장으로 알려준다', () => {
+    const verdict = summarizeStopSignals([
+      signal('ok'),
+      signal('alert', '490590이 최근 바닥을 깨고 더 내려갔습니다'),
+      signal('ok'),
+      signal('ok'),
+    ])
+    expect(verdict.level).toBe('stop')
+    expect(verdict.headline).toContain('멈출 때')
+    expect(verdict.detail).toContain('490590이 최근 바닥을 깨고 더 내려갔습니다')
+  })
+
+  it('전부 이상 없으면 멈출 이유가 없다는 결론을 낸다', () => {
+    const verdict = summarizeStopSignals([signal('ok'), signal('ok'), signal('ok'), signal('ok')])
+    expect(verdict.level).toBe('clear')
+    expect(verdict.detail).toContain('모두 이상 없습니다')
+  })
+
+  it('확인 불가가 섞여 있으면 몇 개를 못 봤는지 밝힌다', () => {
+    const verdict = summarizeStopSignals([signal('ok'), signal('unknown'), signal('ok'), signal('ok')])
+    expect(verdict.level).toBe('clear')
+    expect(verdict.detail).toContain('1가지는 데이터가 모자라')
   })
 })

@@ -426,27 +426,38 @@ function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
   return base.map((s) => ({ ...s, autoReady: s.autoConditions.every((c) => c.met) }))
 }
 
-function stopSignal(over: Partial<StopSignal>): StopSignal {
-  return { id: 'x', label: '', triggered: false, detail: '', automatic: true, ...over }
-}
-
+// 매수 중단 신호는 **상태에 따라 문장 자체가 바뀌므로**, 이상 없음/경고/확인 불가
+// 세 가지를 한 화면에서 같이 봐야 문구가 어색하지 않은지 확인할 수 있다.
 const STOP_SIGNALS_CALM: StopSignal[] = [
-  stopSignal({ id: 'etfFreshLow', label: '490590이 최근 저점을 재차 이탈', triggered: false, detail: '아직 최근 저점 아래로는 안 내려감' }),
-  stopSignal({ id: 'proxyFreshLow', label: '대장주 여러 개가 동시에 저점 이탈', triggered: false, detail: '최근 3거래일 안에 신저가를 만든 대장주 1/5개 (3개 이상이면 경고)' }),
-  stopSignal({ id: 'yieldSpike', label: '미국 10년물 금리 급등', triggered: false, detail: '전일 대비 +0.03%p 변동 (기준: 0.15%p 이상)' }),
-  stopSignal({ id: 'allDownTogether', label: 'AI주 전체가 동반 하락', triggered: false, detail: '대장주 1/5개가 하락 단계' }),
-  stopSignal({ id: 'nasdaqGiveback', label: '나스닥이 강한 상승 후 상승분을 모두 반납', triggered: null, detail: '장중 고가 데이터가 없어 자동 계산 불가 — 직접 확인 필요', automatic: false }),
-  stopSignal({ id: 'hawkishFomc', label: 'FOMC 이후 매파적 분위기가 계속됨', triggered: null, detail: '뉴스를 읽고 직접 판단 — 아래 뉴스 참고', automatic: false }),
+  { id: 'etfFreshLow', topic: '490590이 바닥을 지키고 있나', state: 'ok',
+    headline: '490590이 최근 바닥을 잘 지키고 있습니다',
+    detail: '최근 20거래일 중 가장 쌌던 가격 아래로는 안 내려갔습니다' },
+  { id: 'proxyFreshLow', topic: '대장주들이 한꺼번에 무너지고 있나', state: 'ok',
+    headline: '대장주가 한꺼번에 무너지는 모습은 아닙니다',
+    detail: '최근 3거래일 안에 바닥을 깬 대장주 1개 (5개 중 3개 이상이면 경고)' },
+  { id: 'yieldSpike', topic: '미국 금리가 갑자기 튀었나', state: 'ok',
+    headline: '미국 국채 금리는 잠잠합니다',
+    detail: '미국 10년물 국채 금리 어제 4.49% → 오늘 4.52% · 하루에 0.15%p 넘게 오르면 경고로 봅니다' },
+  { id: 'allDownTogether', topic: 'AI 대장주 전체 분위기', state: 'ok',
+    headline: 'AI 대장주가 다 같이 무너지지는 않았습니다',
+    detail: '대장주 5개 중 1개가 하락 단계 (거의 전부면 경고)' },
 ]
 
-// 자동 경고 배너("🚨 매수 중단 신호가 감지됐습니다")가 실제로 뜨는지 보는 케이스.
+// 경고 배너와 경고 배지가 실제로 뜨는지 보는 케이스. '확인 불가'도 하나 섞어
+// 세 가지 상태가 한 화면에 같이 나오게 둔다.
 const STOP_SIGNALS_TRIGGERED: StopSignal[] = [
-  stopSignal({ id: 'etfFreshLow', label: '490590이 최근 저점을 재차 이탈', triggered: true, detail: '최근 20거래일 저가보다 더 낮은 저가 발생' }),
-  stopSignal({ id: 'proxyFreshLow', label: '대장주 여러 개가 동시에 저점 이탈', triggered: true, detail: '최근 3거래일 안에 신저가를 만든 대장주 3/5개 (3개 이상이면 경고)' }),
-  stopSignal({ id: 'yieldSpike', label: '미국 10년물 금리 급등', triggered: false, detail: '전일 대비 +0.05%p 변동 (기준: 0.15%p 이상)' }),
-  stopSignal({ id: 'allDownTogether', label: 'AI주 전체가 동반 하락', triggered: false, detail: '대장주 2/5개가 하락 단계' }),
-  stopSignal({ id: 'nasdaqGiveback', label: '나스닥이 강한 상승 후 상승분을 모두 반납', triggered: null, detail: '장중 고가 데이터가 없어 자동 계산 불가 — 직접 확인 필요', automatic: false }),
-  stopSignal({ id: 'hawkishFomc', label: 'FOMC 이후 매파적 분위기가 계속됨', triggered: null, detail: '뉴스를 읽고 직접 판단 — 아래 뉴스 참고', automatic: false }),
+  { id: 'etfFreshLow', topic: '490590이 바닥을 지키고 있나', state: 'alert',
+    headline: '490590이 최근 바닥을 깨고 더 내려갔습니다',
+    detail: '최근 20거래일 중 가장 쌌던 가격보다 더 싸게 거래됐습니다' },
+  { id: 'proxyFreshLow', topic: '대장주들이 한꺼번에 무너지고 있나', state: 'alert',
+    headline: '대장주 3개가 한꺼번에 바닥을 깼습니다',
+    detail: '최근 3거래일 안에 바닥을 깬 대장주 3개 (5개 중 3개 이상이면 경고)' },
+  { id: 'yieldSpike', topic: '미국 금리가 갑자기 튀었나', state: 'unknown',
+    headline: '금리 데이터가 아직 없습니다',
+    detail: '다음 자동 수집(하루 2번) 뒤부터 표시됩니다' },
+  { id: 'allDownTogether', topic: 'AI 대장주 전체 분위기', state: 'ok',
+    headline: 'AI 대장주가 다 같이 무너지지는 않았습니다',
+    detail: '대장주 5개 중 2개가 하락 단계 (거의 전부면 경고)' },
 ]
 
 function detailByBand(rows: RealestateMonthlyRow[]): Record<AreaBand, DetailMonthRow[]> {
