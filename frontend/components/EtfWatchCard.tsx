@@ -10,11 +10,14 @@ import {
   MANUAL_STOP_CHECKS,
   PROXY_NAMES,
   PROXY_TICKERS,
+  UPTURN_REQUIRED,
+  describeTenYearYield,
   summarizeStopSignals,
   type ProxyBasketAssessment,
   type StageResult,
   type StopSignal,
   type TrancheStep,
+  type UpturnCondition,
 } from '@/lib/etfEntryCheck'
 import type { MarketIndexSnapshotRow } from '@/lib/types'
 
@@ -68,6 +71,46 @@ function ConditionChip({ met, label }: { met: boolean; label: string }) {
     >
       {label} {met ? '✓' : '✗'}
     </span>
+  )
+}
+
+/**
+ * 상승 전환(C) 조건 5개를 이름·충족여부·근거 숫자까지 그대로 편다.
+ *
+ * 예전엔 "상승 전환 조건은 5개 중 1개만 충족"이라고만 적어서, 정작 **그 5개가 뭔지**
+ * 화면 어디에도 없었다(2026-09-15 지적). 개수만 보여주는 건 결론만 주고 근거를 감추는
+ * 것과 같아서, 조건 이름 · 무엇을 보는 조건인지 · 지금 숫자를 한 줄씩 나열한다.
+ */
+function UpturnConditionList({ conditions, metCount }: { conditions: UpturnCondition[]; metCount: number }) {
+  return (
+    <div className="mt-3 rounded-lg bg-muted/50 p-3">
+      <p className="text-xs font-semibold text-secondary-foreground">
+        상승 전환 조건 {conditions.length}개 중 <span className="text-primary">{metCount}개 충족</span>
+        <span className="font-normal text-muted-foreground"> ({UPTURN_REQUIRED}개 이상이면 “상승 전환”)</span>
+      </p>
+      <ol className="mt-2 space-y-2">
+        {conditions.map((c, i) => (
+          <li key={c.label} className="flex gap-2">
+            <span
+              className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                c.met ? 'bg-up/10 text-up' : 'bg-muted text-muted-foreground/70'
+              }`}
+              aria-hidden
+            >
+              {c.met ? '✓' : '·'}
+            </span>
+            <div className="min-w-0">
+              <p className={`text-xs font-semibold ${c.met ? 'text-secondary-foreground' : 'text-muted-foreground'}`}>
+                {i + 1}. {c.label}
+                <span className="sr-only">{c.met ? ' — 충족' : ' — 미충족'}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">{c.why}</p>
+              <p className="font-mono text-xs text-muted-foreground/70">{c.detail}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
 
@@ -126,8 +169,11 @@ export function EtfWatchCard({
 
   const investedManwon = tranches.reduce((sum, t, i) => (done[i] ? sum + t.amountManwon : sum), 0)
   const stopVerdict = summarizeStopSignals(stopSignals)
-  const tenYearPct = tenYearYield ? tenYearYield.close / 10 : null
-  const tenYearChangePct = tenYearYield ? (tenYearYield.close - tenYearYield.prev_close) / 10 : null
+  // ^TNX는 퍼센트 값 그대로다(5.02 = 5.02%). 예전엔 10으로 나눠서 5.02%가 0.50%로
+  // 떴다 — 뉴스의 "10년물 5.02%"와 대조해 잡았다(2026-09-15).
+  const tenYearPct = tenYearYield ? tenYearYield.close : null
+  const tenYearChangePct = tenYearYield ? tenYearYield.close - tenYearYield.prev_close : null
+  const yieldMeaning = tenYearPct !== null ? describeTenYearYield(tenYearPct) : null
   const nasdaqChangePct =
     nasdaq && nasdaq.prev_close !== 0 ? ((nasdaq.close - nasdaq.prev_close) / nasdaq.prev_close) * 100 : null
 
@@ -159,6 +205,10 @@ export function EtfWatchCard({
                 <li key={r}>· {r}</li>
               ))}
             </ul>
+            <UpturnConditionList
+              conditions={etfStage.upturnConditions}
+              metCount={etfStage.upturnMetCount}
+            />
           </>
         )}
 
@@ -173,7 +223,35 @@ export function EtfWatchCard({
         )}
         {chartOpen && (
           <div className="mt-2 border-t border-border pt-3">
-            <LazyStockChart market={ETF_MARKET} ticker={ETF_TICKER} expanded={chartOpen} volume />
+            {/* 위 판정이 20일선·거래량·저점을 보므로, 차트도 그걸 눈으로 확인할 수 있게
+                20일선(기본 표시)·거래량에 매물대와 RSI를 함께 켠다. */}
+            <LazyStockChart
+              market={ETF_MARKET}
+              ticker={ETF_TICKER}
+              expanded={chartOpen}
+              volume
+              volumeProfile
+              rsi
+            />
+            <dl className="mt-3 space-y-1.5 rounded-lg bg-muted/50 p-3 text-xs">
+              <div>
+                <dt className="font-semibold text-secondary-foreground">매물대 (왼쪽 회색 가로 막대)</dt>
+                <dd className="text-muted-foreground">
+                  어느 가격대에서 거래가 많았는지 보여줍니다. 막대가 길수록 그 가격에 사고판 사람이
+                  많다는 뜻이라, 지금 가격보다 위에 있으면 저항(올라갈 때 물린 사람들의 매도),
+                  아래에 있으면 지지로 작용하는 경향이 있습니다. 가장 두꺼운 가격대에는 ‘매물대’
+                  점선이 그어집니다.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-secondary-foreground">RSI (아래 보라색 선)</dt>
+                <dd className="text-muted-foreground">
+                  최근 14거래일 동안 오른 힘과 내린 힘의 비율을 0~100으로 나타낸 값입니다. 보통
+                  30 아래면 “너무 많이 팔렸다(과매도)”, 70 위면 “너무 많이 샀다(과매수)”로 봅니다.
+                  단, 하락 추세에서는 30 아래에 오래 머무를 수 있으니 이것만으로 사지 마세요.
+                </dd>
+              </div>
+            </dl>
           </div>
         )}
 
@@ -220,11 +298,20 @@ export function EtfWatchCard({
                   <StageBadge stage={r?.stage ?? null} />
                 </div>
                 {r ? (
-                  <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                    {r.reasons.map((x) => (
-                      <li key={x}>· {x}</li>
-                    ))}
-                  </ul>
+                  <>
+                    <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {r.reasons.map((x) => (
+                        <li key={x}>· {x}</li>
+                      ))}
+                    </ul>
+                    {/* 5종목 × 5조건을 다 펼치면 화면이 길어져서, 여기선 이름과 ✓/✗만
+                        칩으로 보여준다. 근거 숫자까지 보는 곳은 490590 자체 판정 섹션. */}
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {r.upturnConditions.map((c) => (
+                        <ConditionChip key={c.label} met={c.met} label={c.label} />
+                      ))}
+                    </div>
+                  </>
                 ) : (
                   <p className="mt-1 text-xs text-muted-foreground">일봉 부족으로 판정 불가</p>
                 )}
@@ -365,20 +452,42 @@ export function EtfWatchCard({
       </Section>
 
       <Section title="FOMC 직후 체크 (직접 판단)">
-        <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
-          <div>
-            <dt className="text-muted-foreground">미국 10년물 금리</dt>
-            <dd className="font-mono">{tenYearPct !== null ? `${tenYearPct.toFixed(2)}%` : '데이터 없음'}</dd>
+        {/* 숫자만 던지면 "5.02%가 높은 건지 낮은 건지"를 알 수 없어, 수준과 그 뜻을
+            바로 옆에 붙인다. 전일 대비는 −0.00처럼 반올림으로 생기는 가짜 부호를
+            없애려고 0.005 미만이면 '거의 변동 없음'으로 적는다. */}
+        <div className="rounded-lg bg-muted/50 p-3">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="text-xs text-muted-foreground">미국 10년물 국채 금리</span>
+            <span className="font-mono text-lg font-bold">
+              {tenYearPct !== null ? `${tenYearPct.toFixed(2)}%` : '데이터 없음'}
+            </span>
+            {yieldMeaning && (
+              <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-accent-foreground">
+                {yieldMeaning.level}
+              </span>
+            )}
+            {tenYearChangePct !== null && (
+              <span className="text-xs text-muted-foreground">
+                (어제보다{' '}
+                {Math.abs(tenYearChangePct) < 0.005
+                  ? '거의 그대로'
+                  : `${tenYearChangePct > 0 ? '+' : '−'}${Math.abs(tenYearChangePct).toFixed(2)}%p`}
+                )
+              </span>
+            )}
           </div>
-          <div>
-            <dt className="text-muted-foreground">10년물 전일 대비</dt>
-            <dd className="font-mono">{tenYearChangePct !== null ? `${tenYearChangePct >= 0 ? '+' : ''}${tenYearChangePct.toFixed(2)}%p` : '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">나스닥 등락</dt>
-            <dd className="font-mono">{nasdaqChangePct !== null ? `${nasdaqChangePct >= 0 ? '+' : ''}${nasdaqChangePct.toFixed(2)}%` : '—'}</dd>
-          </div>
-        </dl>
+          {yieldMeaning && (
+            <p className="mt-1.5 text-xs leading-relaxed text-secondary-foreground">
+              미국 정부가 10년 동안 돈을 빌릴 때 주는 이자율입니다. {yieldMeaning.meaning}
+            </p>
+          )}
+          {nasdaqChangePct !== null && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              나스닥 등락 {nasdaqChangePct >= 0 ? '+' : ''}
+              {nasdaqChangePct.toFixed(2)}%
+            </p>
+          )}
+        </div>
         <ul className="mt-3 space-y-1 text-xs text-secondary-foreground">
           <li>· 금리 결정이 시장 예상과 크게 다른가?</li>
           <li>· 연준 발언이 예상보다 매파적인가?</li>

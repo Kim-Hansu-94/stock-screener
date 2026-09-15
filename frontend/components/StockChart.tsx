@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts'
 import { simpleMovingAverage, bollingerBands, relativeStrengthIndex, ichimokuLines } from '@/lib/calculations'
 import { IchimokuCloudSeries } from '@/lib/ichimokuCloudSeries'
+import { computeVolumeProfile } from '@/lib/volumeProfile'
+import { DEFAULT_VOLUME_PROFILE_STYLE, VolumeProfilePrimitive } from '@/lib/volumeProfilePrimitive'
 import { BOX_WINDOW } from '@/lib/opportunityScore'
 import type { PriceHistoryRow } from '@/lib/types'
 
@@ -13,6 +15,8 @@ interface StockChartProps {
   bollinger?: boolean
   rsi?: boolean
   volume?: boolean
+  /** 매물대(가격대별 거래량) — 왼쪽에 가로 막대로 깔고, 가장 두꺼운 가격대에 선을 긋는다. */
+  volumeProfile?: boolean
   ichimoku?: boolean
   /** 박스 수축 판정(watchlist.py evaluate_watch·detect_box_breakout)이 보는 최근
    * BOX_WINDOW(60)거래일 고가~저가 구간을 그대로 표시한다. 일봉 기준 지표라
@@ -105,6 +109,7 @@ export function StockChart({
   bollinger = false,
   rsi = false,
   volume = false,
+  volumeProfile = false,
   ichimoku = false,
   boxRange = false,
   preAggregated = false,
@@ -114,6 +119,17 @@ export function StockChart({
 }: StockChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rsiRef = useRef<HTMLDivElement>(null)
+
+  // 매물대는 그릴 수 없는 입력(가격이 전 구간 동일, 거래량 0)이 있어서 null이 나올 수
+  // 있다. 그리는 쪽(useEffect)과 범례가 같은 결과를 봐야 "범례에는 있는데 화면엔 없는"
+  // 상태가 안 생긴다 — 그래서 렌더에서 한 번 계산해 둘 다 이걸 쓴다.
+  const profile = useMemo(
+    () =>
+      volumeProfile
+        ? computeVolumeProfile(monthly && !preAggregated ? toMonthlyOHLCV(history) : history)
+        : null,
+    [volumeProfile, monthly, preAggregated, history],
+  )
 
   useEffect(() => {
     if (!containerRef.current || history.length === 0) return
@@ -216,6 +232,22 @@ export function StockChart({
         close: row.close,
       })),
     )
+
+    // 매물대 — 캔들 시리즈에 붙여야 가격축 좌표를 그대로 쓸 수 있다. 프리미티브의
+    // zOrder가 'bottom'이라 캔들 뒤에 깔린다. 가장 두꺼운 가격대(POC)는 가격축에
+    // 라벨이 뜨는 가로선으로 한 번 더 표시한다 — 막대만 있으면 "그래서 얼마인데?"에
+    // 답이 안 된다.
+    if (profile) {
+      candleSeries.attachPrimitive(new VolumeProfilePrimitive(profile))
+      candleSeries.createPriceLine({
+        price: profile.pocPrice,
+        color: DEFAULT_VOLUME_PROFILE_STYLE.pocColor,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: '매물대',
+      })
+    }
 
     const closes = data.map((row) => row.close)
 
@@ -376,7 +408,7 @@ export function StockChart({
       chart.remove()
       rsiChart?.remove()
     }
-  }, [history, monthly, bollinger, rsi, volume, ichimoku, boxRange, preAggregated, stopPrice, targetPrice, movingAverages])
+  }, [history, monthly, bollinger, rsi, volume, profile, ichimoku, boxRange, preAggregated, stopPrice, targetPrice, movingAverages])
 
   if (history.length === 0) {
     return <p className="text-sm text-muted-foreground">차트 데이터가 없습니다.</p>
@@ -405,6 +437,15 @@ export function StockChart({
           <span className="flex items-center gap-1">
             <span className="inline-block h-2.5 w-1.5 rounded-[1px] bg-muted-foreground/50" />
             거래량
+          </span>
+        )}
+        {profile && (
+          <span className="flex items-center gap-1">
+            <span
+              className="inline-block h-2.5 w-3.5 rounded-[1px]"
+              style={{ backgroundColor: DEFAULT_VOLUME_PROFILE_STYLE.pocColor }}
+            />
+            매물대(가격대별 거래량)
           </span>
         )}
         {boxRange && (

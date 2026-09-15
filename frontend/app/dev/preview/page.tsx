@@ -10,6 +10,7 @@ import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable
 import { WatchlistCard } from '@/components/WatchlistCard'
 import { PositionCard } from '@/components/PositionCard'
 import { StockCard } from '@/components/StockCard'
+import { StockChart } from '@/components/StockChart'
 import { RealestateOverviewTable, RealestateDetailTable } from '@/components/RealestateTables'
 import { RealestateMap } from '@/components/RealestateMap'
 import { RealestateMediaSection } from '@/components/RealestateMediaSection'
@@ -244,6 +245,37 @@ function watchlistChartHistory(ticker: string): PriceHistoryRow[] {
   return historyFrom(ticker, points)
 }
 
+// 매물대 미리보기용 — 한 가격대(100 부근)에서 오래 횡보하다가 위로 벌어지는 모양.
+// 거래량도 그 구간에 몰아줘서 "두꺼운 칸이 실제로 두껍게 보이는가"를 눈으로 확인한다.
+const VOLUME_PROFILE_HISTORY: PriceHistoryRow[] = (() => {
+  const rows: PriceHistoryRow[] = []
+  const start = new Date('2026-01-05')
+  const push = (close: number, volume: number) => {
+    const date = new Date(start)
+    date.setDate(start.getDate() + rows.length)
+    rows.push({
+      ticker: 'VPTEST', market: 'KR', date: date.toISOString().slice(0, 10),
+      open: close, high: close + 1.2, low: close - 1.2, close, volume,
+    })
+  }
+  // 1) 100 부근에서 120봉 횡보 — 여기가 가장 두꺼운 매물대가 되어야 한다.
+  for (let i = 0; i < 120; i++) push(100 + Math.sin(i / 3) * 2.5, 900_000)
+  // 2) 130까지 올라가며 얇게 거래 — 위쪽은 막대가 짧아야 한다.
+  for (let i = 1; i <= 60; i++) push(100 + (30 * i) / 60, 200_000)
+  return rows
+})()
+
+// 매물대를 계산할 수 없는 입력(가격이 전 구간 동일 + 거래량 0). null이 나오면 매물대만
+// 빠지고 캔들·거래량·RSI는 그대로 그려져야 한다.
+const FLAT_HISTORY: PriceHistoryRow[] = Array.from({ length: 40 }, (_, i) => {
+  const date = new Date('2026-03-02')
+  date.setDate(date.getDate() + i)
+  return {
+    ticker: 'FLAT', market: 'KR' as const, date: date.toISOString().slice(0, 10),
+    open: 100, high: 100, low: 100, close: 100, volume: 0,
+  }
+})
+
 function resistanceTargetHistory(ticker: string): PriceHistoryRow[] {
   const points: { close: number; high: number; low: number }[] = []
   for (let i = 0; i < 60; i++) points.push({ close: 100, high: 101, low: 99 })
@@ -368,10 +400,25 @@ const RE_MEDIA_ROWS: RealestateMediaRow[] = [
 // 카드가 받는 건 원본 일봉이 아니라 계산 결과라(EtfWatchCard 참고), 여기서도
 // 합성 일봉 대신 결과 객체를 바로 손으로 채운다.
 function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<StageResult['detail']> = {}): StageResult {
+  const met = stage === 'C'
   return {
     stage,
     label: stage === 'A' ? '하락 중' : stage === 'C' ? '상승 전환' : '하락 멈춤 (관찰)',
     reasons,
+    // 5개 조건 중 일부만 충족한 모습을 봐야 화면의 ✓/✗ 줄이 자연스러운지 확인된다.
+    upturnConditions: [
+      { label: '20일선 회복', why: '최근 20거래일 평균 가격보다 오늘 종가가 위에 있는가', met,
+        detail: '종가 100.00 vs 20일선 98.00' },
+      { label: '20일선이 더는 안 떨어짐', why: '평균선 자체가 내려가기를 멈췄는가 (추세가 꺾였다는 뜻)', met,
+        detail: '5거래일 전 99.00 → 지금 98.00' },
+      { label: '직전 단기 고점 돌파', why: '최근에 막혔던 가격대를 뚫고 올라섰는가', met: false,
+        detail: '직전 고점 112.00 vs 종가 100.00' },
+      { label: '저점이 높아짐', why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)', met: stage !== 'A',
+        detail: '최근 20일 최저 94.00 vs 그 이전 91.00' },
+      { label: '거래량이 늘어남', why: '사려는 사람이 실제로 붙었는가', met: false,
+        detail: '최근 5일 평균 거래량이 그 이전 20일의 0.8배' },
+    ],
+    upturnMetCount: stage === 'C' ? 3 : stage === 'B' ? 1 : 0,
     detail: {
       close: 100, date: '2026-09-12', sma20: 98, aboveSma20: stage === 'C', sma20Rising: stage === 'C',
       brokeRecentHigh: stage === 'C', higherLow: stage === 'C', volumeUp: stage === 'C',
@@ -708,6 +755,25 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
+          차트 — 매물대 + RSI (왼쪽 회색 가로 막대가 매물대, 가장 두꺼운 칸에 ‘매물대’ 점선)
+        </h2>
+        <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <StockChart history={VOLUME_PROFILE_HISTORY} volume volumeProfile rsi />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          차트 — 매물대를 그릴 수 없는 경우 (가격이 전 구간 동일 · 거래량 0). 매물대만 빠지고
+          나머지는 그대로 그려져야 정상
+        </h2>
+        <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <StockChart history={FLAT_HISTORY} volume volumeProfile rsi />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
           490590 매수체크 — 관찰 단계 (뉴스는 실제 API 호출)
         </h2>
         <EtfWatchCard
@@ -717,7 +783,7 @@ export default function PreviewPage() {
           hasEtfData
           tranches={trancheSteps(1)}
           stopSignals={STOP_SIGNALS_CALM}
-          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 45.2, prev_close: 45.05, updated_at: '2026-09-12T21:30:00Z' }}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.52, prev_close: 4.505, updated_at: '2026-09-12T21:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
         />
       </section>
@@ -733,7 +799,7 @@ export default function PreviewPage() {
           hasEtfData
           tranches={trancheSteps(0)}
           stopSignals={STOP_SIGNALS_TRIGGERED}
-          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 46.8, prev_close: 45.1, updated_at: '2026-09-12T21:30:00Z' }}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.96, prev_close: 4.78, updated_at: '2026-09-12T21:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17200.1, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
         />
       </section>
