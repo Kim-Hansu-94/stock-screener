@@ -177,26 +177,27 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     )
     if rows is None:
         return
-    print(f"  총 {len(rows)}행", flush=True)
-    hit = next((r for r in rows if r["market"] == "KR" and r["ticker"] == "490590"), None)
-    if hit:
-        print(f"  ✓ 490590 있음 — {hit}", flush=True)
-    else:
-        print("  ✗ 490590 없음", flush=True)
-    print("  최근 5행:", flush=True)
-    for r in rows[:5]:
-        print(f"    {r['added_at']} {r['market']} {r['ticker']} ({r['name']}, {r['category']})", flush=True)
+    print(f"  총 {len(rows)}행 · 최근 추가: {rows[0]['market']} {rows[0]['ticker']} ({rows[0]['added_at']})", flush=True)
 
     # 목록에 있는 것과 **차트가 그려지는 것은 다르다** — 감시 종목은 정규 유니버스
     # 수집 루프를 안 타서, main.py의 _backfill_missing_watchlist_history가 돌기
     # 전까지 일봉이 0개다(화면엔 "평가 대기"로만 뜬다). 몇 봉이 언제까지 쌓였는지는
     # 여기서만 알 수 있다.
-    print("\n  감시 종목별 일봉 현황 (0봉이면 아직 백필 전):", flush=True)
+    #
+    # **문제 있는 종목만 나열한다.** 30줄을 다 찍으면 정작 봐야 할 줄(0봉인 종목)이
+    # 묻히고, 로그를 꼬리부터 읽을 때 잘려 나간다.
+    missing: list[str] = []
+    ok_count = 0
+    latest_dates: list[str] = []
     for r in rows:
         ticker, market = r["ticker"], r["market"]
         bars = _attempt(f"{market} {ticker} 일봉 수", lambda t=ticker, m=market: db.count_price_bars(t, m))
         if bars is None:
             continue
+        if bars == 0:
+            missing.append(f"{market} {ticker} ({r['name']})")
+            continue
+        ok_count += 1
         latest = _attempt(
             f"{market} {ticker} 최신 일봉",
             lambda t=ticker, m=market: (
@@ -210,9 +211,13 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
             ).data
             or [],
         )
-        latest_date = latest[0]["date"] if latest else "—"
-        mark = "✓" if bars > 0 else "✗"
-        print(f"    {mark} {market} {ticker} ({r['name']}): {bars}봉, 최신 {latest_date}", flush=True)
+        if latest:
+            latest_dates.append(latest[0]["date"])
+
+    newest_bar = max(latest_dates) if latest_dates else "—"
+    print(f"  일봉 있음 {ok_count}개 (가장 최근 봉 {newest_bar}) · 일봉 0봉 {len(missing)}개", flush=True)
+    for label in missing:
+        print(f"    ✗ {label}: 0봉 — 아직 백필 전", flush=True)
 
     # 가장 최근에 추가한 종목의 실제 일봉을 몇 개 찍는다. **봉 수만으로는 데이터가
     # 쓸 만한지 알 수 없다** — 값이 0이거나 거래량이 비어 있어도 "N봉 있음"으로는
@@ -269,8 +274,6 @@ def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
 
-    _probe_watchlist_tickers(db)
-
     for market in _MARKETS:
         print(f"\n=== {market} ===", flush=True)
         regime = _attempt("market_regime", lambda: _latest_regime(db, market))
@@ -318,6 +321,9 @@ def main() -> None:
                 )
 
     _probe_recommendation_features(db)
+    # 감시 종목은 **맨 마지막에** 찍는다 — 로그를 꼬리부터 읽는 일이 많아서,
+    # 앞에 두면 긴 목록에 밀려 정작 확인하려던 줄이 잘려 나간다.
+    _probe_watchlist_tickers(db)
 
 
 if __name__ == "__main__":
