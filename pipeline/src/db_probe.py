@@ -157,6 +157,27 @@ def _probe_recommendation_features(db: ScreenerDB) -> None:
         )
 
 
+def _probe_market_indices(db: ScreenerDB) -> None:
+    """market_index_snapshot에 **저장된 원본 값**을 그대로 찍는다.
+
+    화면이 단위를 잘못 해석해도 로그만으로는 안 드러난다 — 2026-09-15에 미국10년물을
+    "수익률의 10배로 온다"고 가정해 10으로 나눴더니 5.02%가 0.50%로 떴다. 저장값을
+    직접 봐야 어느 쪽이 틀렸는지 갈린다.
+    """
+    print("\n=== market_index_snapshot (저장된 원본 값) ===", flush=True)
+    rows = _attempt(
+        "market_index_snapshot",
+        lambda: (db.client.table("market_index_snapshot").select("*").execute()).data or [],
+    )
+    if not rows:
+        return
+    for r in sorted(rows, key=lambda x: x["index_name"]):
+        print(
+            f"  {r['index_name']}: close={r['close']} prev_close={r['prev_close']} ({r['date']})",
+            flush=True,
+        )
+
+
 def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     """watchlist_tickers 실제 행 수와 490590 존재 여부를 직접 찍는다.
 
@@ -318,6 +339,7 @@ def main() -> None:
                 )
 
     _probe_recommendation_features(db)
+    _probe_market_indices(db)
     # 감시 종목은 **맨 마지막에** 찍는다 — 로그를 꼬리부터 읽는 일이 많아서,
     # 앞에 두면 긴 목록에 밀려 정작 확인하려던 줄이 잘려 나간다.
     _probe_watchlist_tickers(db)
