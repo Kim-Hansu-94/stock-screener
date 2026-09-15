@@ -20,7 +20,7 @@ import type { MarketIndexSnapshotRow } from '@/lib/types'
  * 490590 매수체크 — 사용자가 직접 정한 개인 체크리스트를 그대로 화면으로 옮긴 카드.
  *
  * 계산(A/B/C 단계 판정, 신호등, 분할매수 조건)은 전부 lib/etfEntryCheck.ts에서 서버
- * 컴포넌트(app/etf-watch/page.tsx)가 미리 끝내고, 여기는 결과만 받아 그린다 — 원본
+ * 컴포넌트(app/page.tsx — 2026-09-15부터 사이트 첫 화면)가 미리 끝내고, 여기는 결과만 받아 그린다 — 원본
  * 일봉을 클라이언트로 내려보내지 않는다("화면에 안 쓰는 일봉을 미리 내려보내지 말 것").
  *
  * 몇 차까지 매수를 실행했는지는 이 브라우저에만 저장한다(AverageCostCalculator와 같은

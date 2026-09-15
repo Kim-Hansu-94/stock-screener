@@ -186,7 +186,7 @@ export function RealestateMap({ regions }: { regions: RegionTrend[] }) {
               // 코드로만 쌓인다) — 그 지역의 첫 번째 신설구로 대신 이동시킨다.
               const linkCode = SPLIT_REGION_CHILDREN[r.region_code]?.[0] ?? r.region_code
               return (
-                <a key={r.region_code} href={`/?region=${linkCode}`}>
+                <a key={r.region_code} href={`/realestate?region=${linkCode}`}>
                   {/* non-scaling-stroke: 확대해도 경계선이 굵어지지 않고 항상 화면 기준
                       같은 두께로 남는다. 라벨 글자는 반대로 확대할수록 커져야
                       촘촘한 서울 자치구까지 읽히므로 그대로 g의 scale을 따라간다. */}

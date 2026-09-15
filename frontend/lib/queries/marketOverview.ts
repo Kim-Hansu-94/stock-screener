@@ -1,4 +1,4 @@
-// 홈 화면(app/page.tsx) 시황 위젯 쿼리 — 코스피·코스닥·다우존스·나스닥·S&P500 스냅샷.
+// 부동산 탭(app/realestate/page.tsx, 2026-09-15부터 루트가 아님) 시황 위젯 쿼리 — 코스피·코스닥·다우존스·나스닥·S&P500 스냅샷.
 // 환율은 fetchUsdKrwRate(shared.ts, frankfurter.app 직접 호출)를 그대로 재사용한다.
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
