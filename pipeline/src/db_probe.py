@@ -156,9 +156,42 @@ def _probe_recommendation_features(db: ScreenerDB) -> None:
         )
 
 
+def _probe_watchlist_tickers(db: ScreenerDB) -> None:
+    """watchlist_tickers 실제 행 수와 490590 존재 여부를 직접 찍는다.
+
+    사이트에서 "추가했는데 목록에 안 뜬다"는 신고가 들어왔을 때, 작업용 컨테이너에는
+    Supabase 자격증명이 없어 여기서만 확인할 수 있다 — /api/watchlist가 실제로 insert에
+    성공했는지(DB 진실)와 화면이 보여주는 값(캐시 경유)이 다른지를 가른다.
+    """
+    print("\n=== watchlist_tickers ===", flush=True)
+    rows = _attempt(
+        "watchlist_tickers",
+        lambda: (
+            db.client.table("watchlist_tickers")
+            .select("market, ticker, name, category, added_at")
+            .order("added_at", desc=True)
+            .execute()
+        ).data
+        or [],
+    )
+    if rows is None:
+        return
+    print(f"  총 {len(rows)}행", flush=True)
+    hit = next((r for r in rows if r["market"] == "KR" and r["ticker"] == "490590"), None)
+    if hit:
+        print(f"  ✓ 490590 있음 — {hit}", flush=True)
+    else:
+        print("  ✗ 490590 없음", flush=True)
+    print("  최근 5행:", flush=True)
+    for r in rows[:5]:
+        print(f"    {r['added_at']} {r['market']} {r['ticker']} ({r['name']}, {r['category']})", flush=True)
+
+
 def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
+
+    _probe_watchlist_tickers(db)
 
     for market in _MARKETS:
         print(f"\n=== {market} ===", flush=True)
