@@ -5,7 +5,9 @@ import {
   assessStopSignals,
   buildTrancheGuide,
   classifyStage,
+  describeTenYearYield,
   summarizeStopSignals,
+  UPTURN_REQUIRED,
   MANUAL_STOP_CHECKS,
   PROXY_TICKERS,
   type ProxyTicker,
@@ -162,16 +164,18 @@ describe('assessStopSignals', () => {
   })
 
   it('10년물 금리가 기준 이상 올랐으면 경고한다', () => {
-    const signals = assessStopSignals(bars([]), noProxy, { close: 46.5, prevClose: 45.0 })
+    // ^TNX는 퍼센트 값 그대로다(4.65 = 4.65%) — 하루 +0.15%p 이상이면 급등으로 본다.
+    const signals = assessStopSignals(bars([]), noProxy, { close: 4.65, prevClose: 4.5 })
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('alert')
   })
 
-  it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 어제→오늘 값을 보여준다', () => {
-    const signals = assessStopSignals(bars([]), noProxy, { close: 45.2, prevClose: 45.0 })
+  it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 직전→최근 값을 보여준다', () => {
+    const signals = assessStopSignals(bars([]), noProxy, { close: 4.52, prevClose: 4.5 })
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('ok')
-    expect(s.detail).toContain('어제 4.50% → 오늘 4.52%')
+    // "오늘"이 아니라 "최근" — 미국장 종가는 항상 하루 전 것이다.
+    expect(s.detail).toContain('직전 4.50% → 최근 4.52%')
   })
 
   it('금리 데이터가 없으면 확인 불가로 남긴다', () => {
@@ -230,5 +234,45 @@ describe('summarizeStopSignals', () => {
     const verdict = summarizeStopSignals([signal('ok'), signal('unknown'), signal('ok'), signal('ok')])
     expect(verdict.level).toBe('clear')
     expect(verdict.detail).toContain('1가지는 데이터가 모자라')
+  })
+})
+
+describe('상승 전환 조건 5개', () => {
+  it('단계와 무관하게 항상 5개를 이름·설명·근거 숫자까지 채운다', () => {
+    // 하락 추세(A)여도 "그럼 뭐가 안 맞은 건데?"를 화면이 답할 수 있어야 한다.
+    const result = classifyStage(bars(linspace(200, 100, 80)))!
+    expect(result.stage).toBe('A')
+    expect(result.upturnConditions).toHaveLength(5)
+    for (const c of result.upturnConditions) {
+      expect(c.label.length).toBeGreaterThan(0)
+      expect(c.why.length).toBeGreaterThan(0)
+      expect(c.detail.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('충족 개수는 met의 개수와 일치하고, 기준 이상이면 C단계가 된다', () => {
+    const result = classifyStage(bars([...linspace(100, 80, 50), ...linspace(80, 110, 30)]))!
+    expect(result.upturnMetCount).toBe(result.upturnConditions.filter((c) => c.met).length)
+    expect(result.stage === 'C').toBe(result.upturnMetCount >= UPTURN_REQUIRED)
+  })
+
+  it('가격이 1,000 이상이면 콤마 정수로, 미만이면 소수 둘째 자리로 찍는다', () => {
+    const kr = classifyStage(bars(linspace(13000, 13500, 80)))!
+    expect(kr.upturnConditions[0].detail).toMatch(/종가 1[0-9],[0-9]{3}/)
+    const us = classifyStage(bars(linspace(150, 180, 80)))!
+    expect(us.upturnConditions[0].detail).toMatch(/종가 1[0-9]{2}\.[0-9]{2}/)
+  })
+})
+
+describe('describeTenYearYield', () => {
+  it('뉴스에 나오는 5.02%를 그대로 넣으면 "높은 편"으로 읽는다 (0.50%가 아니다)', () => {
+    const d = describeTenYearYield(5.02)
+    expect(d.level).toBe('높은 편')
+    expect(d.meaning).toContain('성장주')
+  })
+
+  it('구간마다 다른 설명을 준다', () => {
+    expect(describeTenYearYield(3.8).level).toBe('보통')
+    expect(describeTenYearYield(1.5).level).toBe('낮은 편')
   })
 })

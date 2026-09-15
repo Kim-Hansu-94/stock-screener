@@ -74,7 +74,29 @@ function madeFreshLowRecently(bars: PriceHistoryRow[], recentDays = FRESH_LOW_RE
   return false
 }
 
+/**
+ * 판정 근거에 찍을 가격 포맷. 국내 ETF(13,505원)와 미국 주식(180.52달러)을 같은
+ * 함수가 처리하므로, 1,000 이상이면 정수+콤마, 미만이면 소수 둘째 자리까지 쓴다 —
+ * 전부 정수로 자르면 미국 주식의 소수점 차이가 통째로 사라진다.
+ */
+function fmtPrice(v: number): string {
+  return v >= 1000 ? Math.round(v).toLocaleString('en-US') : v.toFixed(2)
+}
+
 export type TrendStage = 'A' | 'B' | 'C'
+
+/** 상승 전환(C) 판정에 쓰는 5개 조건 중 하나 — 화면이 이름과 숫자를 그대로 보여준다. */
+export interface UpturnCondition {
+  label: string
+  /** 이 조건이 무엇을 보는지 한 줄 설명 (조건 이름만으론 뜻이 안 통해서) */
+  why: string
+  met: boolean
+  /** 왜 그렇게 판정했는지 보여줄 실제 숫자 */
+  detail: string
+}
+
+/** 5개 중 이만큼 충족하면 상승 전환으로 본다. */
+export const UPTURN_REQUIRED = 3
 
 export const STAGE_LABEL: Record<TrendStage, string> = {
   A: '하락 중',
@@ -87,6 +109,10 @@ export interface StageResult {
   label: string
   /** 판정 근거를 사람이 읽는 문장으로 나열 — 왜 이 단계인지 그대로 보여준다. */
   reasons: string[]
+  /** 상승 전환 조건 5개의 이름·충족 여부·근거 숫자 (단계와 무관하게 항상 채운다). */
+  upturnConditions: UpturnCondition[]
+  /** 그중 충족한 개수 */
+  upturnMetCount: number
   detail: {
     close: number
     date: string
@@ -151,9 +177,53 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
     VOLUME_BASE_WINDOW
   const volumeUp = baseVol > 0 ? recentVol > baseVol : null
 
-  const cConditions = [aboveSma20, sma20Rising, brokeRecentHigh, higherLow, volumeUp]
-  const cMetCount = cConditions.filter((c) => c === true).length
-  const isUptrendConfirmed = cMetCount >= 3
+  // 조건 이름을 값과 같은 자리에서 만든다 — 화면이 "5개 중 1개 충족"이라고만 말하고
+  // **어떤 조건인지는 안 알려줘서** 무슨 소린지 모르겠다는 지적을 받았다(2026-09-15).
+  // `why`는 조건 자체를 처음 보는 사람을 위한 한 줄 설명이고, `detail`은 그 판정에
+  // 실제로 쓴 숫자다 — 둘을 합치면 "왜 이게 조건인지"와 "지금 얼마인지"가 같이 보인다.
+  const upturnConditions: UpturnCondition[] = [
+    {
+      label: `${SMA_WINDOW}일선 회복`,
+      why: `최근 ${SMA_WINDOW}거래일 평균 가격보다 오늘 종가가 위에 있는가`,
+      met: aboveSma20 === true,
+      detail:
+        sma20 !== null
+          ? `종가 ${fmtPrice(latestClose)} vs ${SMA_WINDOW}일선 ${fmtPrice(sma20)}`
+          : '계산 불가',
+    },
+    {
+      label: `${SMA_WINDOW}일선이 더는 안 떨어짐`,
+      why: '평균선 자체가 내려가기를 멈췄는가 (추세가 꺾였다는 뜻)',
+      met: sma20Rising === true,
+      detail:
+        sma20 !== null && sma20Prior !== null
+          ? `${SMA_TREND_LOOKBACK}거래일 전 ${fmtPrice(sma20Prior)} → 지금 ${fmtPrice(sma20)}`
+          : '계산 불가',
+    },
+    {
+      label: '직전 단기 고점 돌파',
+      why: '최근에 막혔던 가격대를 뚫고 올라섰는가',
+      met: brokeRecentHigh,
+      detail: `직전 고점 ${fmtPrice(recentSwingHigh)} vs 종가 ${fmtPrice(latestClose)}`,
+    },
+    {
+      label: '저점이 높아짐',
+      why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)',
+      met: higherLow,
+      detail: `최근 ${LOW_COMPARE_WINDOW}일 최저 ${fmtPrice(recentLow)} vs 그 이전 ${fmtPrice(priorLow)}`,
+    },
+    {
+      label: '거래량이 늘어남',
+      why: '사려는 사람이 실제로 붙었는가',
+      met: volumeUp === true,
+      detail:
+        baseVol > 0
+          ? `최근 ${VOLUME_RECENT_WINDOW}일 평균 거래량이 그 이전 ${VOLUME_BASE_WINDOW}일의 ${(recentVol / baseVol).toFixed(1)}배`
+          : '계산 불가',
+    },
+  ]
+  const cMetCount = upturnConditions.filter((c) => c.met).length
+  const isUptrendConfirmed = cMetCount >= UPTURN_REQUIRED
 
   const freshLow = madeFreshLow(lows)
 
@@ -180,6 +250,8 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
     stage,
     label: STAGE_LABEL[stage],
     reasons,
+    upturnConditions,
+    upturnMetCount: cMetCount,
     detail: {
       close: latestClose,
       date: latest.date,
@@ -386,13 +458,19 @@ export function assessStopSignals(
   }, 0)
   const proxyEvaluated = PROXY_TICKERS.filter((t) => (proxyBars[t]?.length ?? 0) > 0).length
 
-  // ^TNX는 수익률(%)의 10배로 온다 (4.50% → 45.00) — 1.5 차이가 0.15%p 급등.
-  const YIELD_SPIKE_THRESHOLD_RAW = 1.5
+  // **^TNX는 퍼센트 값을 그대로 준다** (5.02 = 5.02%). CBOE 지수 원값은 수익률의
+  // 10배지만 yfinance가 이미 나눠서 준다 — 처음엔 10배로 알고 또 10으로 나눠서
+  // 5.02%가 화면에 0.50%로 떴다(2026-09-15, 뉴스의 "10년물 5.02%"와 대조해 발견).
+  // 단위를 바꾸기 전에 `db_probe`의 market_index_snapshot 출력으로 저장값을 볼 것.
+  const YIELD_SPIKE_THRESHOLD_PCT = 0.15
   const yieldChange = tenYearYield ? tenYearYield.close - tenYearYield.prevClose : null
-  const yieldSpike = yieldChange !== null ? yieldChange >= YIELD_SPIKE_THRESHOLD_RAW : null
-  // %p라는 말을 안 쓰고 "어제 4.49% → 오늘 4.52%"로 보여준다 — 단위를 몰라도 읽힌다.
+  const yieldSpike = yieldChange !== null ? yieldChange >= YIELD_SPIKE_THRESHOLD_PCT : null
+  // %p라는 말을 안 쓰고 "어제 4.99% → 오늘 5.02%"로 보여준다 — 단위를 몰라도 읽힌다.
+  // "오늘"이라고 쓰면 안 된다 — 미국장은 한국 새벽에 닫히고 파이프라인은 하루 두 번만
+  // 도는데, 둘 다 미국장이 닫혀 있는 시각이라 여기 들어오는 건 **직전에 끝난 미국장
+  // 종가**다(2026-09-15 16:49 KST 실행 기준 9/14 종가). 날짜는 화면이 따로 밝힌다.
   const yieldText = tenYearYield
-    ? `어제 ${(tenYearYield.prevClose / 10).toFixed(2)}% → 오늘 ${(tenYearYield.close / 10).toFixed(2)}%`
+    ? `직전 ${tenYearYield.prevClose.toFixed(2)}% → 최근 ${tenYearYield.close.toFixed(2)}%`
     : ''
 
   const proxyStages = PROXY_TICKERS.map((t) => classifyStage(proxyBars[t] ?? []))
@@ -465,6 +543,33 @@ export function assessStopSignals(
           : `대장주 ${evaluatedStages.length}개 중 ${aStageCount}개가 하락 단계 (거의 전부면 경고)`,
     },
   ]
+}
+
+/**
+ * 미국 10년물 금리가 지금 수준이면 무슨 뜻인지 한 줄로 옮긴다.
+ *
+ * 숫자만 보면 "5.02%"가 높은 건지 낮은 건지 알 수 없다. 구간은 넓게 잡아 몇 년은
+ * 안 틀리게 뒀다 — 2020년엔 0.5%, 2023~2026년은 4~5%대였다. 이건 **금리 자체의
+ * 좋고 나쁨이 아니라 이 ETF(미국 AI 성장주 묶음)에 어떤 쪽으로 작용하는지**를 말한다.
+ */
+export function describeTenYearYield(pct: number): { level: string; meaning: string } {
+  if (pct >= 4.5) {
+    return {
+      level: '높은 편',
+      meaning:
+        '은행·국채에 넣어도 이만큼 주니 굳이 위험을 질 이유가 줄어, AI 같은 성장주에서 돈이 빠져나가기 쉬운 구간입니다.',
+    }
+  }
+  if (pct >= 3) {
+    return {
+      level: '보통',
+      meaning: '성장주에 특별히 불리하지도, 유리하지도 않은 구간입니다.',
+    }
+  }
+  return {
+    level: '낮은 편',
+    meaning: '안전하게 받을 이자가 적으니, 위험을 지고 성장주로 돈이 몰리기 쉬운 구간입니다.',
+  }
 }
 
 export interface StopVerdict {
