@@ -493,19 +493,17 @@ export function EtfWatchCard({
             <p className="mt-1 text-xs text-muted-foreground/70">
               {yieldStatus === 'intraday' ? (
                 <>
-                  {tenYearYield.date} 미국장 <span className="font-semibold">장중</span> 값
-                  {yieldFetchedAt && ` (한국시간 ${yieldFetchedAt} 기준)`} · 아직 장이 끝나지
-                  않아 마감까지 더 움직일 수 있습니다.
+                  {tenYearYield.date} <span className="font-semibold">거래 중</span>인 값
+                  {yieldFetchedAt && ` (한국시간 ${yieldFetchedAt} 기준)`} · 아직 그날이 끝나지
+                  않아 더 움직일 수 있습니다.
                 </>
               ) : yieldStatus === 'final' ? (
-                <>
-                  {tenYearYield.date} 미국장 마감 종가 · 미국장은 한국시간 밤 10시 30분에 열리므로,
-                  낮에는 직전 거래일 종가가 보입니다.
-                </>
+                <>{tenYearYield.date} 미국 채권시장이 닫힌 뒤 확정된 값입니다.</>
               ) : (
                 <>{tenYearYield.date} 기준</>
               )}{' '}
-              4시간마다 갱신됩니다.
+              4시간마다 갱신됩니다. 미국 국채는 주식과 달리 한국 낮·저녁에도 거래되므로,
+              주가지수와 기준일이 하루 다를 수 있습니다.
             </p>
           )}
           {nasdaqChangePct !== null && (
