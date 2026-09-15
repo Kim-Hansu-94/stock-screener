@@ -14,6 +14,15 @@ import { RealestateOverviewTable, RealestateDetailTable } from '@/components/Rea
 import { RealestateMap } from '@/components/RealestateMap'
 import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
+import { EtfWatchCard } from '@/components/EtfWatchCard'
+import {
+  PROXY_TICKERS,
+  type ProxyBasketAssessment,
+  type ProxyTicker,
+  type StageResult,
+  type StopSignal,
+  type TrancheStep,
+} from '@/lib/etfEntryCheck'
 import type { PaperPosition } from '@/lib/queries/trades'
 import type { Scorecard, Segment } from '@/lib/scorecard'
 import type { PatternScorecard, PatternSegment } from '@/lib/patternScorecard'
@@ -355,6 +364,91 @@ const RE_MEDIA_ROWS: RealestateMediaRow[] = [
   },
 ]
 
+// ── 490590 매수체크 픽스처 ────────────────────────────────────────────────
+// 카드가 받는 건 원본 일봉이 아니라 계산 결과라(EtfWatchCard 참고), 여기서도
+// 합성 일봉 대신 결과 객체를 바로 손으로 채운다.
+function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<StageResult['detail']> = {}): StageResult {
+  return {
+    stage,
+    label: stage === 'A' ? '하락 중' : stage === 'C' ? '상승 전환' : '하락 멈춤 (관찰)',
+    reasons,
+    detail: {
+      close: 100, date: '2026-09-12', sma20: 98, aboveSma20: stage === 'C', sma20Rising: stage === 'C',
+      brokeRecentHigh: stage === 'C', higherLow: stage === 'C', volumeUp: stage === 'C',
+      lowerHighsAndLows: stage === 'A', freshLow: stage === 'A',
+      ...over,
+    },
+  }
+}
+
+function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketAssessment {
+  const perTicker = {} as Record<ProxyTicker, StageResult | null>
+  for (const t of PROXY_TICKERS) {
+    perTicker[t] = etfStage(
+      stages[t],
+      stages[t] === 'A'
+        ? ['최근 3구간 고점·저점이 계속 낮아짐']
+        : stages[t] === 'C'
+          ? ['20일선 위로 회복', '직전 단기 고점 돌파', '거래량이 평소보다 증가']
+          : ['하락 추세는 멈췄지만 상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'],
+    )
+  }
+  const cStageCount = Object.values(stages).filter((s) => s === 'C').length
+  const trafficLight = cStageCount <= 1 ? '🔴' : cStageCount === 2 ? '🟠' : cStageCount === 3 ? '🟡' : cStageCount === 4 ? '🟢' : '🟢🟢'
+  const trafficLabel =
+    cStageCount <= 1 ? '매수 보류 — 대장주 대부분이 아직 하락·관찰 단계'
+    : cStageCount === 2 ? '관찰 — 상승 전환 조짐이 늘고 있음'
+    : cStageCount === 3 ? '1차 매수 검토 가능'
+    : cStageCount === 4 ? '적극적 분할매수 검토 가능'
+    : '강한 상승 확인 — 대장주 전부 상승 전환'
+  return { perTicker, cStageCount, evaluatedCount: 5, trafficLight, trafficLabel }
+}
+
+function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
+  const base: Omit<TrancheStep, 'autoReady'>[] = [
+    { order: 1, amountManwon: 500, cumulativeManwon: 500, label: '1차', autoConditions: [
+      { text: '구성종목 5개 중 2개 이상 상승 전환', met: readyUpTo >= 1 },
+      { text: '490590이 저점을 방어 중 (하락 추세 아님)', met: readyUpTo >= 1 },
+    ], manualConditions: ['FOMC 충격이 진정되는 모습인지 (아래 뉴스 참고)'] },
+    { order: 2, amountManwon: 1500, cumulativeManwon: 2000, label: '2차', autoConditions: [
+      { text: '구성종목 5개 중 3개 이상 상승 전환', met: readyUpTo >= 2 },
+      { text: '490590 20일선 회복', met: readyUpTo >= 2 },
+      { text: '490590 직전 단기 고점 돌파', met: readyUpTo >= 2 },
+    ], manualConditions: [] },
+    { order: 3, amountManwon: 1500, cumulativeManwon: 3500, label: '3차', autoConditions: [
+      { text: 'AI 구성종목 대부분 상승 (5개 중 4개 이상)', met: readyUpTo >= 3 },
+      { text: '490590이 추가로 고점을 높임', met: readyUpTo >= 3 },
+    ], manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'] },
+    { order: 4, amountManwon: 1500, cumulativeManwon: 5000, label: '4차 — 무조건 넣을 필요 없음', autoConditions: [
+      { text: '3차 조건이 흔들림 없이 계속 유지', met: readyUpTo >= 4 },
+    ], manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다'] },
+  ]
+  return base.map((s) => ({ ...s, autoReady: s.autoConditions.every((c) => c.met) }))
+}
+
+function stopSignal(over: Partial<StopSignal>): StopSignal {
+  return { id: 'x', label: '', triggered: false, detail: '', automatic: true, ...over }
+}
+
+const STOP_SIGNALS_CALM: StopSignal[] = [
+  stopSignal({ id: 'etfFreshLow', label: '490590이 최근 저점을 재차 이탈', triggered: false, detail: '아직 최근 저점 아래로는 안 내려감' }),
+  stopSignal({ id: 'proxyFreshLow', label: '대장주 여러 개가 동시에 저점 이탈', triggered: false, detail: '최근 3거래일 안에 신저가를 만든 대장주 1/5개 (3개 이상이면 경고)' }),
+  stopSignal({ id: 'yieldSpike', label: '미국 10년물 금리 급등', triggered: false, detail: '전일 대비 +0.03%p 변동 (기준: 0.15%p 이상)' }),
+  stopSignal({ id: 'allDownTogether', label: 'AI주 전체가 동반 하락', triggered: false, detail: '대장주 1/5개가 하락 단계' }),
+  stopSignal({ id: 'nasdaqGiveback', label: '나스닥이 강한 상승 후 상승분을 모두 반납', triggered: null, detail: '장중 고가 데이터가 없어 자동 계산 불가 — 직접 확인 필요', automatic: false }),
+  stopSignal({ id: 'hawkishFomc', label: 'FOMC 이후 매파적 분위기가 계속됨', triggered: null, detail: '뉴스를 읽고 직접 판단 — 아래 뉴스 참고', automatic: false }),
+]
+
+// 자동 경고 배너("🚨 매수 중단 신호가 감지됐습니다")가 실제로 뜨는지 보는 케이스.
+const STOP_SIGNALS_TRIGGERED: StopSignal[] = [
+  stopSignal({ id: 'etfFreshLow', label: '490590이 최근 저점을 재차 이탈', triggered: true, detail: '최근 20거래일 저가보다 더 낮은 저가 발생' }),
+  stopSignal({ id: 'proxyFreshLow', label: '대장주 여러 개가 동시에 저점 이탈', triggered: true, detail: '최근 3거래일 안에 신저가를 만든 대장주 3/5개 (3개 이상이면 경고)' }),
+  stopSignal({ id: 'yieldSpike', label: '미국 10년물 금리 급등', triggered: false, detail: '전일 대비 +0.05%p 변동 (기준: 0.15%p 이상)' }),
+  stopSignal({ id: 'allDownTogether', label: 'AI주 전체가 동반 하락', triggered: false, detail: '대장주 2/5개가 하락 단계' }),
+  stopSignal({ id: 'nasdaqGiveback', label: '나스닥이 강한 상승 후 상승분을 모두 반납', triggered: null, detail: '장중 고가 데이터가 없어 자동 계산 불가 — 직접 확인 필요', automatic: false }),
+  stopSignal({ id: 'hawkishFomc', label: 'FOMC 이후 매파적 분위기가 계속됨', triggered: null, detail: '뉴스를 읽고 직접 판단 — 아래 뉴스 참고', automatic: false }),
+]
+
 function detailByBand(rows: RealestateMonthlyRow[]): Record<AreaBand, DetailMonthRow[]> {
   const byBand = {} as Record<AreaBand, DetailMonthRow[]>
   for (const band of AREA_BANDS) byBand[band] = withMomChange(rows.filter((r) => r.area_band === band))
@@ -599,6 +693,54 @@ export default function PreviewPage() {
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
         <h2 className="text-base font-semibold text-foreground">부동산 동향 — 지역 상세 (거래 없음)</h2>
         <RealestateDetailTable regionName="인천 옹진군" byBand={detailByBand([])} />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          490590 매수체크 — 관찰 단계 (뉴스는 실제 API 호출)
+        </h2>
+        <EtfWatchCard
+          proxyAssessment={proxyBasket({ ORCL: 'C', GOOGL: 'C', NVDA: 'B', AMD: 'A', MRVL: 'B' })}
+          etfStage={etfStage('B', ['하락 추세는 멈췄지만', '상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'])}
+          etfLatest={{ close: 9850, date: '2026-09-12' }}
+          hasEtfData
+          tranches={trancheSteps(1)}
+          stopSignals={STOP_SIGNALS_CALM}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 45.2, prev_close: 45.05, updated_at: '2026-09-12T21:30:00Z' }}
+          nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          490590 매수체크 — 매수 중단 신호 감지 (경고 배너가 떠야 정상)
+        </h2>
+        <EtfWatchCard
+          proxyAssessment={proxyBasket({ ORCL: 'A', GOOGL: 'A', NVDA: 'A', AMD: 'B', MRVL: 'A' })}
+          etfStage={etfStage('A', ['최근 3구간(각 20일) 고점이 계속 낮아짐', '최근 3구간 저점도 계속 낮아짐'])}
+          etfLatest={{ close: 8420, date: '2026-09-12' }}
+          hasEtfData
+          tranches={trancheSteps(0)}
+          stopSignals={STOP_SIGNALS_TRIGGERED}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 46.8, prev_close: 45.1, updated_at: '2026-09-12T21:30:00Z' }}
+          nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17200.1, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          490590 매수체크 — 일봉 데이터 아직 없음 (감시 종목 추가 안내가 떠야 정상)
+        </h2>
+        <EtfWatchCard
+          proxyAssessment={proxyBasket({ ORCL: 'B', GOOGL: 'B', NVDA: 'B', AMD: 'B', MRVL: 'B' })}
+          etfStage={null}
+          etfLatest={null}
+          hasEtfData={false}
+          tranches={trancheSteps(0)}
+          stopSignals={STOP_SIGNALS_CALM}
+          tenYearYield={null}
+          nasdaq={null}
+        />
       </section>
 
       <section className="space-y-4 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">

@@ -45,8 +45,8 @@ def test_collect_market_index_snapshots_returns_latest_and_prev_close(mock_naver
     assert by_name["코스피"]["date"] == "2024-01-03"
     assert by_name["다우존스"]["close"] == 35200.0
     assert by_name["다우존스"]["prev_close"] == 35000.0
-    # 5개(코스피·코스닥·다우존스·나스닥·S&P500) 전부 수집돼야 한다
-    assert len(result) == 5
+    # 6개(코스피·코스닥·다우존스·나스닥·S&P500·미국10년물) 전부 수집돼야 한다
+    assert len(result) == 6
     # 국내도 실시간(yfinance)에서 나와야 한다 — fdr 캐시는 하루 늦어서 부르면 안 된다.
     assert mock_fdr.call_count == 0
 
@@ -133,9 +133,9 @@ def test_kr_uses_naver_first_and_never_touches_yahoo(mock_get, mock_fdr, mock_yf
     assert kospi["date"] == "2024-01-03"
     assert kospi["close"] == 2555.0
     assert kospi["prev_close"] == 2400.0
-    # 국내 지수는 야후·fdr을 아예 부르지 않는다(해외 3종만 야후를 쓴다).
+    # 국내 지수는 야후·fdr을 아예 부르지 않는다(해외 4종만 야후를 쓴다).
     assert mock_fdr.call_count == 0
-    assert {c.args[0] for c in mock_yf.call_args_list} == {"^DJI", "^IXIC", "^GSPC"}
+    assert {c.args[0] for c in mock_yf.call_args_list} == {"^DJI", "^IXIC", "^GSPC", "^TNX"}
 
 
 @patch("pipeline.src.market_indices.yf.download", side_effect=_download_ok)

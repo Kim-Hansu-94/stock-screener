@@ -6,4 +6,5 @@ export const LINKS = [
   { href: '/discover', label: '종목 발굴' },
   { href: '/positions', label: '보유 종목 점검' },
   { href: '/history', label: '스크리너 성적' },
+  { href: '/etf-watch', label: '490590 매수체크' },
 ]

@@ -55,7 +55,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |
 | `kis_auth.py` | 한국투자증권 OAuth 토큰 관리 (분당 1회 제한이라 디스크 캐싱) |
 | `indicators.py` | SMA·RSI·거래량비율 등 순수 계산 함수 |
-| `market_indices.py` | 홈 상단 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500) → `market_index_snapshot`. **국내 지수를 `fdr.DataReader('KS11')`로 받으면 안 된다** — 개별 종목과 달리 이 경로는 거래소가 아니라 제3자의 GitHub CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽어서 하루 이상 늦은 값을 **에러 없이 조용히** 준다(2026-09-09: 9/9 오후에도 마지막 행이 9/7이라 화면에 '국내 9/7 장마감 기준'이 떠 있었다). **yfinance(^KS11/^KQ11)도 못 믿는다**(2026-09-10): 야후는 KRX 일봉 확정이 늦어 아침 06:30 실행에서 에러 없이 9/8까지만 줬다(같은 실행에서 해외 지수는 9/9 정상 — 전날 저녁에 받은 9/9 값은 장중 실시간 행이었다). 그래서 지금은 **네이버 `siseJson`이 1순위**고(프로브로 9/10 아침에 9/9 종가 보유 확인), 순서는 네이버 → yfinance → fdr이다. 세 소스 모두 장중에 오늘 봉을 미완성으로 주므로 15:40 KST 이전 실행에서는 오늘 봉을 버린다(`drop_unfinished_kr_bar`). 소스가 살아 있는지는 `.github/workflows/kr_index_probe.yml`(`python -m src.kr_index_probe`)로 1분 만에 확인된다 |
+| `market_indices.py` | 홈 상단 시황 위젯용 지수 스냅샷(코스피·코스닥·다우·나스닥·S&P500·**미국10년물**, 2026-09-15 추가) → `market_index_snapshot`. 미국10년물(`^TNX`)은 490590 매수체크(`frontend/lib/etfEntryCheck.ts`)의 금리 급등 신호에 쓴다 — **값이 수익률(%)의 10배로 온다**(4.50%가 45.00으로 저장), 화면에서 반드시 10으로 나눌 것. **국내 지수를 `fdr.DataReader('KS11')`로 받으면 안 된다** — 개별 종목과 달리 이 경로는 거래소가 아니라 제3자의 GitHub CSV 캐시(FinanceData/fdr_krx_data_cache)를 읽어서 하루 이상 늦은 값을 **에러 없이 조용히** 준다(2026-09-09: 9/9 오후에도 마지막 행이 9/7이라 화면에 '국내 9/7 장마감 기준'이 떠 있었다). **yfinance(^KS11/^KQ11)도 못 믿는다**(2026-09-10): 야후는 KRX 일봉 확정이 늦어 아침 06:30 실행에서 에러 없이 9/8까지만 줬다(같은 실행에서 해외 지수는 9/9 정상 — 전날 저녁에 받은 9/9 값은 장중 실시간 행이었다). 그래서 지금은 **네이버 `siseJson`이 1순위**고(프로브로 9/10 아침에 9/9 종가 보유 확인), 순서는 네이버 → yfinance → fdr이다. 세 소스 모두 장중에 오늘 봉을 미완성으로 주므로 15:40 KST 이전 실행에서는 오늘 봉을 버린다(`drop_unfinished_kr_bar`). 소스가 살아 있는지는 `.github/workflows/kr_index_probe.yml`(`python -m src.kr_index_probe`)로 1분 만에 확인된다 |
 | `sectors.py` | 주도 섹터 판정 |
 | `market_regime.py` | 상승장/하락장 판정 |
 | `opportunities.py` | 횡보·조정 후보 사전 계산 → `opportunity_snapshot` (프론트가 재계산 안 하도록). `in_band_tickers()`(조정폭 20~60% 판정)는 `fundamentals.py`도 대상 종목을 좁히는 데 재사용 |
@@ -161,6 +161,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `exitSignal.ts` | "이제 팔 때" 판정 — 진입일부터 하루씩 걸어 처음 걸린 날을 찾는다. **컨셉(`paper_trades.source`)에 따라 규칙이 갈린다**: 눌림목은 손절/목표 + 대량거래음봉·하락장·주도섹터이탈·60일선하회, 횡보·조정은 **가격만**(손절/목표 + 진입 시점 바닥 이탈). 횡보·조정 종목은 구조상 60일선 아래라 눌림목 규칙을 걸면 진입 다음 날 바로 신호가 뜬다. **신호 시점 가격을 저장하지 않고 매번 재현한다**(사이트에 안 들어온 날의 신호를 놓치지 않고, 기존 보유분에도 소급 적용) |
 | `buySignal.ts` | 매력도 점수 → 매수 등급(적극검토/매수검토/관망) 변환 |
 | `supportSignals.ts` | **포지션 관리** 카드의 지지 신호 점검 — 이미 보유 중인 종목의 추가 매수(물타기) 타이밍 참고용으로 5개 조건(120일선 근접 ±5% · 일목구름 지지 · RSI 과매도(35 이하) 후 반등 · 저점 높이기(20일) · 거래량 실린 상승)을 각각 판정한다. 매집 감시(`watchlist.py`)와 목적이 정반대라 **박스 수축을 요구하지 않는다** — SK하이닉스처럼 변동성 큰 대형주는 60일 박스폭 조건에 구조적으로 영원히 걸려서, 안 맞는 잣대를 들이대는 꼴이 되기 때문(2026-09-06). 일목구름은 선행스팬이 26봉 앞으로 그려지므로 **오늘 가격과 비교할 구름은 26봉 전 값**이다(`ICHIMOKU_SHIFT`) — 이 보정을 빼면 아직 오지 않은 미래 구름과 비교하게 된다. 충족 개수를 단일 "매수 등급"으로 합치지 않는 것도 의도적이다(지지선은 뚫리기도 하므로 근거를 감춘 초록불 대신 조건별 숫자를 그대로 노출). `summarizeSupportSignals()`는 그 5개 판정을 한 문단 코멘트로 합친다 — 지지 계열(120일선·구름·저점)과 수요 계열(RSI·거래량)로 나눠 2×2 결론을 고르는 **규칙**이지 AI가 매일 새로 판단하는 게 아니다(사이트는 값만 읽어 그리는 정적 앱이라 판단 주체가 없다). 판정 불가(`met: null`) 조건은 미충족으로 세지 않는다 — 그러면 실제보다 비관적으로 나온다 |
+| `etfEntryCheck.ts` | **490590(RISE 미국AI밸류체인데일리고정커버드콜) 매수체크**(`/etf-watch`, 2026-09-15 추가) — 사용자가 직접 정한 개인 매매 체크리스트를 그대로 옮긴 전용 계산이다(일반 스크리닝 알고리즘 아님). 미국 AI 밸류체인 대장주 5개(오라클·알파벳·엔비디아·AMD·마벨, `PROXY_TICKERS`에 하드코딩)의 일봉으로 A(하락 중)/B(하락 멈춤)/C(상승 전환) 3단계를 판정하고, C단계 개수로 신호등(🔴~🟢🟢)을 매긴다. 490590 자체도 같은 함수(`classifyStage`)로 판정해 1~4차 분할매수(500→1,500→1,500→1,500만원) 조건과 매수 중단 신호를 계산한다. **뉴스를 읽고 판단해야 하는 항목(FOMC 발언 성격, AI주 동반 하락, 나스닥 급등 후 반납)은 계산하지 않는다** — `automatic: false`/`triggered: null`로 남기고 화면이 `StockNewsFeed`로 네이버 뉴스를 띄워 직접 읽게 한다. 이 A/B/C 판정은 검증된 백테스트 전략이 아니라 사용자가 정한 경험적 기준이므로, 상수(구간 길이·임계값)를 바꾸기 전에 `etfEntryCheck.test.ts`부터 볼 것 |
 | `longTermContext.ts` | 3년 월봉 + 10년 월봉 병합, 장기 고점/하락 판정 |
 | `fundamentals.ts` | 실적 데이터 → 가치함정/밸류에이션조정 판정 |
 | `similarity.ts` | 패턴 유사도 검색 (SimilaritySearch 탭용) |
@@ -191,6 +192,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `discover/` | 종목발굴 — 횡보·조정(사전계산) / **감시 종목**(매집 감시) / 저점 매집 후보(패턴유사도, 구 "오늘의 추천") / 패턴검색 4탭(이 순서로 노출, 기본 선택 탭은 횡보·조정). `DiscoverTabs.tsx`는 탭 전환 껍데기, 탭별 내용은 `OpportunityTab.tsx` / `WatchlistCard.tsx` / `DailyReport.tsx` / `SimilaritySearch.tsx`로 분리(컴포넌트·API 경로 이름은 예전 그대로). 매집 감시는 2026-09-06에 눌림목 탭에서 옮겨왔다 — 눌림목은 단기매매, 매집 감시는 "아직 안 산 종목이 매집 구간에 들어왔는가"를 기다리는 장기 관점이라 컨셉이 갈린다 |
 | `positions/` | 내 매매장 — 가상 매수·매도 기록, 매일 수익률, 매도 신호와 "그때 팔았다면 몇 %" |
 | `history/` | 스크리너 성적 — "따라갔으면 돈 벌었나"(기댓값 R)와 "어떤 상황에서 잘 맞나"(장세·시장·섹터별) |
+| `etf-watch/` | **490590 매수체크**(2026-09-15 추가, 최상단 탭) — 사용자의 개인 매매 체크리스트를 그대로 옮긴 전용 화면. 계산은 `lib/etfEntryCheck.ts`, 렌더는 `components/EtfWatchCard.tsx`. 감시 종목 기능처럼 임의 종목을 추가하는 화면이 아니라 490590 하나만을 위한 고정 화면이다. 490590 일봉은 `종목발굴 → 감시 종목`에서 관심 종목으로 추가해야 쌓인다(정규 스크리닝 유니버스 밖이라 이 화면이 직접 받아오지 않음, `watchlist.py` 항목 참고) |
 | `api/daily-report` | 저점 매집 후보 API (Gold Standard 패턴 매칭, 구 "오늘의 추천") |
 | `api/similar` | 패턴 유사도 검색 API |
 | `api/stock-news` | 종목 뉴스 조회 — **네이버 뉴스검색만 쓴다**(2026-09-09, 구글 뉴스 제거). 엔드포인트·인증 헤더는 `realestate_media.py`와 동일한 NAVER API HUB다 — 이 라우트만 구 주소(`openapi.naver.com` + `X-Naver-Client-Id`)에 남아 있어서 HUB 키로는 인증이 깨졌고, 조용히 구글로 내려가 종목과 무관한 기사가 뜨고 있었다. 검색어에는 항상 "주가"를 붙이고, 미장 종목도 한글명(`name_kr`, KIS 마스터에서 옴)이 있으면 티커 대신 그걸로 검색한다 — 네이버는 한글 기사라 '엔비디아'가 'NVDA'보다 훨씬 잘 걸린다. **`NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`는 GitHub Actions 시크릿과 별개로 Vercel 환경변수에도 있어야 한다** — 없으면 기사가 0건이 아니라 `error: 'NAVER_CLIENT_ID/SECRET 미설정'`으로 응답한다(조용히 비면 '뉴스 없는 종목'으로 오해하므로) |
@@ -203,7 +205,10 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 `WatchlistCard.tsx`(매집 감시 카드) · `PositionCard.tsx`(포지션 관리 카드 — 보유 종목 지지 신호 점검,
 `supportSignals.ts` 사용) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
-`RealestateMediaSection.tsx`(부동산 홈 상단 뉴스·영상, 데이터 없으면 섹션째 숨김)
+`RealestateMediaSection.tsx`(부동산 홈 상단 뉴스·영상, 데이터 없으면 섹션째 숨김) ·
+`EtfWatchCard.tsx`(490590 매수체크 화면 렌더 — 계산은 `lib/etfEntryCheck.ts`가 서버 컴포넌트에서
+미리 끝내고 결과만 받는다. 몇 차까지 매수를 실행했는지는 `AverageCostCalculator.tsx`와 같은 원칙으로
+브라우저 localStorage에만 저장)
 
 ## 디자인 시스템 (토스증권 문법)
 
