@@ -1,0 +1,70 @@
+name: Market Index Snapshot
+
+# 시황 지수(코스피·코스닥·다우·나스닥·S&P500·미국10년물)만 받아 갱신한다.
+#
+# 본 파이프라인(pipeline.yml)도 매 실행마다 같은 수집을 하지만 하루 두 번(06:30·16:30
+# KST)뿐이고, **둘 다 미국장이 닫혀 있는 시각**이다(미국장은 22:30~05:00 KST). 그래서
+# 미국 10년물 금리가 화면에 늘 직전 거래일 종가로 떠 있어 장중 뉴스 숫자와 어긋났다
+# (2026-09-15 사용자 지적). 지수 6개 수집은 수십 초짜리 가벼운 작업이라 따로 떼어
+# 4시간마다 돌린다 — 부동산 미디어 수집(realestate_media.yml)과 같은 방식이다.
+on:
+  schedule:
+    # 00:35/04:35/08:35/12:35/16:35/20:35 KST (= UTC 15/19/23/03/07/11시 35분).
+    # 다른 워크플로의 정각·15분 시작과 겹치지 않게 35분에 둔다.
+    # 미국장(22:30~05:00 KST) 안에 00:35(개장 2시간 뒤)·04:35(마감 25분 전) 두 번이
+    # 걸려 장중 값이 들어오고, 그다음 08:35 KST 실행이 그날 확정 종가로 덮어쓴다.
+    # 16:35 KST는 저녁 파이프라인(16:30)과 거의 겹치지만 지수당 1행 upsert에 값도
+    # 같아서 서로 덮어쓸 뿐이다.
+    - cron: '35 3,7,11,15,19,23 * * *'
+  workflow_dispatch: {}
+
+# 겹쳐 돌 이유가 없다 — 앞 실행이 아직이면 그걸 끝내고 이번 것만 남긴다.
+concurrency:
+  group: market-indices
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+
+      - name: Collect index snapshots
+        working-directory: pipeline
+        run: python -m src.market_indices_main
+
+      - name: Revalidate frontend cache
+        env:
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+        run: |
+          if [ -z "$REVALIDATE_URL" ]; then
+            echo "::warning::REVALIDATE_URL 시크릿 미설정 → 캐시 즉시 무효화 생략 (최대 1시간 내 자동 갱신)"
+            exit 0
+          fi
+          curl -fsS -X POST "$REVALIDATE_URL" \
+            -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+            && echo "프론트 캐시 무효화 완료" \
+            || echo "::warning::캐시 무효화 호출 실패 → cacheLife에 따라 최대 1시간 내 자동 갱신"
