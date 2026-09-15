@@ -14,6 +14,7 @@ Actions에서 이걸 돌리면 어느 테이블이 어느 날짜로 몇 행 들�
 """
 from __future__ import annotations
 
+import json
 import time
 from collections import Counter
 
@@ -233,13 +234,35 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     )
     if not sample:
         print("    (없음 — 아직 백필 전이거나 수집이 실패했다)", flush=True)
-    else:
-        for row in sample:
-            print(
-                f"    {row['date']}  시 {row['open']}  고 {row['high']}  "
-                f"저 {row['low']}  종 {row['close']}  거래량 {row['volume']}",
-                flush=True,
-            )
+        return
+
+    for row in sample:
+        print(
+            f"    {row['date']}  시 {row['open']}  고 {row['high']}  "
+            f"저 {row['low']}  종 {row['close']}  거래량 {row['volume']}",
+            flush=True,
+        )
+
+    # 차트가 실제로 그려지는지는 작업용 컨테이너에서 확인할 방법이 없다(Supabase
+    # 자격증명도, 배포된 사이트 접속도 없다). 그래서 최근 60봉을 한 줄 JSON으로
+    # 뱉어, 그 값을 그대로 로컬 미리보기(app/dev/preview)에 넣어 렌더해 볼 수 있게 한다.
+    chart_rows = _attempt(
+        "차트 검증용 60봉",
+        lambda: (
+            db.client.table("stock_price_history")
+            .select("date, open, high, low, close, volume")
+            .eq("ticker", newest["ticker"])
+            .eq("market", newest["market"])
+            .order("date", desc=True)
+            .limit(60)
+            .execute()
+        ).data
+        or [],
+    )
+    if chart_rows:
+        ascending = list(reversed(chart_rows))
+        print("\n  [차트 검증용 JSON — 최근 60봉, 오름차순]", flush=True)
+        print(json.dumps(ascending, separators=(",", ":"), ensure_ascii=False), flush=True)
 
 
 def main() -> None:
