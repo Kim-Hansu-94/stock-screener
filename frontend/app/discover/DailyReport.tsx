@@ -101,7 +101,8 @@ export function DailyReport() {
   )
 }
 
-function CriteriaLegend() {
+/** 선정 기준 안내. 표가 들어 있어 폰 폭에서 깨지기 쉬워 `/dev/preview`에서 확인한다. */
+export function CriteriaLegend() {
   return (
     <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-4">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-500">
@@ -148,6 +149,41 @@ function CriteriaLegend() {
           <dd>현재가 &gt; 5일선 &gt; 10일선 &gt; 20일선 정배열 여부 — 충족 시 +10점 보너스</dd>
         </div>
       </dl>
+      <div className="mt-3 rounded-md border border-indigo-200/70 bg-white/70 p-3">
+        <p className="text-xs font-semibold text-indigo-600">
+          하락률이 깊을수록 <span className="text-up">더 오래</span> 봐야 합니다
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-secondary-foreground">
+          3년 백테스트에서 <strong className="font-medium">깊게 빠진 종목은 나쁜 게 아니라
+          느렸습니다.</strong> 같은 종목군인데 3개월과 1년의 승률이 정반대 방향으로 갑니다 —
+          3개월로 판단하면 깊은 종목을 실패로 오해하게 됩니다.
+        </p>
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[260px] border-collapse text-[11px] tabular-nums">
+            <thead>
+              <tr className="text-muted-foreground">
+                <th className="py-1 pr-3 text-left font-medium">하락률</th>
+                <th className="py-1 pr-3 text-right font-medium">3개월 승률</th>
+                <th className="py-1 text-right font-medium">1년 승률</th>
+              </tr>
+            </thead>
+            <tbody className="text-secondary-foreground">
+              <tr><td className="py-0.5 pr-3">55~60%</td><td className="py-0.5 pr-3 text-right">64.1%</td><td className="py-0.5 text-right">74.5%</td></tr>
+              <tr><td className="py-0.5 pr-3">60~65%</td><td className="py-0.5 pr-3 text-right">63.8%</td><td className="py-0.5 text-right">77.9%</td></tr>
+              <tr><td className="py-0.5 pr-3">65~70%</td><td className="py-0.5 pr-3 text-right">62.1%</td><td className="py-0.5 text-right">78.8%</td></tr>
+              <tr><td className="py-0.5 pr-3">70~75%</td><td className="py-0.5 pr-3 text-right text-down">60.3%</td><td className="py-0.5 text-right text-up">81.0%</td></tr>
+              <tr><td className="py-0.5 pr-3">75~80%</td><td className="py-0.5 pr-3 text-right text-down">60.7%</td><td className="py-0.5 text-right text-up">81.0%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          <strong className="font-medium">읽는 법</strong>: 하락률 65% 아래면 3개월 안에 결판이
+          나는 편이고, <strong className="font-medium">70%를 넘으면 1년을 보고 들어가야</strong>
+          합니다. 점수는 이 차이를 구분하지 않으므로 보유 기간은 직접 정하셔야 합니다.
+          1년 쪽 숫자에는 생존 편향(망한 종목이 목록에 없음)이 섞여 있어 절대값이 아니라
+          방향만 보는 게 맞습니다.
+        </p>
+      </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
         ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상이고{' '}
         <strong className="font-medium">봉이 양봉 또는 십자형(몸통이 거의 없는 봉)</strong>일 때만
