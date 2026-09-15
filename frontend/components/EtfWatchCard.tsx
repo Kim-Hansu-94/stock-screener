@@ -7,8 +7,10 @@ import {
   ETF_MARKET,
   ETF_NAME,
   ETF_TICKER,
+  MANUAL_STOP_CHECKS,
   PROXY_NAMES,
   PROXY_TICKERS,
+  summarizeStopSignals,
   type ProxyBasketAssessment,
   type StageResult,
   type StopSignal,
@@ -123,7 +125,7 @@ export function EtfWatchCard({
   }
 
   const investedManwon = tranches.reduce((sum, t, i) => (done[i] ? sum + t.amountManwon : sum), 0)
-  const autoTriggeredStop = stopSignals.some((s) => s.automatic && s.triggered === true)
+  const stopVerdict = summarizeStopSignals(stopSignals)
   const tenYearPct = tenYearYield ? tenYearYield.close / 10 : null
   const tenYearChangePct = tenYearYield ? (tenYearYield.close - tenYearYield.prev_close) / 10 : null
   const nasdaqChangePct =
@@ -232,36 +234,80 @@ export function EtfWatchCard({
         </div>
       </Section>
 
-      {autoTriggeredStop && (
-        <div className="rounded-xl bg-down/10 p-3 text-sm font-semibold text-down">
-          🚨 자동 매수 중단 신호가 감지됐습니다 — 아래 목록을 확인하세요.
+      <Section
+        title="매수 중단 신호"
+        subtitle="아래 중 하나라도 걸리면 추가 매수를 멈추기로 정해둔 기준입니다."
+      >
+        {/* 한 줄 결론을 맨 위에 — 항목을 다 읽고 머릿속에서 합치지 않아도 되게 한다.
+            경고는 색만으로 구분하지 않는다: --accent(연한 파랑)와 --down(파랑)이 서로
+            비슷해서 배경색만으로는 정상/경고가 한눈에 안 갈린다(2026-09-15 실측).
+            그래서 정상은 중립 회색, 경고는 파랑 + 왼쪽 굵은 띠로 대비를 만든다. */}
+        <div
+          className={`rounded-lg p-3 ${
+            stopVerdict.level === 'stop' ? 'border-l-4 border-down bg-down/10' : 'bg-muted'
+          }`}
+        >
+          <p
+            className={`text-sm font-bold ${
+              stopVerdict.level === 'stop' ? 'text-down' : 'text-secondary-foreground'
+            }`}
+          >
+            {stopVerdict.level === 'stop' ? '🚨 ' : '✅ '}
+            {stopVerdict.headline}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-secondary-foreground">{stopVerdict.detail}</p>
         </div>
-      )}
 
-      <Section title="🚨 매수 중단 신호" subtitle="하나라도 걸리면 추가 매수를 멈추기로 정한 기준입니다.">
-        <ul className="space-y-1.5">
+        <p className="mt-3 mb-1.5 text-xs font-semibold text-muted-foreground">자동으로 보는 4가지</p>
+        <ul className="space-y-2">
           {stopSignals.map((s) => (
-            <li key={s.id} className="flex items-start gap-2 text-xs">
-              <span
-                className={
-                  !s.automatic
-                    ? 'text-muted-foreground'
-                    : s.triggered === true
-                      ? 'font-bold text-down'
-                      : s.triggered === false
-                        ? 'text-up'
-                        : 'text-muted-foreground'
-                }
+            <li
+              key={s.id}
+              className={`rounded-lg p-2.5 ${
+                s.state === 'alert' ? 'border-l-4 border-down bg-down/10' : 'bg-muted/50'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <span className="text-xs text-muted-foreground">{s.topic}</span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    s.state === 'alert'
+                      ? 'bg-down/10 text-down'
+                      : s.state === 'ok'
+                        ? 'bg-secondary text-secondary-foreground'
+                        : 'bg-muted text-muted-foreground/70'
+                  }`}
+                >
+                  {s.state === 'alert' ? '경고' : s.state === 'ok' ? '이상 없음' : '확인 불가'}
+                </span>
+              </div>
+              <p
+                className={`mt-0.5 text-sm font-medium ${
+                  s.state === 'alert' ? 'text-down' : 'text-secondary-foreground'
+                }`}
               >
-                {!s.automatic ? '🔎' : s.triggered === true ? '🚨' : s.triggered === false ? '✓' : '—'}
-              </span>
-              <span>
-                <span className="font-medium text-secondary-foreground">{s.label}</span>{' '}
-                <span className="text-muted-foreground">— {s.detail}</span>
-              </span>
+                {s.headline}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{s.detail}</p>
             </li>
           ))}
         </ul>
+
+        {/* 자동 판정과 섞지 않고 따로 뗀다 — 여기 두 가지는 사용자가 직접 답해야 한다. */}
+        <p className="mt-4 mb-1.5 text-xs font-semibold text-muted-foreground">
+          직접 확인할 2가지 (뉴스를 봐야 알 수 있어 자동으로 판단하지 않습니다)
+        </p>
+        <ul className="space-y-2">
+          {MANUAL_STOP_CHECKS.map((c) => (
+            <li key={c.id} className="rounded-lg border border-dashed border-border p-2.5">
+              <p className="text-sm font-medium text-secondary-foreground">🔎 {c.question}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{c.why}</p>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-muted-foreground/70">
+          둘 중 하나라도 “그렇다”면, 위 4가지가 모두 이상 없어도 추가 매수를 멈추기로 한 기준입니다.
+        </p>
       </Section>
 
       <Section title="분할매수 계획 (총 5,000만원)">
