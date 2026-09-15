@@ -134,8 +134,9 @@ function CriteriaLegend() {
           <dt className="font-medium text-secondary-foreground">거래량 N배</dt>
           <dd>
             최근 20일 거래량 ÷ 직전 40일 거래량. 70% 이상 유지해야 통과 (점수 가중치 30%).{' '}
-            <strong className="font-medium">1.0~1.5배에서 만점</strong>이고 2배를 넘으면 0점입니다 —
-            백테스트에서 거래량이 과하게 터진 종목의 성적이 오히려 나빴습니다
+            <strong className="font-medium">1.5배 미만은 만점</strong>이고 2배를 넘으면 0점입니다 —
+            백테스트에서 1.5배가 유일한 경계였고, 그 위로 거래량이 터진 종목은 성적이
+            오히려 나빴습니다(중간값 −6.26%)
           </dd>
         </div>
         <div>

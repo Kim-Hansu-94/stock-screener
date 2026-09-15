@@ -465,6 +465,58 @@ def _bucket_decline_days(v) -> str | None:
     return "4. 150일 이상(완만)"
 
 
+def _bucket_vol_ratio_fine(v) -> str | None:
+    """거래량비를 **정점 주변에서 잘게** 쪼갠다 (2026-09-15, 숙제 2번 진단용).
+
+    v6에서 1.0~1.5배를 만점으로 놓았는데, 고친 뒤 재생하니 **1.0배 미만이 오히려
+    1등**이었다(중간값 14.04% vs 10.89%). 지금 1.0 미만에 주는 점수(하한 0.70에서
+    0.5 → 1.0까지 선형)는 **측정해서 정한 게 아니라 가정으로 넣은 값**이라, 그 안쪽
+    모양을 모른 채 방치돼 있다. 정점이 정말 1.0~1.5인지 확인한다.
+
+    굵은 구간(`_bucket_vol_ratio`)은 **그대로 남긴다** — 지난 실행과 직접 비교해야 한다.
+    """
+    if v is None or pd.isna(v):
+        return None
+    v = float(v)
+    if v < 0.85:
+        return "1. 0.70~0.85배"
+    if v < 1.0:
+        return "2. 0.85~1.0배"
+    if v < 1.25:
+        return "3. 1.0~1.25배"
+    if v < 1.5:
+        return "4. 1.25~1.5배"
+    if v < 2.0:
+        return "5. 1.5~2.0배"
+    return "6. 2.0배 이상"
+
+
+def _bucket_score_fine(v) -> str | None:
+    """점수를 **5점 단위로** 쪼갠다 (2026-09-15, 숙제 1번 진단용).
+
+    v7에서 50~59점 구간만 중간값 3.34%로 꺼졌다(40~49점은 5.51%). 10점 폭 안에서
+    어디가 꺼진 것인지 알 수 없어 원인을 못 찾고 있다. 반으로 쪼개 위치를 좁힌다.
+    """
+    if pd.isna(v):
+        return None
+    v = float(v)
+    if v < 0.45:
+        return "1. 40~44점"
+    if v < 0.50:
+        return "2. 45~49점"
+    if v < 0.55:
+        return "3. 50~54점"
+    if v < 0.60:
+        return "4. 55~59점"
+    if v < 0.65:
+        return "5. 60~64점"
+    if v < 0.70:
+        return "6. 65~69점"
+    if v < 0.80:
+        return "7. 70~79점"
+    return "8. 80점 이상"
+
+
 def _bucket_score(v) -> str | None:
     """점수 절대값 구간.
 
@@ -515,6 +567,8 @@ SEGMENTS: list[tuple[str, str]] = [
     ("이평 정배열 여부", "seg_ma_align"),
     ("점수 순위별", "seg_rank"),
     ("점수 구간별(절대값)", "seg_score"),
+    ("점수 5점 단위 (숙제 1)", "seg_score_fine"),
+    ("거래량비 잘게 (숙제 2)", "seg_vol_ratio_fine"),
     ("진입 연도별", "seg_year"),
 ]
 
@@ -526,6 +580,8 @@ def add_segment_keys(df: pd.DataFrame) -> pd.DataFrame:
     df["seg_decline_days"] = df["decline_days"].map(_bucket_decline_days)
     df["seg_rank"] = df["rank"].map(_bucket_rank)
     df["seg_score"] = df["score"].map(_bucket_score)
+    df["seg_score_fine"] = df["score"].map(_bucket_score_fine)
+    df["seg_vol_ratio_fine"] = df["vol_ratio"].map(_bucket_vol_ratio_fine)
     df["seg_year"] = df["date"].map(_bucket_year)
     df["seg_vcp"] = df["vcp"].map(lambda v: _bool_label(v, "VCP 충족", "VCP 미충족"))
     df["seg_ma_align"] = df["ma_align"].map(lambda v: _bool_label(v, "이평 정배열", "정배열 아님"))
