@@ -179,9 +179,24 @@ def _kr_snapshot(
 
 
 def _us_snapshot(name: str, ticker: str, today: date) -> dict | None:
-    # 미장은 한국 시간 새벽에 닫히므로 today를 그대로(배타적으로) 넘기면 직전
-    # 거래일까지 들어온다 — 아직 열리지도 않은 오늘 봉을 잡을 위험이 없다.
-    dates, closes = _yahoo_closes(ticker, today - timedelta(days=_LOOKBACK_DAYS), today)
+    """미국 지수 스냅샷. **장중 봉도 받는다** (2026-09-15 변경).
+
+    예전에는 `end`를 today로 줘서(배타적) 오늘 봉을 통째로 뺐다 — 늘 "끝난 장의
+    종가"만 들어오니 화면이 '장마감 기준'이라고 못박아도 맞았다. 하지만 지수 수집이
+    4시간마다 도는 지금은 미국장이 열려 있는 시간(한국시간 22:30~05:00)에도 실행되고,
+    그때 오늘 봉을 빼 버리면 **정작 값이 움직이는 시간대에만 옛날 값을 주는** 꼴이 된다
+    (사용자 요청: 뉴스에 나오는 숫자와 맞춰 보고 싶다).
+
+    그래서 KR과 같이 하루를 더해 오늘 봉까지 받는다. 낮에 도는 실행은 오늘 미국장이
+    아직 열리지도 않아 yfinance가 오늘 봉을 주지 않으므로, 그대로 직전 종가가 들어온다.
+
+    **받아온 값이 확정 종가인지 장중인지는 여기서 표시하지 않는다** — 화면이
+    `frontend/lib/usMarketSession.ts`에서 date와 updated_at으로 판정한다. 컬럼을 늘리면
+    Supabase 마이그레이션을 손으로 돌려야 하고, 안 돌리면 화면이 조용히 틀린 말을 한다.
+    """
+    dates, closes = _yahoo_closes(
+        ticker, today - timedelta(days=_LOOKBACK_DAYS), today + timedelta(days=1)
+    )
     return _snapshot_from_closes(name, dates, closes)
 
 

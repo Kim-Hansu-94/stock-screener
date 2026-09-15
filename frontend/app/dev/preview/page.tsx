@@ -707,6 +707,21 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
+          시황 위젯 — 해외가 장중일 때 (아래 각주가 “해외 9/3(현지시간) 장중 … 기준”이어야 정상)
+        </h2>
+        <MarketOverviewWidget
+          snapshots={[
+            { index_name: '코스피', date: '2026-09-03', close: 2650.32, prev_close: 2610.5, updated_at: '2026-09-03T07:00:00Z' },
+            // updated_at(17:30 UTC = 13:30 ET)이 그날 미국장 마감(20:00 UTC)보다 이르다 → 장중.
+            { index_name: '나스닥', date: '2026-09-03', close: 17950.1, prev_close: 17890.44, updated_at: '2026-09-03T17:30:00Z' },
+            { index_name: 'S&P500', date: '2026-09-03', close: 5630.0, prev_close: 5620.15, updated_at: '2026-09-03T17:30:00Z' },
+          ]}
+          usdKrwRate={1382.5}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
           시황 위젯 — 미수집(섹션 자체가 숨겨져야 함)
         </h2>
         <div className="rounded-md border border-dashed border-border p-4 text-xs text-muted-foreground">
@@ -790,7 +805,7 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          490590 매수체크 — 매수 중단 신호 감지 (경고 배너가 떠야 정상)
+          490590 매수체크 — 매수 중단 신호 감지 (경고 배너 + 10년물이 “장중” 표기여야 정상)
         </h2>
         <EtfWatchCard
           proxyAssessment={proxyBasket({ ORCL: 'A', GOOGL: 'A', NVDA: 'A', AMD: 'B', MRVL: 'A' })}
@@ -799,7 +814,7 @@ export default function PreviewPage() {
           hasEtfData
           tranches={trancheSteps(0)}
           stopSignals={STOP_SIGNALS_TRIGGERED}
-          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.96, prev_close: 4.78, updated_at: '2026-09-12T21:30:00Z' }}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.96, prev_close: 4.78, updated_at: '2026-09-12T17:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17200.1, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
         />
       </section>

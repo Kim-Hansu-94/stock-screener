@@ -1,4 +1,5 @@
 import { changeTextClass, formatSignedPercent } from '@/lib/marketColors'
+import { formatKstDateTime, usBarStatus } from '@/lib/usMarketSession'
 import type { MarketIndexSnapshotRow } from '@/lib/types'
 
 // DB 조회 순서와 무관하게 항상 이 순서로 보여준다(국내 → 해외 → 환율).
@@ -33,10 +34,16 @@ export function MarketOverviewWidget({
   }
 
   // 국내(코스피·코스닥)와 해외(다우·나스닥·S&P500)는 장 마감 시각이 서로 달라
-  // 스냅샷의 기준일(date)이 하루 어긋날 수 있다 — 실시간 시세가 아니라 "마감 기준"
-  // 값임을 명확히 하려고 각각의 기준일을 따로 보여준다.
+  // 스냅샷의 기준일(date)이 하루 어긋날 수 있다 — 각각의 기준일을 따로 보여준다.
   const krDate = indices.find((s) => KR_INDEX_NAMES.has(s.index_name))?.date
-  const usDate = indices.find((s) => US_INDEX_NAMES.has(s.index_name))?.date
+  const usSnapshot = indices.find((s) => US_INDEX_NAMES.has(s.index_name))
+  const usDate = usSnapshot?.date
+  // 해외 지수는 2026-09-15부터 **장중 값도** 들어온다(4시간마다 수집, 미국장은
+  // 22:30~05:00 KST). 그래서 예전처럼 무조건 "장마감 기준"이라고 쓰면 안 된다 —
+  // 확정인지 장중인지 판정해서 그대로 적는다. 국내는 drop_unfinished_kr_bar가
+  // 미완성 봉을 버리므로 늘 확정 종가다.
+  const usStatus = usSnapshot ? usBarStatus(usSnapshot.date, usSnapshot.updated_at) : 'unknown'
+  const usFetchedAt = usSnapshot ? formatKstDateTime(usSnapshot.updated_at) : ''
 
   return (
     <section className="rounded-xl bg-card p-4 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
@@ -62,11 +69,15 @@ export function MarketOverviewWidget({
         </div>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
-        {krDate && `국내 ${formatMonthDay(krDate)}`}
+        {krDate && `국내 ${formatMonthDay(krDate)} 장마감`}
         {krDate && usDate && ' · '}
-        {usDate && `해외 ${formatMonthDay(usDate)}(현지시간)`}
-        {(krDate || usDate) && ' 장마감 기준 · '}
-        실시간 시세가 아니라 하루 2번(장 마감 후) 갱신됩니다. 환율은 최대 1시간 이내 값입니다.
+        {usDate &&
+          `해외 ${formatMonthDay(usDate)}(현지시간) ${
+            usStatus === 'intraday' ? '장중' : usStatus === 'final' ? '장마감' : ''
+          }`}
+        {usStatus === 'intraday' && usFetchedAt && ` ${usFetchedAt} 기준`}
+        {(krDate || usDate) && ' · '}
+        실시간 시세가 아니라 4시간마다 갱신됩니다. 환율은 최대 1시간 이내 값입니다.
       </p>
     </section>
   )

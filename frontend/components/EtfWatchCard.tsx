@@ -19,6 +19,7 @@ import {
   type TrancheStep,
   type UpturnCondition,
 } from '@/lib/etfEntryCheck'
+import { formatKstDateTime, usBarStatus } from '@/lib/usMarketSession'
 import type { MarketIndexSnapshotRow } from '@/lib/types'
 
 /**
@@ -174,6 +175,9 @@ export function EtfWatchCard({
   const tenYearPct = tenYearYield ? tenYearYield.close : null
   const tenYearChangePct = tenYearYield ? tenYearYield.close - tenYearYield.prev_close : null
   const yieldMeaning = tenYearPct !== null ? describeTenYearYield(tenYearPct) : null
+  // 확정 종가인지 장중 값인지 — date와 updated_at으로 판정한다(lib/usMarketSession.ts).
+  const yieldStatus = tenYearYield ? usBarStatus(tenYearYield.date, tenYearYield.updated_at) : 'unknown'
+  const yieldFetchedAt = tenYearYield ? formatKstDateTime(tenYearYield.updated_at) : ''
   const nasdaqChangePct =
     nasdaq && nasdaq.prev_close !== 0 ? ((nasdaq.close - nasdaq.prev_close) / nasdaq.prev_close) * 100 : null
 
@@ -481,13 +485,27 @@ export function EtfWatchCard({
               미국 정부가 10년 동안 돈을 빌릴 때 주는 이자율입니다. {yieldMeaning.meaning}
             </p>
           )}
-          {/* 언제 기준인지 반드시 밝힌다 — 미국장은 한국 새벽에 닫히고 이 사이트는 하루 두 번만
-              값을 받아오므로, 장중 뉴스에 나오는 숫자와 다를 수밖에 없다. 날짜가 없으면
-              "뉴스는 5%인데 여기는 왜 4.96%냐"가 된다(2026-09-15 실제 질문). */}
+          {/* 언제 기준인지 반드시 밝힌다 — 날짜가 없으면 "뉴스는 5%인데 여기는 왜 4.96%냐"가
+              된다(2026-09-15 실제 질문). 2026-09-15부터 4시간마다 받아오므로 미국장이 열려
+              있는 동안(22:30~05:00 KST)에는 **아직 안 끝난 장중 값**이 들어온다 — 그걸
+              "마감 종가"라고 적으면 거짓말이라 usBarStatus로 갈라 쓴다. */}
           {tenYearYield && (
             <p className="mt-1 text-xs text-muted-foreground/70">
-              {tenYearYield.date} 미국장 마감 종가 · 실시간이 아니라 하루 두 번(아침·저녁) 갱신하므로
-              장중 뉴스에 나오는 값과는 다를 수 있습니다.
+              {yieldStatus === 'intraday' ? (
+                <>
+                  {tenYearYield.date} 미국장 <span className="font-semibold">장중</span> 값
+                  {yieldFetchedAt && ` (한국시간 ${yieldFetchedAt} 기준)`} · 아직 장이 끝나지
+                  않아 마감까지 더 움직일 수 있습니다.
+                </>
+              ) : yieldStatus === 'final' ? (
+                <>
+                  {tenYearYield.date} 미국장 마감 종가 · 미국장은 한국시간 밤 10시 30분에 열리므로,
+                  낮에는 직전 거래일 종가가 보입니다.
+                </>
+              ) : (
+                <>{tenYearYield.date} 기준</>
+              )}{' '}
+              4시간마다 갱신됩니다.
             </p>
           )}
           {nasdaqChangePct !== null && (
