@@ -144,6 +144,9 @@ export function StockChart({
       height: rsi ? 240 : 300,
       crosshair: { mode: CrosshairMode.Normal },
       localization: { priceFormatter: formatAxisPrice },
+      // RSI를 같이 그릴 때는 날짜 축을 위아래 두 번 그리지 않는다 — 아래 RSI 차트의
+      // 축 하나를 공유해서 "한 차트의 위아래 칸"처럼 보이게 한다.
+      timeScale: { visible: !rsi },
     })
 
     // 구름(선행스팬A·B 사이 채우기)은 캔들·이동평균선보다 먼저 그려야 뒤에 깔린다 —
@@ -370,6 +373,7 @@ export function StockChart({
     chart.timeScale().fitContent()
 
     let rsiChart: ReturnType<typeof createChart> | null = null
+    const cleanups: Array<() => void> = []
 
     if (rsi && rsiRef.current) {
       rsiChart = createChart(rsiRef.current, {
@@ -386,15 +390,94 @@ export function StockChart({
         lastValueVisible: true,
         priceLineVisible: false,
       })
+      // 값이 없는 앞 구간(RSI 워밍업 14봉)을 **버리지 않고 빈 점(whitespace)으로 채운다.**
+      // 버리면 두 차트의 봉 개수가 달라져 같은 논리 인덱스가 다른 날짜를 가리키고,
+      // 그러면 아래의 화면 범위 동기화가 어긋난 채로 맞은 것처럼 보인다.
       rsiSeries.setData(
-        data
-          .map((row, index) => ({ time: row.date, value: rsiValues[index] }))
-          .filter((p): p is { time: string; value: number } => p.value !== null),
+        data.map((row, index) => {
+          const value = rsiValues[index]
+          return value === null ? { time: row.date } : { time: row.date, value }
+        }),
       )
       // 70/30은 가격 방향이 아니라 과매수·과매도 참고선이라 등락 색(빨강/파랑)을 쓰지 않는다.
       rsiSeries.createPriceLine({ price: 70, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
       rsiSeries.createPriceLine({ price: 30, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
-      rsiChart.timeScale().fitContent()
+
+      // ── 두 차트를 하나처럼 움직이게 묶는다 (2026-09-15) ────────────────────
+      // v4에는 한 차트 안에 패널을 나누는 기능이 없어서 차트를 두 개 만들 수밖에 없다.
+      // 그대로 두면 위를 확대·이동해도 아래 RSI는 가만히 있어서 **같은 날짜를 보고
+      // 있다는 보장이 없다** — 실제로 위는 2~7월, 아래는 3~4월을 보여주고 있었다.
+      const rsiTimeScale = rsiChart.timeScale()
+      const mainTimeScale = chart.timeScale()
+
+      // setVisibleLogicalRange는 상대편의 구독 콜백을 다시 부르므로, 깃발이 없으면
+      // 둘이 서로를 끝없이 밀어댄다.
+      let syncingRange = false
+      const linkRange = (
+        from: ReturnType<typeof chart.timeScale>,
+        to: ReturnType<typeof chart.timeScale>,
+      ) => {
+        const handler = (range: Parameters<Parameters<typeof from.subscribeVisibleLogicalRangeChange>[0]>[0]) => {
+          if (!range || syncingRange) return
+          syncingRange = true
+          to.setVisibleLogicalRange(range)
+          syncingRange = false
+        }
+        from.subscribeVisibleLogicalRangeChange(handler)
+        cleanups.push(() => from.unsubscribeVisibleLogicalRangeChange(handler))
+      }
+      linkRange(mainTimeScale, rsiTimeScale)
+      linkRange(rsiTimeScale, mainTimeScale)
+
+      // 십자선도 같이 움직여야 "지금 보고 있는 날의 RSI가 얼마인지"를 바로 읽는다.
+      // setCrosshairPosition은 가격(세로 위치)을 요구하므로 날짜별 값을 미리 찍어둔다 —
+      // 없으면 RSI는 중앙선 50, 캔들은 마지막 종가에 가로선을 둔다(세로선 위치가 요점).
+      const rsiByTime = new Map<string, number>()
+      const closeByTime = new Map<string, number>()
+      data.forEach((row, index) => {
+        const value = rsiValues[index]
+        if (value !== null) rsiByTime.set(row.date, value)
+        closeByTime.set(row.date, row.close)
+      })
+      const lastClose = closes[closes.length - 1]
+
+      let syncingCrosshair = false
+      const linkCrosshair = (
+        from: typeof chart,
+        to: typeof chart,
+        toSeries: Parameters<typeof chart.setCrosshairPosition>[2],
+        priceAt: (time: string) => number,
+      ) => {
+        const handler = (param: { time?: unknown }) => {
+          if (syncingCrosshair) return
+          syncingCrosshair = true
+          if (typeof param.time === 'string') {
+            to.setCrosshairPosition(priceAt(param.time), param.time, toSeries)
+          } else {
+            to.clearCrosshairPosition()
+          }
+          syncingCrosshair = false
+        }
+        from.subscribeCrosshairMove(handler)
+        cleanups.push(() => from.unsubscribeCrosshairMove(handler))
+      }
+      linkCrosshair(chart, rsiChart, rsiSeries, (time) => rsiByTime.get(time) ?? 50)
+      linkCrosshair(rsiChart, chart, candleSeries, (time) => closeByTime.get(time) ?? lastClose)
+
+      // 가격축 폭이 다르면 같은 날짜가 위아래로 어긋나 보인다 — 넓은 쪽에 맞춰 둘 다 고정.
+      // 렌더가 끝난 뒤에야 실제 폭을 알 수 있어 다음 프레임에 잰다.
+      const alignPriceScales = () => {
+        if (!rsiChart) return
+        const widest = Math.max(chart.priceScale('right').width(), rsiChart.priceScale('right').width())
+        chart.priceScale('right').applyOptions({ minimumWidth: widest })
+        rsiChart.priceScale('right').applyOptions({ minimumWidth: widest })
+      }
+      const alignFrame = requestAnimationFrame(alignPriceScales)
+      cleanups.push(() => cancelAnimationFrame(alignFrame))
+
+      rsiTimeScale.setVisibleLogicalRange(
+        mainTimeScale.getVisibleLogicalRange() ?? { from: 0, to: data.length - 1 },
+      )
     }
 
     const handleResize = () => {
@@ -405,6 +488,9 @@ export function StockChart({
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      // 구독 해제를 차트 제거보다 먼저 — 한쪽을 remove하는 도중에 상대편 콜백이 죽은
+      // 차트를 건드리지 않게 한다.
+      for (const cleanup of cleanups) cleanup()
       chart.remove()
       rsiChart?.remove()
     }
@@ -482,7 +568,11 @@ export function StockChart({
       <div ref={containerRef} />
       {rsi && (
         <>
-          <p className="mt-1 text-[11px] text-muted-foreground">RSI ({monthly ? 6 : 14})</p>
+          {/* 위 차트가 시간축을 숨기고 아래 축 하나를 같이 쓰므로, 두 칸을 띄우지 않고
+              옅은 구분선만 둬서 "한 차트의 아래 칸"으로 보이게 한다. */}
+          <p className="border-t border-border pt-1 text-[11px] text-muted-foreground">
+            RSI ({monthly ? 6 : 14}) · 위 캔들과 같이 움직입니다
+          </p>
           <div ref={rsiRef} />
         </>
       )}

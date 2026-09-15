@@ -779,6 +779,15 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
+          차트 — 월봉 + RSI (종목발굴·저점 매집 후보가 쓰는 조합. 날짜 축이 아래 하나여야 정상)
+        </h2>
+        <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <StockChart history={VOLUME_PROFILE_HISTORY} monthly bollinger rsi />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
           차트 — 매물대를 그릴 수 없는 경우 (가격이 전 구간 동일 · 거래량 0). 매물대만 빠지고
           나머지는 그대로 그려져야 정상
         </h2>
