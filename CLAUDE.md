@@ -519,6 +519,14 @@ DART 접수번호가 같은 번호였습니다"**라고 단정했다. 확인해 
   (`python -m src.db_probe`)이 찍어 준다 — **다른 데서는 티가 안 난다**:
   `save_recommendation_history`가 컬럼 없음을 감지하면 기본 컬럼으로 다시 저장하므로
   실행 로그는 초록불이고, 성적 화면은 특성별 표만 조용히 빈다
+- **`supabase/pattern_match_results_drawdown.sql`을 실행할 것** (2026-09-15 추가).
+  `pattern_match_results`에 `drawdown_pct` 열을 더한다 — 저점 매집 후보 카드의
+  **⏳ 권장 관찰 기간 배지**(3개월 / 3~12개월 / 1년)가 이 값으로 붙는다.
+  **백필은 필요 없다** — 이 표는 파이프라인이 매 실행마다 통째로 지우고 다시 쓰므로
+  (`recommendation_history`와 다른 점) SQL만 실행하면 다음 실행부터 전부 채워진다.
+  안 해도 화면은 안 깨진다(값이 null이면 배지만 안 붙는다) — 그래서 **조용히 빠진다.**
+  `save_pattern_matches`도 열이 없으면 기본 열로 다시 저장해 로그는 초록불이다
+
 - **`supabase/kr_market_extras.sql`을 실행할 것.** 이미 실행했다면 파일 맨 아래의
   **`buyback_trades` 표 + `confirmed_*` 열**만 더 실행하면 된다(2026-09-11 추가).
   이걸 안 하면 체결내역 수집이 통째로 건너뛰어지고(본체는 계속 저장된다) 화면은

@@ -401,7 +401,25 @@ class ScreenerDB:
             }
             for i, m in enumerate(matches)
         ]
-        self.client.table("pattern_match_results").insert(rows).execute()
+
+        # 하락률은 화면에서 **권장 관찰 기간**을 안내하는 데 쓴다(65% 아래 3개월 /
+        # 70% 위 1년). `matched_bottom` 문자열 안에도 있지만 표시용 문장이라
+        # 파싱하면 문구를 고칠 때마다 화면이 깨진다 — 숫자를 따로 싣는다.
+        with_dd = [
+            {**row, "drawdown_pct": m.get("drawdown_pct")}
+            for row, m in zip(rows, matches)
+        ]
+        try:
+            self.client.table("pattern_match_results").insert(with_dd).execute()
+        except Exception as exc:  # noqa: BLE001
+            # supabase/pattern_match_results_drawdown.sql을 아직 실행하지 않은 상태.
+            # 배지만 포기하고 목록 자체는 띄운다 — 여기서 멈추면 탭이 통째로 빈다.
+            print(
+                f"  [pattern] drawdown_pct 저장 실패({exc}) → 기본 컬럼만 저장한다. "
+                "supabase/pattern_match_results_drawdown.sql을 실행하면 채워진다.",
+                flush=True,
+            )
+            self.client.table("pattern_match_results").insert(rows).execute()
 
     def save_recommendation_history(self, matches: list[dict], recommended_date: str) -> None:
         if not matches:
