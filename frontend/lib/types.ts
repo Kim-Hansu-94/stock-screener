@@ -247,6 +247,12 @@ export interface DailyReportResult {
   matchedStandardTicker: string | null
   matchedBottom: string          // e.g. "하락률 67% · 저점 유지 28일 · 거래량 +45%"
   volumeTriggered: boolean
+  /**
+   * 52주 최고가 대비 하락률(%). 카드의 **권장 관찰 기간 배지**에 쓴다.
+   * `supabase/pattern_match_results_drawdown.sql` 실행 전에는 null이고, 그러면 배지만 안 뜬다.
+   * `matchedBottom` 문자열 안에도 같은 값이 있지만 그건 표시용 문장이라 파싱하지 않는다.
+   */
+  drawdownPct: number | null
   history: PriceHistoryRow[]
   /** 시가총액 (달러). 조회 실패 시 null. */
   marketCap: number | null

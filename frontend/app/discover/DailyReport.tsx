@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { holdHint } from '@/lib/holdHint'
 import { formatKrwAmount } from '@/lib/calculations'
 import { StockChart } from '@/components/StockChart'
 import { Spinner } from '@/components/Spinner'
@@ -183,6 +184,13 @@ export function CriteriaLegend() {
           1년 쪽 숫자에는 생존 편향(망한 종목이 목록에 없음)이 섞여 있어 절대값이 아니라
           방향만 보는 게 맞습니다.
         </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-secondary-foreground">
+          그래서 카드마다 <strong className="font-medium">⏳ 배지</strong>로 이 기간을 미리
+          붙여 뒀습니다 — <strong className="font-medium">⏳ 3개월</strong>(하락률 65% 미만) ·{' '}
+          <strong className="font-medium">⏳ 3~12개월</strong>(65~70%) ·{' '}
+          <strong className="font-medium">⏳ 1년</strong>(70% 이상). 목표가가 아니라{' '}
+          <strong className="font-medium">얼마나 기다려야 하는지</strong>를 가리킵니다.
+        </p>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
         ⚡ 거래량 배지는 위 거래량 기준과 별개로, 오늘 거래량이 최근 90일 평균의 2배 이상이고{' '}
@@ -235,6 +243,7 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
   }, [stock.ticker])
 
   const latestClose = stock.history[stock.history.length - 1]?.close
+  const hint = holdHint(stock.drawdownPct)
 
   return (
     <Card className={stock.volumeTriggered ? 'border-amber-300' : ''}>
@@ -249,9 +258,14 @@ function DailyResultCard({ stock, usdKrwRate }: { stock: DailyReportResult; usdK
               <span className="block text-xs font-normal text-muted-foreground">{stock.name}</span>
             )}
           </span>
-          <div className="ml-2 flex flex-shrink-0 gap-1.5">
+          <div className="ml-2 flex flex-shrink-0 flex-wrap justify-end gap-1.5">
             {stock.volumeTriggered && (
               <Badge className="bg-amber-500 text-white">⚡ 거래량</Badge>
+            )}
+            {hint && (
+              <Badge variant="outline" className={hint.className} title={hint.title}>
+                {hint.label}
+              </Badge>
             )}
             <Badge variant="secondary">{score}점</Badge>
           </div>

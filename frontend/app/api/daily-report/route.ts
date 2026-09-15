@@ -27,7 +27,7 @@ export async function GET() {
   const { data: matchData, error: matchErr } = await supabase
     .from('pattern_match_results')
     .select(
-      'ticker, name, sector, similarity, matched_standard, matched_standard_ticker, matched_bottom, volume_triggered, computed_at',
+      'ticker, name, sector, similarity, matched_standard, matched_standard_ticker, matched_bottom, volume_triggered, drawdown_pct, computed_at',
     )
     .order('rank', { ascending: true })
     .limit(20)
@@ -86,6 +86,8 @@ export async function GET() {
     matchedStandardTicker: m.matched_standard_ticker,
     matchedBottom: m.matched_bottom,
     volumeTriggered: m.volume_triggered,
+    // 권장 관찰 기간 배지용. 컬럼 추가(pattern_match_results_drawdown.sql) 전에는 없다.
+    drawdownPct: m.drawdown_pct ?? null,
     history: histByTicker[m.ticker] ?? [],
     marketCap: marketCaps[m.ticker] ?? null,
   }))

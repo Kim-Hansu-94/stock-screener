@@ -1,6 +1,9 @@
 import { notFound } from 'next/navigation'
 import { DailyAlertPreview } from './DailyAlertPreview'
 import { CriteriaLegend } from '@/app/discover/DailyReport'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { holdHint } from '@/lib/holdHint'
 import { ScorecardVerdict, SegmentTable } from '@/components/Scorecard'
 import { PatternScorecardVerdict, PatternSegmentTable } from '@/components/PatternScorecard'
 import { PaperTradeTable, PaperTradeSummary } from '@/components/PaperTradeTable'
@@ -377,6 +380,51 @@ export default function PreviewPage() {
           저점 매집 후보 — 선정 기준 안내 (표가 있어 폰 폭에서 깨지기 쉽다)
         </h2>
         <CriteriaLegend />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          저점 매집 후보 카드 머리글 — 권장 관찰 기간 배지 (마지막 칸은 하락률 컬럼이 아직
+          없을 때. 배지가 빠져도 줄이 안 깨져야 한다)
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {[
+            { name: '아주 긴 종목이름 주식회사', ticker: 'LONGNAME', dd: 58.4, score: 71, vol: true },
+            { name: 'Mid Band Corp', ticker: 'MIDB', dd: 67.2, score: 64, vol: false },
+            { name: 'Deep Drop Inc', ticker: 'DEEP', dd: 83.1, score: 88, vol: true },
+            { name: '하락률 미기록', ticker: 'NODD', dd: null, score: 55, vol: false },
+          ].map((f) => {
+            const hint = holdHint(f.dd)
+            return (
+              <Card key={f.ticker} className={f.vol ? 'border-amber-300' : ''}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center justify-between text-base">
+                    <span>
+                      <span className="block">
+                        {f.name}{' '}
+                        <span className="text-sm font-normal text-muted-foreground">
+                          ({f.ticker})
+                        </span>
+                      </span>
+                    </span>
+                    <div className="ml-2 flex flex-shrink-0 flex-wrap justify-end gap-1.5">
+                      {f.vol && <Badge className="bg-amber-500 text-white">⚡ 거래량</Badge>}
+                      {hint && (
+                        <Badge variant="outline" className={hint.className} title={hint.title}>
+                          {hint.label}
+                        </Badge>
+                      )}
+                      <Badge variant="secondary">{f.score}점</Badge>
+                    </div>
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {f.dd === null ? '하락률 —' : `52주 최고가 대비 ${f.dd.toFixed(1)}% 하락`}
+                  </p>
+                </CardHeader>
+              </Card>
+            )
+          })}
+        </div>
       </section>
 
       <section className="space-y-3">

@@ -265,6 +265,10 @@ create table if not exists watchlist_status (
 -- ALTER TABLE watchlist_status ADD COLUMN IF NOT EXISTS qualified_since date;
 -- ALTER TABLE watchlist_status ADD COLUMN IF NOT EXISTS aligned_since date;
 
+-- ⚠️ `pattern_match_results`도 Supabase에서 직접 만들어져 이 파일에 정의가 없다.
+-- 거기에 컬럼을 더하는 마이그레이션은 supabase/pattern_match_results_drawdown.sql에 있다
+-- (카드의 권장 관찰 기간 배지용 `drawdown_pct`).
+--
 -- 오늘의 추천(Gold Standard 패턴 매칭) 기록. pattern_match_results가 "지금 화면에
 -- 띄울 목록"(매 실행 전체 삭제 후 재작성)인 반면, 이쪽은 "그날 무엇을 추천했는지"를
 -- 날짜별로 쌓아 둔다 — 나중에 패턴 추천의 성적을 내려면 진입 시점 기록이 필요하다.
