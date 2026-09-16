@@ -14,12 +14,17 @@ import {
   type StopSignal,
 } from './etfEntryCheck'
 
+// 시가를 **전날 종가**로 둔다 — 시가=종가로 만들면 모든 봉이 몸통 0(십자형)이 돼서
+// 거래량 방향 판정(buyingVolumeShare)이 통째로 '판정 불가'가 되고, 정작 검증하려는
+// 경로를 한 줄도 안 지나간다. 오르는 구간은 양봉, 내리는 구간은 음봉이 된다.
 function bars(closes: number[], volumes?: number[]): PriceHistoryRow[] {
   return closes.map((close, i) => ({
     ticker: 'TEST',
     market: 'US',
     date: `2025-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
-    open: close,
+    // 고가·저가는 예전 그대로 close±1 — 고점/저점을 보는 다른 조건의 기준을 건드리지
+    // 않으려는 것이다. 시가만 전날 대비 방향으로 0.5 옮겨 양봉/음봉을 만든다.
+    open: i === 0 || closes[i - 1] === close ? close : closes[i - 1] < close ? close - 0.5 : close + 0.5,
     high: close + 1,
     low: close - 1,
     close,
@@ -274,5 +279,47 @@ describe('describeTenYearYield', () => {
   it('구간마다 다른 설명을 준다', () => {
     expect(describeTenYearYield(3.8).level).toBe('보통')
     expect(describeTenYearYield(1.5).level).toBe('낮은 편')
+  })
+})
+
+describe('거래량 조건은 방향을 본다', () => {
+  // 회귀 방지: 예전엔 "5일 평균이 늘었나"만 봐서 **던지느라 터진 거래량**도 매수세로 셌다.
+  // pattern_discovery.py가 2026-09-14에 고친 것과 같은 실수였다.
+  const rising = [...linspace(100, 80, 50), ...linspace(80, 110, 30)]
+  const falling = [...linspace(100, 90, 50), ...linspace(90, 60, 30)]
+
+  /** 마지막 5봉만 거래량을 확 키운다 — '최근 5일 평균 > 그 이전 20일 평균'을 만든다. */
+  function spikeAtEnd(n: number): number[] {
+    return Array.from({ length: n }, (_, i) => (i >= n - 5 ? 10_000 : 1_000))
+  }
+
+  it('오르면서 거래량이 늘면 충족된다', () => {
+    const result = classifyStage(bars(rising, spikeAtEnd(rising.length)))!
+    expect(result.detail.volumeUp).toBe(true)
+  })
+
+  it('떨어지면서 거래량이 늘면 충족되지 않는다 (투매를 매수세로 세지 않는다)', () => {
+    const result = classifyStage(bars(falling, spikeAtEnd(falling.length)))!
+    expect(result.detail.volumeUp).toBe(false)
+    // 화면이 왜 미달인지 설명할 수 있어야 한다 — 비중을 숫자로 남긴다.
+    const condition = result.upturnConditions.find((c) => c.label === '사는 거래량이 늘어남')!
+    expect(condition.met).toBe(false)
+    expect(condition.detail).toMatch(/오른 날 거래량 비중 \d+%/)
+  })
+
+  it('거래량이 안 늘었으면 방향과 무관하게 미달이다', () => {
+    const flatVolume = Array.from({ length: rising.length }, () => 1_000)
+    const result = classifyStage(bars(rising, flatVolume))!
+    expect(result.detail.volumeUp).toBe(false)
+  })
+
+  it('시가를 종가로 메운 소스는 방향을 알 수 없어 판정 불가로 남긴다', () => {
+    // 전 구간 시가=종가면 모든 봉이 몸통 0(십자형)이라, 그대로 두면 **모든 대량거래가
+    // 매수 신호**로 잡힌다 — pattern_discovery.py가 같은 이유로 트리거를 끈다.
+    const noBody = bars(rising, spikeAtEnd(rising.length)).map((b) => ({ ...b, open: b.close }))
+    const result = classifyStage(noBody)!
+    expect(result.detail.volumeUp).toBeNull()
+    // 판정 불가는 '충족'이 아니다 — 조건 개수에 들어가면 안 된다.
+    expect(result.upturnConditions.find((c) => c.label === '사는 거래량이 늘어남')!.met).toBe(false)
   })
 })

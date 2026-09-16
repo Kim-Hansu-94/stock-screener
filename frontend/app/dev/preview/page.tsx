@@ -415,8 +415,8 @@ function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<Stage
         detail: '직전 고점 112.00 vs 종가 100.00' },
       { label: '저점이 높아짐', why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)', met: stage !== 'A',
         detail: '최근 20일 최저 94.00 vs 그 이전 91.00' },
-      { label: '거래량이 늘어남', why: '사려는 사람이 실제로 붙었는가', met: false,
-        detail: '최근 5일 평균 거래량이 그 이전 20일의 0.8배' },
+      { label: '사는 거래량이 늘어남', why: '거래량이 늘었고, 그게 던지는 쪽이 아니라 사는 쪽이었는가', met: false,
+        detail: '최근 5일 평균이 그 이전 20일의 1.6배 · 그중 오른 날 거래량 비중 31%' },
     ],
     upturnMetCount: stage === 'C' ? 3 : stage === 'B' ? 1 : 0,
     detail: {
