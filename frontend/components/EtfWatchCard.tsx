@@ -8,8 +8,11 @@ import {
   ETF_NAME,
   ETF_TICKER,
   MANUAL_STOP_CHECKS,
+  PROXY_HOLDINGS,
   PROXY_NAMES,
   PROXY_TICKERS,
+  PROXY_WEIGHTS,
+  PROXY_WEIGHTS_AS_OF,
   UPTURN_REQUIRED,
   describeTenYearYield,
   summarizeStopSignals,
@@ -274,19 +277,32 @@ export function EtfWatchCard({
       </Section>
 
       <Section
-        title="대장주 5개 신호등"
-        subtitle="오라클·알파벳·엔비디아·AMD·마벨 테크놀로지 — 상승 전환한 종목 수로 매수 타이밍을 가늠합니다."
+        title="구성종목 신호등"
+        subtitle={`490590이 실제로 담고 있는 미국 주식 ${PROXY_HOLDINGS.length}개 — 개수가 아니라 비중으로 가늠합니다.`}
       >
         <div className="flex items-center gap-3">
           <span className="text-3xl leading-none">{proxyAssessment.trafficLight}</span>
-          <div>
-            <p className="text-sm font-semibold">{proxyAssessment.cStageCount}/5개 상승 전환</p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">
+              상승 전환 비중 {(proxyAssessment.cStageWeightShare * 100).toFixed(0)}%
+              <span className="ml-1 font-normal text-muted-foreground">
+                ({proxyAssessment.cStageCount}/{proxyAssessment.evaluatedCount}종목)
+              </span>
+            </p>
             <p className="text-xs text-muted-foreground">{proxyAssessment.trafficLabel}</p>
           </div>
         </div>
-        {proxyAssessment.evaluatedCount < PROXY_TICKERS.length && (
+        {/* 분모가 ETF 전체가 아니라 "판정 가능한 비중"이라는 걸 숨기지 않는다 — 우리가
+            ETF의 몇 %를 실제로 보고 있는지 알아야 신호등을 어느 정도 믿을지 정할 수 있다. */}
+        <p className="mt-1.5 text-xs text-muted-foreground/70">
+          이 {PROXY_HOLDINGS.length}종목이 ETF의 {proxyAssessment.evaluatedWeight.toFixed(1)}%를 차지합니다
+          (비중 {PROXY_WEIGHTS_AS_OF} 기준). 남은 부분은 커버드콜 옵션·현금과, 여기서 뺀
+          TSM(4.3%, 일봉 미수집)·RISE 미국AI밸류체인TOP3Plus(4.6%, 위 3종목과 겹쳐 중복)입니다.
+        </p>
+        {proxyAssessment.evaluatedCount < PROXY_HOLDINGS.length && (
           <p className="mt-1.5 text-xs text-down">
-            {PROXY_TICKERS.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다.
+            {PROXY_HOLDINGS.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다
+            (빠진 종목은 비중 계산에서도 제외됩니다).
           </p>
         )}
 
@@ -298,6 +314,9 @@ export function EtfWatchCard({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">
                     {PROXY_NAMES[t]} <span className="font-mono text-xs text-muted-foreground">{t}</span>
+                    <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
+                      {PROXY_WEIGHTS[t].toFixed(2)}%
+                    </span>
                   </span>
                   <StageBadge stage={r?.stage ?? null} />
                 </div>

@@ -1,0 +1,31 @@
+name: ETF Holdings Probe
+
+# 490590 구성종목·비중을 어디서 받을 수 있는지 **탐색**하는 진단.
+# 작업 컨테이너는 네이버·KRX가 막혀 있어 거기서는 확인이 안 된다 — universe_probe와
+# 같은 이유·같은 방식이다. 성패를 판정하지 않고 응답 구조만 찍는다.
+on:
+  push:
+    paths:
+      - 'pipeline/src/etf_holdings_probe.py'
+      - '.github/workflows/etf_holdings_probe.yml'
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe ETF holdings sources
+        working-directory: pipeline
+        run: python -m src.etf_holdings_probe
