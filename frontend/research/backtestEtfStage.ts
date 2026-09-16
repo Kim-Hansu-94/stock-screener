@@ -33,8 +33,16 @@ import { createClient } from '@supabase/supabase-js'
 import { classifyStage } from '../lib/etfEntryCheck.ts'
 import type { PriceHistoryRow } from '../lib/types.ts'
 
-/** 시총 상위 몇 종목까지 볼지. 전부 받으면 행이 수십만 개라 실행이 길어진다. */
-const MAX_TICKERS = Number(process.env.MAX_TICKERS) || 400
+/**
+ * 시총 상위 몇 종목까지 훑을지.
+ *
+ * **넉넉히 잡아야 한다.** `stock_price_history`에는 유니버스 전체가 아니라 파이프라인이
+ * 실제로 받아온 종목(눌림목 스크리닝 대상 + 종목발굴 조정폭 밴드 + 감시 종목)만 있다.
+ * 처음에 400으로 돌렸더니 **347개가 일봉 부족으로 빠지고 53종목만 남았다** — 시총
+ * 상위 대형주는 대부분 조정폭 밴드(20~60% 하락) 밖이라 일봉을 안 받아오기 때문이다.
+ * 일봉이 없는 종목은 조회가 빨리 끝나므로 넓게 훑는 비용이 크지 않다.
+ */
+const MAX_TICKERS = Number(process.env.MAX_TICKERS) || 2500
 /** 같은 종목을 며칠 간격으로 표본에 넣을지 — 겹침을 줄인다(가장 짧은 지평선과 맞춤). */
 const STRIDE = 20
 /** 진입 뒤 며칠 수익률을 볼지 (거래일). */
@@ -162,7 +170,17 @@ async function main(): Promise<void> {
       })
     }
   }
-  console.log(`\r  완료 · 표본 ${samples.length}건 (일봉 부족으로 건너뛴 종목 ${skipped}개)          `)
+  const contributing = new Set(samples.map((s) => s.ticker)).size
+  console.log(
+    `\r  완료 · 표본 ${samples.length}건 / **${contributing}종목** ` +
+      `(훑은 ${tickers.length}개 중 일봉 부족으로 건너뛴 ${skipped}개)          `,
+  )
+  if (contributing < 100) {
+    console.log(
+      `  ⚠️ 기여 종목이 ${contributing}개뿐이다 — 조건별 차이를 결론으로 쓰기엔 얇다.` +
+        '\n     stock_price_history에 일봉이 있는 종목 자체가 적다는 뜻이니 MAX_TICKERS를 더 올릴 것.',
+    )
+  }
 
   if (samples.length === 0) {
     console.error('표본이 0건입니다 — 일봉이 실제로 들어 있는지 db_probe로 확인할 것.')
