@@ -178,6 +178,49 @@ def _probe_market_indices(db: ScreenerDB) -> None:
         )
 
 
+def _probe_etf_proxy_bars(db: ScreenerDB) -> None:
+    """490590 매수체크가 쓰는 대장주 일봉이 실제로 DB에 있는지 (2026-09-16 추가).
+
+    **화면(app/page.tsx)은 stock_price_history를 읽기만 하고 직접 받아오지 않는다.**
+    그 종목이 정규 스크리닝 유니버스나 조정폭 밴드에 안 걸리면 일봉이 아예 없고, 화면은
+    조용히 "일봉 부족으로 판정에서 빠졌습니다"만 뜬다 — 종목을 바꾸기 전에 **여기서
+    확인하지 않으면 바꾼 종목이 판정에 아예 안 들어가는 것을 모른 채 넘어간다.**
+
+    2026-09-16에 사용자가 실제 구성종목을 확인해 줬다(네이버/증권사 앱 실측):
+      NVDA 14.67 · GOOGL 13.97 · MRVL 10.46 · PLTR 5.80 · MSFT 5.70 ·
+      META 5.06 · ANET 5.01 · AMZN 4.65 · RISE 미국AI밸류체인TOP3Plus 4.6 · TSM 4.3
+    지금 하드코딩된 5개 중 **ORCL·AMD는 상위 10개에 없다.** 후보를 바꾸려면 새 종목의
+    일봉이 있는지부터 봐야 해서 둘 다 찍는다.
+    """
+    print("\n=== 490590 대장주 일봉 보유 현황 ===", flush=True)
+    current = ["ORCL", "GOOGL", "NVDA", "AMD", "MRVL"]
+    candidates = ["PLTR", "MSFT", "META", "ANET", "AMZN", "TSM"]
+    # classifyStage가 A/B/C를 판정하는 최소치. 이보다 적으면 화면은 "판정 불가"다.
+    min_bars = 66
+
+    for label, tickers in (("지금 쓰는 5개", current), ("실제 상위 구성 후보", candidates)):
+        print(f"  [{label}]", flush=True)
+        for ticker in tickers:
+            rows = _attempt(
+                f"{ticker} 일봉",
+                lambda t=ticker: (
+                    db.client.table("stock_price_history")
+                    .select("date", count="exact")
+                    .eq("market", "US")
+                    .eq("ticker", t)
+                    .order("date", desc=True)
+                    .limit(1)
+                    .execute()
+                ),
+            )
+            if rows is None:
+                continue
+            count = rows.count or 0
+            latest = rows.data[0]["date"] if rows.data else "없음"
+            verdict = "판정 가능" if count >= min_bars else f"**판정 불가** ({min_bars}봉 미만)"
+            print(f"    {ticker:<6} {count:>4}봉 · 최근 {latest} → {verdict}", flush=True)
+
+
 def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     """watchlist_tickers 실제 행 수와 490590 존재 여부를 직접 찍는다.
 
@@ -340,6 +383,7 @@ def main() -> None:
 
     _probe_recommendation_features(db)
     _probe_market_indices(db)
+    _probe_etf_proxy_bars(db)
     # 감시 종목은 **맨 마지막에** 찍는다 — 로그를 꼬리부터 읽는 일이 많아서,
     # 앞에 두면 긴 목록에 밀려 정작 확인하려던 줄이 잘려 나간다.
     _probe_watchlist_tickers(db)
