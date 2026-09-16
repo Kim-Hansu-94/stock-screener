@@ -79,72 +79,41 @@ function ConditionChip({ met, label }: { met: boolean; label: string }) {
 }
 
 /**
- * 상승 전환(C) 조건을 이름·충족여부·근거 숫자까지 그대로 편다.
+ * 상승 전환(C) 조건 5개를 이름·충족여부·근거 숫자까지 그대로 편다.
  *
  * 예전엔 "상승 전환 조건은 5개 중 1개만 충족"이라고만 적어서, 정작 **그 5개가 뭔지**
  * 화면 어디에도 없었다(2026-09-15 지적). 개수만 보여주는 건 결론만 주고 근거를 감추는
  * 것과 같아서, 조건 이름 · 무엇을 보는 조건인지 · 지금 숫자를 한 줄씩 나열한다.
- *
- * **판정에 쓰는 조건과 관측 전용 조건을 한 목록에 섞어 놓으면 안 된다 (2026-09-16)** —
- * 백테스트에서 거꾸로 나온 두 조건(고점 돌파·거래량)을 판정에서 뺐는데, 화면에서 같이
- * 보이면 "충족인데 왜 상승 전환이 아니냐"가 된다. 그래서 갈라서 보여주고, 아래쪽에는
- * **왜 안 세는지**를 한 줄로 밝힌다(숫자 자체는 볼 값어치가 있어 지우지 않는다).
  */
-function ConditionRow({ c, index, muted }: { c: UpturnCondition; index: number; muted?: boolean }) {
-  return (
-    <li className="flex gap-2">
-      <span
-        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-          c.met && !muted ? 'bg-up/10 text-up' : 'bg-muted text-muted-foreground/70'
-        }`}
-        aria-hidden
-      >
-        {c.met ? '✓' : '·'}
-      </span>
-      <div className="min-w-0">
-        <p
-          className={`text-xs font-semibold ${
-            c.met && !muted ? 'text-secondary-foreground' : 'text-muted-foreground'
-          }`}
-        >
-          {index}. {c.label}
-          <span className="sr-only">{c.met ? ' — 충족' : ' — 미충족'}</span>
-        </p>
-        <p className="text-xs text-muted-foreground">{c.why}</p>
-        <p className="font-mono text-xs text-muted-foreground/70">{c.detail}</p>
-      </div>
-    </li>
-  )
-}
-
 function UpturnConditionList({ conditions, metCount }: { conditions: UpturnCondition[]; metCount: number }) {
-  const counted = conditions.filter((c) => c.counted)
-  const observed = conditions.filter((c) => !c.counted)
   return (
     <div className="mt-3 rounded-lg bg-muted/50 p-3">
       <p className="text-xs font-semibold text-secondary-foreground">
-        상승 전환 조건 {counted.length}개 중 <span className="text-primary">{metCount}개 충족</span>
+        상승 전환 조건 {conditions.length}개 중 <span className="text-primary">{metCount}개 충족</span>
         <span className="font-normal text-muted-foreground"> ({UPTURN_REQUIRED}개 이상이면 “상승 전환”)</span>
       </p>
       <ol className="mt-2 space-y-2">
-        {counted.map((c, i) => (
-          <ConditionRow key={c.label} c={c} index={i + 1} />
+        {conditions.map((c, i) => (
+          <li key={c.label} className="flex gap-2">
+            <span
+              className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                c.met ? 'bg-up/10 text-up' : 'bg-muted text-muted-foreground/70'
+              }`}
+              aria-hidden
+            >
+              {c.met ? '✓' : '·'}
+            </span>
+            <div className="min-w-0">
+              <p className={`text-xs font-semibold ${c.met ? 'text-secondary-foreground' : 'text-muted-foreground'}`}>
+                {i + 1}. {c.label}
+                <span className="sr-only">{c.met ? ' — 충족' : ' — 미충족'}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">{c.why}</p>
+              <p className="font-mono text-xs text-muted-foreground/70">{c.detail}</p>
+            </div>
+          </li>
         ))}
       </ol>
-      {observed.length > 0 && (
-        <div className="mt-3 border-t border-border/60 pt-3">
-          <p className="text-xs font-semibold text-muted-foreground">참고로만 보는 항목 (판정에는 안 셉니다)</p>
-          <p className="mt-0.5 text-xs text-muted-foreground/70">
-            과거 데이터로 재보니 <strong>충족한 쪽이 오히려 성적이 나빠서</strong> 판정에서 뺐습니다.
-            숫자는 볼 값어치가 있어 그대로 둡니다.
-          </p>
-          <ol className="mt-2 space-y-2">
-            {observed.map((c, i) => (
-              <ConditionRow key={c.label} c={c} index={counted.length + i + 1} muted />
-            ))}
-          </ol>
-        </div>
-      )}
     </div>
   )
 }

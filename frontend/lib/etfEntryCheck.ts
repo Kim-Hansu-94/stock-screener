@@ -169,7 +169,7 @@ function fmtPrice(v: number): string {
 
 export type TrendStage = 'A' | 'B' | 'C'
 
-/** 상승 전환(C) 판정에 쓰는 조건 하나 — 화면이 이름과 숫자를 그대로 보여준다. */
+/** 상승 전환(C) 판정에 쓰는 5개 조건 중 하나 — 화면이 이름과 숫자를 그대로 보여준다. */
 export interface UpturnCondition {
   label: string
   /** 이 조건이 무엇을 보는지 한 줄 설명 (조건 이름만으론 뜻이 안 통해서) */
@@ -177,36 +177,10 @@ export interface UpturnCondition {
   met: boolean
   /** 왜 그렇게 판정했는지 보여줄 실제 숫자 */
   detail: string
-  /**
-   * 이 조건이 **단계 판정에 실제로 쓰이는가**.
-   *
-   * false면 **관측 전용**이다 — 숫자는 그대로 보여주되 충족 개수에는 안 센다.
-   * `pattern_discovery.py`가 `higher_low`를 관측 전용으로 남겨둔 것과 같은 방식이고,
-   * 이유도 같다: **지웠다가는 왜 뺐는지가 사라져서 나중에 같은 조건을 다시 넣게 된다.**
-   */
-  counted: boolean
 }
 
-/**
- * 단계 판정에 세는 조건 중 이만큼 충족하면 상승 전환으로 본다.
- *
- * **원래는 5개 중 3개였는데, 그 5개 중 2개가 백테스트에서 거꾸로 나왔다 (2026-09-16).**
- * `research/backtestEtfStage.ts`를 US 유니버스 103종목·표본 1,251건으로 돌린 결과
- * (충족한 쪽 승률 vs 미달한 쪽 승률, 20거래일 보유):
- *
- *   저점이 높아짐            51.9% vs 45.1%   ← 같은 방향
- *   20일선이 더는 안 떨어짐   49.4% vs 47.9%   ← 같은 방향
- *   20일선 회복             48.5% vs 48.7%   ← 20일은 무의미, 60일은 +3.58%로 좋음
- *   직전 단기 고점 돌파       45.7% vs 49.1%   ← **거꾸로**
- *   사는 거래량이 늘어남      47.2% vs 49.1%   ← **거꾸로**
- *
- * "직전 단기 고점 돌파"는 **두 번 재서 두 번 다** 거꾸로였다(앞선 53종목 실행에서도
- * 20일 −3.47% / 60일 −2.32%). 20·60일 두 지평선, 승률·중앙값 양쪽이 같은 방향이라
- * 사용자 결정으로 둘 다 판정에서 뺐다. **표본은 103종목뿐이고 생존 편향이 있으며
- * 같은 종목이 20거래일 간격으로 여러 번 들어가 서로 독립이 아니다** — 구간끼리의
- * 비교로만 읽을 것. 되돌린다면 이 주석의 수치부터 다시 잴 것.
- */
-export const UPTURN_REQUIRED = 2
+/** 5개 중 이만큼 충족하면 상승 전환으로 본다. */
+export const UPTURN_REQUIRED = 3
 
 export const STAGE_LABEL: Record<TrendStage, string> = {
   A: '하락 중',
@@ -219,12 +193,9 @@ export interface StageResult {
   label: string
   /** 판정 근거를 사람이 읽는 문장으로 나열 — 왜 이 단계인지 그대로 보여준다. */
   reasons: string[]
-  /**
-   * 상승 전환 조건 전부의 이름·충족 여부·근거 숫자 (단계와 무관하게 항상 채운다).
-   * 세는 것(`counted: true`)이 앞, 관측 전용이 뒤에 온다.
-   */
+  /** 상승 전환 조건 5개의 이름·충족 여부·근거 숫자 (단계와 무관하게 항상 채운다). */
   upturnConditions: UpturnCondition[]
-  /** 그중 **세는 조건만** 충족한 개수 (관측 전용은 안 센다) */
+  /** 그중 충족한 개수 */
   upturnMetCount: number
   detail: {
     close: number
@@ -268,8 +239,7 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
   const lowerLows = l1 > l2 && l2 > l3
   const isDowntrend = lowerHighs && lowerLows
 
-  // C 후보 조건 — 세는 3개 중 2개 이상 충족하면 상승 전환으로 본다.
-  // 나머지 2개(고점 돌파·거래량)는 백테스트에서 거꾸로 나와 관측 전용으로 내렸다.
+  // C 후보 조건 5개 — 3개 이상 충족하면 상승 전환으로 본다.
   const smaSeries = sma(closes, SMA_WINDOW)
   const sma20 = smaSeries[smaSeries.length - 1]
   const sma20Prior = smaSeries[smaSeries.length - 1 - SMA_TREND_LOOKBACK] ?? null
@@ -300,10 +270,8 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
   // **어떤 조건인지는 안 알려줘서** 무슨 소린지 모르겠다는 지적을 받았다(2026-09-15).
   // `why`는 조건 자체를 처음 보는 사람을 위한 한 줄 설명이고, `detail`은 그 판정에
   // 실제로 쓴 숫자다 — 둘을 합치면 "왜 이게 조건인지"와 "지금 얼마인지"가 같이 보인다.
-  // 세는 조건을 앞에, 관측 전용을 뒤에 둔다 — 화면이 이 순서 그대로 편다.
   const upturnConditions: UpturnCondition[] = [
     {
-      counted: true,
       label: `${SMA_WINDOW}일선 회복`,
       why: `최근 ${SMA_WINDOW}거래일 평균 가격보다 오늘 종가가 위에 있는가`,
       met: aboveSma20 === true,
@@ -313,7 +281,6 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
           : '계산 불가',
     },
     {
-      counted: true,
       label: `${SMA_WINDOW}일선이 더는 안 떨어짐`,
       why: '평균선 자체가 내려가기를 멈췄는가 (추세가 꺾였다는 뜻)',
       met: sma20Rising === true,
@@ -323,22 +290,18 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
           : '계산 불가',
     },
     {
-      counted: true,
-      label: '저점이 높아짐',
-      why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)',
-      met: higherLow,
-      detail: `최근 ${LOW_COMPARE_WINDOW}일 최저 ${fmtPrice(recentLow)} vs 그 이전 ${fmtPrice(priorLow)}`,
-    },
-    // ── 여기부터 관측 전용 (판정에 안 센다, 위 UPTURN_REQUIRED 주석 참고) ──
-    {
-      counted: false,
       label: '직전 단기 고점 돌파',
       why: '최근에 막혔던 가격대를 뚫고 올라섰는가',
       met: brokeRecentHigh,
       detail: `직전 고점 ${fmtPrice(recentSwingHigh)} vs 종가 ${fmtPrice(latestClose)}`,
     },
     {
-      counted: false,
+      label: '저점이 높아짐',
+      why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)',
+      met: higherLow,
+      detail: `최근 ${LOW_COMPARE_WINDOW}일 최저 ${fmtPrice(recentLow)} vs 그 이전 ${fmtPrice(priorLow)}`,
+    },
+    {
       label: '사는 거래량이 늘어남',
       why: '거래량이 늘었고, 그게 던지는 쪽이 아니라 사는 쪽이었는가',
       met: volumeUp === true,
@@ -348,8 +311,7 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
           : '계산 불가',
     },
   ]
-  const countedConditions = upturnConditions.filter((c) => c.counted)
-  const cMetCount = countedConditions.filter((c) => c.met).length
+  const cMetCount = upturnConditions.filter((c) => c.met).length
   const isUptrendConfirmed = cMetCount >= UPTURN_REQUIRED
 
   const freshLow = madeFreshLow(lows)
@@ -362,16 +324,15 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
     reasons.push(`최근 3구간 저점도 계속 낮아짐`)
   } else if (isUptrendConfirmed) {
     stage = 'C'
-    // 관측 전용 조건은 근거로 쓰지 않는다 — 판정에 안 썼는데 이유로 적으면 거짓말이 된다.
     if (aboveSma20) reasons.push(`${SMA_WINDOW}일선(${sma20?.toFixed(2)}) 위로 회복`)
     if (sma20Rising) reasons.push(`${SMA_WINDOW}일선이 ${SMA_TREND_LOOKBACK}거래일 전보다 상승 중`)
+    if (brokeRecentHigh) reasons.push(`직전 단기 고점(${recentSwingHigh.toFixed(2)}) 돌파`)
     if (higherLow) reasons.push('저점이 높아지는 중')
+    if (volumeUp) reasons.push('거래량이 늘었고 오른 날에 더 실림')
   } else {
     stage = 'B'
     reasons.push('고점·저점이 계속 낮아지는 하락 추세는 멈췄지만')
-    reasons.push(
-      `상승 전환 조건은 ${countedConditions.length}개 중 ${cMetCount}개만 충족 (${UPTURN_REQUIRED}개 이상 필요)`,
-    )
+    reasons.push(`상승 전환 조건은 5개 중 ${cMetCount}개만 충족 (3개 이상 필요)`)
   }
 
   return {
@@ -514,6 +475,7 @@ export function buildTrancheGuide(
 ): TrancheStep[] {
   const etfNotDowntrend = etfStage !== null ? etfStage.stage !== 'A' : false
   const etfAboveSma20 = etfStage?.detail.aboveSma20 ?? false
+  const etfBrokeHigh = etfStage?.detail.brokeRecentHigh ?? false
   const etfFreshHigh = madeFreshHigh(etfBars) ?? false
 
   return [
@@ -539,12 +501,10 @@ export function buildTrancheGuide(
         { text: `구성종목 비중 ${(TRAFFIC_THRESHOLDS.yellow * 100).toFixed(0)}% 이상 상승 전환 (🟡)`,
           met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow },
         { text: '490590 20일선 회복', met: etfAboveSma20 },
+        { text: '490590 직전 단기 고점 돌파', met: etfBrokeHigh },
       ],
       manualConditions: [],
-      // '490590 직전 단기 고점 돌파'가 여기 있었는데 뺐다 (2026-09-16) — 같은 조건이
-      // 백테스트에서 거꾸로 나와 단계 판정에서도 빠졌다(UPTURN_REQUIRED 주석 참고).
-      // 한쪽만 빼면 화면이 "판정엔 안 쓰는 조건인데 2차 매수는 막는" 상태가 된다.
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow && etfAboveSma20,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow && etfAboveSma20 && etfBrokeHigh,
     },
     {
       order: 3,

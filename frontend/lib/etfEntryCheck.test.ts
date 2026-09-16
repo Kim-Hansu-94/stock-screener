@@ -70,7 +70,7 @@ describe('classifyStage', () => {
     expect(result?.detail.lowerHighsAndLows).toBe(true)
   })
 
-  it('20일선 회복·20일선 반등·저점 높이기가 충족되면 상승 전환(C)로 판정한다', () => {
+  it('20일선 회복·고점 돌파·저점 높이기·거래량 증가가 충족되면 상승 전환(C)로 판정한다', () => {
     const closes = uptrendReversalCloses()
     const result = classifyStage(bars(closes, boostedRecentVolume(closes.length)))
     expect(result?.stage).toBe('C')
@@ -262,7 +262,7 @@ describe('summarizeStopSignals', () => {
   })
 })
 
-describe('상승 전환 조건', () => {
+describe('상승 전환 조건 5개', () => {
   it('단계와 무관하게 항상 5개를 이름·설명·근거 숫자까지 채운다', () => {
     // 하락 추세(A)여도 "그럼 뭐가 안 맞은 건데?"를 화면이 답할 수 있어야 한다.
     const result = classifyStage(bars(linspace(200, 100, 80)))!
@@ -275,29 +275,10 @@ describe('상승 전환 조건', () => {
     }
   })
 
-  it('충족 개수는 **세는 조건만** 세고, 기준 이상이면 C단계가 된다', () => {
+  it('충족 개수는 met의 개수와 일치하고, 기준 이상이면 C단계가 된다', () => {
     const result = classifyStage(bars([...linspace(100, 80, 50), ...linspace(80, 110, 30)]))!
-    expect(result.upturnMetCount).toBe(
-      result.upturnConditions.filter((c) => c.counted && c.met).length,
-    )
+    expect(result.upturnMetCount).toBe(result.upturnConditions.filter((c) => c.met).length)
     expect(result.stage === 'C').toBe(result.upturnMetCount >= UPTURN_REQUIRED)
-  })
-
-  it('**관측 전용 조건은 충족이어도 개수에 안 들어간다** — 빼기로 한 조건이 뒷문으로 다시 세지 않게', () => {
-    // 이 표본은 "직전 단기 고점 돌파"(관측 전용)가 충족이다 — 계속 오르는 구간이라서.
-    const result = classifyStage(bars([...linspace(100, 80, 50), ...linspace(80, 110, 30)]))!
-    const observed = result.upturnConditions.filter((c) => !c.counted)
-    expect(observed).toHaveLength(2)
-    expect(observed.map((c) => c.label)).toEqual(['직전 단기 고점 돌파', '사는 거래량이 늘어남'])
-    expect(observed.some((c) => c.met)).toBe(true)
-    // 그런데도 개수는 세는 조건만 센 값이라 전체 met 개수보다 작다.
-    expect(result.upturnMetCount).toBeLessThan(result.upturnConditions.filter((c) => c.met).length)
-  })
-
-  it('세는 조건이 앞, 관측 전용이 뒤로 온다 (화면이 이 순서를 그대로 쓴다)', () => {
-    const result = classifyStage(bars(linspace(200, 100, 80)))!
-    const flags = result.upturnConditions.map((c) => c.counted)
-    expect(flags).toEqual([true, true, true, false, false])
   })
 
   it('가격이 1,000 이상이면 콤마 정수로, 미만이면 소수 둘째 자리로 찍는다', () => {
