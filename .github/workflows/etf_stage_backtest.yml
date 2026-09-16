@@ -12,9 +12,13 @@ on:
   workflow_dispatch:
     inputs:
       max_tickers:
-        description: '볼 종목 수 (US 시총 상위 N개, 기본 400)'
+        description: '훑을 종목 수 (US 시총 상위 N개)'
         required: false
-        default: '400'
+        # 400으로 뒀다가 347개가 일봉 부족으로 빠져 53종목만 남았다. stock_price_history에는
+        # 파이프라인이 실제로 받아온 종목만 있고, 시총 상위 대형주는 대부분 조정폭 밴드 밖이라
+        # 일봉이 없다. **이 기본값은 스크립트 기본값보다 우선한다** — 여기를 안 고치면
+        # 코드에서 올려도 그대로 400이 env로 내려간다(2026-09-16에 그렇게 한 번 헛돌렸다).
+        default: '2500'
 
 jobs:
   backtest:

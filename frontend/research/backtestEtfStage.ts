@@ -121,14 +121,17 @@ function describe(label: string, rows: Sample[], horizon: number): string {
 
 async function main(): Promise<void> {
   console.log(`유니버스 조회 중 (US 시총 상위 ${MAX_TICKERS})...`)
-  const { data: universe, error: uErr } = await db
-    .from('stock_universe')
-    .select('ticker, market, market_cap')
-    .eq('market', 'US')
-    .order('market_cap', { ascending: false })
-    .limit(MAX_TICKERS)
-  if (uErr) throw new Error(`유니버스 조회 실패: ${describeError(uErr)}`)
-  const tickers = (universe ?? []).map((r) => r.ticker as string)
+  // 유니버스도 페이지로 받는다 — PostgREST가 한 요청당 행 수를 제한해서, limit을 크게
+  // 줘도 조용히 잘린다(그러면 "훑었는데 표본이 안 늘었다"가 된다).
+  const universe = await fetchAll<{ ticker: string }>((from, to) =>
+    db
+      .from('stock_universe')
+      .select('ticker, market, market_cap')
+      .eq('market', 'US')
+      .order('market_cap', { ascending: false })
+      .range(from, Math.min(to, MAX_TICKERS - 1)),
+  )
+  const tickers = universe.slice(0, MAX_TICKERS).map((r) => r.ticker)
   console.log(`  ${tickers.length}종목`)
 
   const samples: Sample[] = []
