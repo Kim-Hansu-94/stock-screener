@@ -9,6 +9,7 @@ import {
   summarizeStopSignals,
   UPTURN_REQUIRED,
   MANUAL_STOP_CHECKS,
+  PROXY_HOLDINGS,
   PROXY_TICKERS,
   type ProxyTicker,
   type StopSignal,
@@ -96,37 +97,56 @@ describe('assessProxyBasket', () => {
     return barsByTicker
   }
 
-  it('5개 중 5개가 상승 전환이면 강한 상승 확인(🟢🟢)이다', () => {
-    const assessment = assessProxyBasket(basket({ ORCL: 'C', GOOGL: 'C', NVDA: 'C', AMD: 'C', MRVL: 'C' }))
-    expect(assessment.cStageCount).toBe(5)
-    expect(assessment.evaluatedCount).toBe(5)
+  /** 전 종목을 같은 단계로 */
+  function allStages(stage: 'A' | 'B' | 'C') {
+    return Object.fromEntries(PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
+      ProxyTicker,
+      'A' | 'B' | 'C'
+    >
+  }
+
+  it('전부 상승 전환이면 강한 상승 확인(🟢🟢)이다', () => {
+    const assessment = assessProxyBasket(basket(allStages('C')))
+    expect(assessment.cStageCount).toBe(PROXY_HOLDINGS.length)
+    expect(assessment.cStageWeightShare).toBeCloseTo(1, 6)
     expect(assessment.trafficLight).toBe('🟢🟢')
   })
 
-  it('5개 중 3개가 상승 전환이면 1차 매수 신호등(🟡)이다', () => {
-    const assessment = assessProxyBasket(basket({ ORCL: 'C', GOOGL: 'C', NVDA: 'C', AMD: 'B', MRVL: 'A' }))
-    expect(assessment.cStageCount).toBe(3)
-    expect(assessment.trafficLight).toBe('🟡')
-  })
-
-  it('상승 전환이 0~1개면 매수 보류(🔴)이다', () => {
-    const assessment = assessProxyBasket(basket({ ORCL: 'A', GOOGL: 'A', NVDA: 'B', AMD: 'A', MRVL: 'B' }))
-    expect(assessment.cStageCount).toBe(0)
+  it('전부 하락이면 매수 보류(🔴)이다', () => {
+    const assessment = assessProxyBasket(basket(allStages('A')))
+    expect(assessment.cStageWeightShare).toBe(0)
     expect(assessment.trafficLight).toBe('🔴')
   })
 
-  it('일봉이 없는 종목은 판정 대상에서 빠진다', () => {
-    const partial = basket({ ORCL: 'C', GOOGL: 'C', NVDA: 'C', AMD: 'C', MRVL: 'C' })
+  it('**개수가 아니라 비중으로 센다** — 큰 종목 둘이 작은 종목 셋보다 무겁다', () => {
+    // NVDA 14.67 + GOOGL 13.97 = 28.64 (2종목)  vs
+    // ANET 5.01 + AMZN 4.65 + META 5.06 = 14.72 (3종목)
+    const big = assessProxyBasket(basket({ ...allStages('B'), NVDA: 'C', GOOGL: 'C' }))
+    const small = assessProxyBasket(basket({ ...allStages('B'), ANET: 'C', AMZN: 'C', META: 'C' }))
+    expect(big.cStageCount).toBe(2)
+    expect(small.cStageCount).toBe(3)
+    // 종목 수는 적은데 비중은 더 크다 — 개수로 셌다면 반대로 나왔을 자리다.
+    expect(big.cStageWeightShare).toBeGreaterThan(small.cStageWeightShare)
+  })
+
+  it('일봉이 없는 종목은 분자·분모 양쪽에서 빠진다', () => {
+    // "데이터가 없다"와 "안 올랐다"가 구분돼야 한다 — 빠진 종목이 비중을 끌어내리면 안 된다.
+    const partial = basket(allStages('C'))
     partial.MRVL = []
     const assessment = assessProxyBasket(partial)
-    expect(assessment.evaluatedCount).toBe(4)
-    expect(assessment.cStageCount).toBe(4)
+    expect(assessment.evaluatedCount).toBe(PROXY_HOLDINGS.length - 1)
+    // 전부 C이므로 판정된 비중은 전부 상승 전환 → 여전히 100%
+    expect(assessment.cStageWeightShare).toBeCloseTo(1, 6)
+    expect(assessment.evaluatedWeight).toBeCloseTo(
+      PROXY_HOLDINGS.reduce((sum, h) => (h.ticker === 'MRVL' ? sum : sum + h.weight), 0),
+      6,
+    )
   })
 })
 
 describe('buildTrancheGuide', () => {
   it('대장주 2개 상승 전환 + ETF 저점 방어면 1차만 자동 조건 충족', () => {
-    const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: 5, trafficLight: '🟠', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
     const etfStage = classifyStage(bars(uptrendReversalCloses(), boostedRecentVolume(66)))
     const steps = buildTrancheGuide(proxy, etfStage, bars(uptrendReversalCloses()))
     expect(steps[0].autoReady).toBe(true)
@@ -134,7 +154,7 @@ describe('buildTrancheGuide', () => {
   })
 
   it('ETF 자체가 하락 추세(A)면 1차 조건도 자동 충족되지 않는다', () => {
-    const proxy = { perTicker: {} as never, cStageCount: 3, evaluatedCount: 5, trafficLight: '🟡', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 3, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.55, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
     const etfStage = classifyStage(bars(downtrendCloses()))
     const steps = buildTrancheGuide(proxy, etfStage, bars(downtrendCloses()))
     expect(etfStage?.stage).toBe('A')
@@ -142,7 +162,7 @@ describe('buildTrancheGuide', () => {
   })
 
   it('누적 매수 금액이 500 → 2000 → 3500 → 5000만원으로 쌓인다', () => {
-    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: 5, trafficLight: '🔴', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
     const steps = buildTrancheGuide(proxy, null, [])
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 2000, 3500, 5000])
   })
@@ -196,16 +216,16 @@ describe('assessStopSignals', () => {
     expect(MANUAL_STOP_CHECKS.map((c) => c.id)).toEqual(['nasdaqGiveback', 'hawkishFomc'])
   })
 
-  it('대장주 3개 이상이 동시에 신저가를 만들면 경고한다', () => {
+  it('구성종목이 비중 기준으로 한꺼번에 무너지면 경고한다', () => {
     const freshLowBars = bars([...linspace(100, 90, 40), 80])
     const okBars = bars([...linspace(90, 100, 40), 101])
-    const proxyBars: Record<ProxyTicker, PriceHistoryRow[] | undefined> = {
-      ORCL: freshLowBars,
-      GOOGL: freshLowBars,
-      NVDA: freshLowBars,
-      AMD: okBars,
-      MRVL: okBars,
-    }
+    const proxyBars = Object.fromEntries(
+      PROXY_HOLDINGS.map((h) => [h.ticker, okBars]),
+    ) as Record<ProxyTicker, PriceHistoryRow[] | undefined>
+    // 비중 큰 셋(NVDA 14.67 + GOOGL 13.97 + MRVL 10.46 = 39.1 / 65.32 ≈ 60%)이 동시에 무너지는 경우
+    proxyBars.NVDA = freshLowBars
+    proxyBars.GOOGL = freshLowBars
+    proxyBars.MRVL = freshLowBars
     const signals = assessStopSignals(bars([]), proxyBars, null)
     const s = signals.find((x) => x.id === 'proxyFreshLow')!
     expect(s.state).toBe('alert')

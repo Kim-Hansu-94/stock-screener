@@ -17,6 +17,7 @@ import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import { EtfWatchCard } from '@/components/EtfWatchCard'
 import {
+  PROXY_HOLDINGS,
   PROXY_TICKERS,
   type ProxyBasketAssessment,
   type ProxyTicker,
@@ -441,29 +442,46 @@ function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketA
     )
   }
   const cStageCount = Object.values(stages).filter((s) => s === 'C').length
-  const trafficLight = cStageCount <= 1 ? '🔴' : cStageCount === 2 ? '🟠' : cStageCount === 3 ? '🟡' : cStageCount === 4 ? '🟢' : '🟢🟢'
-  const trafficLabel =
-    cStageCount <= 1 ? '매수 보류 — 대장주 대부분이 아직 하락·관찰 단계'
-    : cStageCount === 2 ? '관찰 — 상승 전환 조짐이 늘고 있음'
-    : cStageCount === 3 ? '1차 매수 검토 가능'
-    : cStageCount === 4 ? '적극적 분할매수 검토 가능'
-    : '강한 상승 확인 — 대장주 전부 상승 전환'
-  return { perTicker, cStageCount, evaluatedCount: 5, trafficLight, trafficLabel }
+  // 신호등은 개수가 아니라 **비중**으로 매긴다 — 픽스처도 실제 비중으로 계산해야
+  // 화면에 뜨는 퍼센트가 진짜와 같은 방식으로 나온다.
+  const evaluatedWeight = PROXY_HOLDINGS.reduce((sum, h) => sum + h.weight, 0)
+  const cStageWeight = PROXY_HOLDINGS.reduce(
+    (sum, h) => (stages[h.ticker] === 'C' ? sum + h.weight : sum),
+    0,
+  )
+  const cStageWeightShare = cStageWeight / evaluatedWeight
+  const pct = `비중 ${(cStageWeightShare * 100).toFixed(0)}%가 상승 전환`
+  const [trafficLight, trafficLabel] =
+    cStageWeightShare < 0.3 ? ['🔴', `매수 보류 — ${pct} (대부분 아직 하락·관찰 단계)`]
+    : cStageWeightShare < 0.5 ? ['🟠', `관찰 — ${pct}, 조짐이 늘고 있음`]
+    : cStageWeightShare < 0.7 ? ['🟡', `1차 매수 검토 가능 — ${pct}`]
+    : cStageWeightShare < 0.9 ? ['🟢', `적극적 분할매수 검토 가능 — ${pct}`]
+    : ['🟢🟢', `강한 상승 확인 — ${pct}`]
+  return {
+    perTicker,
+    cStageCount,
+    evaluatedCount: PROXY_HOLDINGS.length,
+    cStageWeightShare,
+    cStageWeight,
+    evaluatedWeight,
+    trafficLight,
+    trafficLabel,
+  }
 }
 
 function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
   const base: Omit<TrancheStep, 'autoReady'>[] = [
     { order: 1, amountManwon: 500, cumulativeManwon: 500, label: '1차', autoConditions: [
-      { text: '구성종목 5개 중 2개 이상 상승 전환', met: readyUpTo >= 1 },
+      { text: '구성종목 비중 30% 이상 상승 전환 (🟠)', met: readyUpTo >= 1 },
       { text: '490590이 저점을 방어 중 (하락 추세 아님)', met: readyUpTo >= 1 },
     ], manualConditions: ['FOMC 충격이 진정되는 모습인지 (아래 뉴스 참고)'] },
     { order: 2, amountManwon: 1500, cumulativeManwon: 2000, label: '2차', autoConditions: [
-      { text: '구성종목 5개 중 3개 이상 상승 전환', met: readyUpTo >= 2 },
+      { text: '구성종목 비중 50% 이상 상승 전환 (🟡)', met: readyUpTo >= 2 },
       { text: '490590 20일선 회복', met: readyUpTo >= 2 },
       { text: '490590 직전 단기 고점 돌파', met: readyUpTo >= 2 },
     ], manualConditions: [] },
     { order: 3, amountManwon: 1500, cumulativeManwon: 3500, label: '3차', autoConditions: [
-      { text: 'AI 구성종목 대부분 상승 (5개 중 4개 이상)', met: readyUpTo >= 3 },
+      { text: 'AI 구성종목 대부분 상승 (비중 70% 이상, 🟢)', met: readyUpTo >= 3 },
       { text: '490590이 추가로 고점을 높임', met: readyUpTo >= 3 },
     ], manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'] },
     { order: 4, amountManwon: 1500, cumulativeManwon: 5000, label: '4차 — 무조건 넣을 필요 없음', autoConditions: [
@@ -479,15 +497,15 @@ const STOP_SIGNALS_CALM: StopSignal[] = [
   { id: 'etfFreshLow', topic: '490590이 바닥을 지키고 있나', state: 'ok',
     headline: '490590이 최근 바닥을 잘 지키고 있습니다',
     detail: '최근 20거래일 중 가장 쌌던 가격 아래로는 안 내려갔습니다' },
-  { id: 'proxyFreshLow', topic: '대장주들이 한꺼번에 무너지고 있나', state: 'ok',
-    headline: '대장주가 한꺼번에 무너지는 모습은 아닙니다',
-    detail: '최근 3거래일 안에 바닥을 깬 대장주 1개 (5개 중 3개 이상이면 경고)' },
+  { id: 'proxyFreshLow', topic: '구성종목이 한꺼번에 무너지고 있나', state: 'ok',
+    headline: '구성종목이 한꺼번에 무너지는 모습은 아닙니다',
+    detail: '최근 3거래일 안에 바닥을 깬 구성종목 1개 · 비중 8% (비중 40% 이상 또는 3종목 이상이면 경고)' },
   { id: 'yieldSpike', topic: '미국 금리가 갑자기 튀었나', state: 'ok',
     headline: '미국 국채 금리는 잠잠합니다',
     detail: '미국 10년물 국채 금리 어제 4.49% → 오늘 4.52% · 하루에 0.15%p 넘게 오르면 경고로 봅니다' },
-  { id: 'allDownTogether', topic: 'AI 대장주 전체 분위기', state: 'ok',
-    headline: 'AI 대장주가 다 같이 무너지지는 않았습니다',
-    detail: '대장주 5개 중 1개가 하락 단계 (거의 전부면 경고)' },
+  { id: 'allDownTogether', topic: 'AI 구성종목 전체 분위기', state: 'ok',
+    headline: 'AI 구성종목이 다 같이 무너지지는 않았습니다',
+    detail: '구성종목 8개 중 1개가 하락 단계 (거의 전부면 경고)' },
 ]
 
 // 경고 배너와 경고 배지가 실제로 뜨는지 보는 케이스. '확인 불가'도 하나 섞어
@@ -496,15 +514,15 @@ const STOP_SIGNALS_TRIGGERED: StopSignal[] = [
   { id: 'etfFreshLow', topic: '490590이 바닥을 지키고 있나', state: 'alert',
     headline: '490590이 최근 바닥을 깨고 더 내려갔습니다',
     detail: '최근 20거래일 중 가장 쌌던 가격보다 더 싸게 거래됐습니다' },
-  { id: 'proxyFreshLow', topic: '대장주들이 한꺼번에 무너지고 있나', state: 'alert',
-    headline: '대장주 3개가 한꺼번에 바닥을 깼습니다',
-    detail: '최근 3거래일 안에 바닥을 깬 대장주 3개 (5개 중 3개 이상이면 경고)' },
+  { id: 'proxyFreshLow', topic: '구성종목이 한꺼번에 무너지고 있나', state: 'alert',
+    headline: '구성종목 3개(비중 60%)가 한꺼번에 바닥을 깼습니다',
+    detail: '최근 3거래일 안에 바닥을 깬 구성종목 3개 · 비중 60% (비중 40% 이상 또는 3종목 이상이면 경고)' },
   { id: 'yieldSpike', topic: '미국 금리가 갑자기 튀었나', state: 'unknown',
     headline: '금리 데이터가 아직 없습니다',
     detail: '다음 자동 수집(하루 2번) 뒤부터 표시됩니다' },
-  { id: 'allDownTogether', topic: 'AI 대장주 전체 분위기', state: 'ok',
-    headline: 'AI 대장주가 다 같이 무너지지는 않았습니다',
-    detail: '대장주 5개 중 2개가 하락 단계 (거의 전부면 경고)' },
+  { id: 'allDownTogether', topic: 'AI 구성종목 전체 분위기', state: 'ok',
+    headline: 'AI 구성종목이 다 같이 무너지지는 않았습니다',
+    detail: '구성종목 8개 중 2개가 하락 단계 (거의 전부면 경고)' },
 ]
 
 function detailByBand(rows: RealestateMonthlyRow[]): Record<AreaBand, DetailMonthRow[]> {
@@ -801,7 +819,7 @@ export default function PreviewPage() {
           490590 매수체크 — 관찰 단계 (뉴스는 실제 API 호출)
         </h2>
         <EtfWatchCard
-          proxyAssessment={proxyBasket({ ORCL: 'C', GOOGL: 'C', NVDA: 'B', AMD: 'A', MRVL: 'B' })}
+          proxyAssessment={proxyBasket({ NVDA: 'C', GOOGL: 'C', MRVL: 'B', PLTR: 'B', MSFT: 'C', META: 'B', ANET: 'A', AMZN: 'B' })}
           etfStage={etfStage('B', ['하락 추세는 멈췄지만', '상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'])}
           etfLatest={{ close: 9850, date: '2026-09-12' }}
           hasEtfData
@@ -817,7 +835,7 @@ export default function PreviewPage() {
           490590 매수체크 — 매수 중단 신호 감지 (경고 배너 + 10년물이 “장중” 표기여야 정상)
         </h2>
         <EtfWatchCard
-          proxyAssessment={proxyBasket({ ORCL: 'A', GOOGL: 'A', NVDA: 'A', AMD: 'B', MRVL: 'A' })}
+          proxyAssessment={proxyBasket({ NVDA: 'A', GOOGL: 'A', MRVL: 'A', PLTR: 'A', MSFT: 'B', META: 'A', ANET: 'A', AMZN: 'B' })}
           etfStage={etfStage('A', ['최근 3구간(각 20일) 고점이 계속 낮아짐', '최근 3구간 저점도 계속 낮아짐'])}
           etfLatest={{ close: 8420, date: '2026-09-12' }}
           hasEtfData
@@ -833,7 +851,7 @@ export default function PreviewPage() {
           490590 매수체크 — 일봉 데이터 아직 없음 (감시 종목 추가 안내가 떠야 정상)
         </h2>
         <EtfWatchCard
-          proxyAssessment={proxyBasket({ ORCL: 'B', GOOGL: 'B', NVDA: 'B', AMD: 'B', MRVL: 'B' })}
+          proxyAssessment={proxyBasket({ NVDA: 'B', GOOGL: 'B', MRVL: 'B', PLTR: 'B', MSFT: 'B', META: 'B', ANET: 'B', AMZN: 'B' })}
           etfStage={null}
           etfLatest={null}
           hasEtfData={false}

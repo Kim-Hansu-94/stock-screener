@@ -1,6 +1,7 @@
 // 490590(RISE 미국AI밸류체인데일리고정커버드콜) 매수 타이밍 체크 — 사용자가 직접
 // 정한 개인 매매 체크리스트를 그대로 코드로 옮긴 것이다. 일반적인 스크리닝 알고리즘이
-// 아니라 "미국 AI 밸류체인 대장주 5개가 하락을 멈추고 돌아서는가"를 온도계로 써서
+// 아니라 "이 ETF가 실제로 담고 있는 미국 개별주들이 하락을 멈추고 돌아서는가"를
+// (ETF 비중으로 가중해서) 온도계로 써서
 // 이 ETF 하나를 언제 얼마씩 살지 판단하는 전용 도구다 — 그래서 종목·금액이 코드에
 // 그대로 하드코딩돼 있고, 다른 종목에 재사용하려고 일반화하지 않는다.
 //
@@ -15,16 +16,58 @@
 
 import type { PriceHistoryRow } from './types'
 
-export const PROXY_TICKERS = ['ORCL', 'GOOGL', 'NVDA', 'AMD', 'MRVL'] as const
-export type ProxyTicker = (typeof PROXY_TICKERS)[number]
+/**
+ * 490590이 실제로 담고 있는 미국 개별주와 그 비중 (2026-09-16 사용자 실측).
+ *
+ * **처음엔 오라클·알파벳·엔비디아·AMD·마벨 5개를 동등하게 세고 있었는데, 실제 구성과
+ * 달랐다.** 증권사 앱에서 확인한 상위 10개는 이렇다:
+ *
+ *   NVDA 14.67 · GOOGL 13.97 · MRVL 10.46 · PLTR 5.80 · MSFT 5.70 ·
+ *   META 5.06 · ANET 5.01 · AMZN 4.65 · RISE 미국AI밸류체인TOP3Plus 4.6 · TSM 4.3
+ *
+ * 즉 **오라클과 AMD는 상위 10개에 아예 없었다**(사용자 지시로 제외). 그리고 14.67%짜리
+ * 엔비디아와 5.01%짜리 아리스타를 똑같이 1표씩 세고 있었다 — 그래서 개수가 아니라
+ * **비중**으로 센다.
+ *
+ * 상위 10개 중 둘은 못 넣는다:
+ *  - **TSM(4.3%)**: `stock_price_history`에 0봉이다(db_probe 실측 2026-09-16). ADR이라
+ *    정규 스크리닝 유니버스에 안 들어와 일봉이 수집되지 않는다.
+ *  - **RISE 미국AI밸류체인TOP3Plus(4.6%)**: 국내 상장 ETF라 `market='KR'`로 조회해야
+ *    하고(미국 주식 일봉으로는 안 나온다), 무엇보다 **이름 그대로 AI 상위 3개를 담은
+ *    ETF**라 아래 NVDA·GOOGL·MRVL과 같은 종목을 두 번 세게 된다.
+ *
+ * 그래서 여기 합은 100%가 아니다(65.32%). 신호등은 **판정 가능한 비중을 분모로** 쓰므로
+ * 빠진 종목이 점수를 조용히 끌어내리지 않는다(supportSignals.ts의 '판정 불가는 미충족으로
+ * 세지 않는다'와 같은 원칙).
+ *
+ * **비중은 수집되는 값이 아니라 손으로 적어 둔 스냅샷이다** — ETF 리밸런싱으로 바뀌므로,
+ * 화면이 기준일(`PROXY_WEIGHTS_AS_OF`)을 같이 보여준다. 자동 수집 경로는 아직 없다
+ * (`pipeline/src/etf_holdings_probe.py`로 네이버 `etfAnalysis`가 살아 있는 것은 확인했다).
+ */
+export const PROXY_HOLDINGS = [
+  { ticker: 'NVDA', name: '엔비디아', weight: 14.67 },
+  { ticker: 'GOOGL', name: '알파벳', weight: 13.97 },
+  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 10.46 },
+  { ticker: 'PLTR', name: '팔란티어', weight: 5.8 },
+  { ticker: 'MSFT', name: '마이크로소프트', weight: 5.7 },
+  { ticker: 'META', name: '메타', weight: 5.06 },
+  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 5.01 },
+  { ticker: 'AMZN', name: '아마존', weight: 4.65 },
+] as const
 
-export const PROXY_NAMES: Record<ProxyTicker, string> = {
-  ORCL: '오라클',
-  GOOGL: '알파벳',
-  NVDA: '엔비디아',
-  AMD: 'AMD',
-  MRVL: '마벨 테크놀로지',
-}
+/** 위 비중을 확인한 날짜 — 리밸런싱으로 바뀌므로 화면이 이걸 같이 보여준다. */
+export const PROXY_WEIGHTS_AS_OF = '2026-09-16'
+
+export const PROXY_TICKERS = PROXY_HOLDINGS.map((h) => h.ticker) as unknown as readonly ProxyTicker[]
+export type ProxyTicker = (typeof PROXY_HOLDINGS)[number]['ticker']
+
+export const PROXY_NAMES = Object.fromEntries(
+  PROXY_HOLDINGS.map((h) => [h.ticker, h.name]),
+) as Record<ProxyTicker, string>
+
+export const PROXY_WEIGHTS = Object.fromEntries(
+  PROXY_HOLDINGS.map((h) => [h.ticker, h.weight]),
+) as Record<ProxyTicker, number>
 
 export const ETF_MARKET = 'KR' as const
 export const ETF_TICKER = '490590'
@@ -313,24 +356,52 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
   }
 }
 
-// ── 5개 대장주 종합 신호등 ────────────────────────────────────────────────
+// ── 구성종목 종합 신호등 (비중 가중) ──────────────────────────────────────
 
 export interface ProxyBasketAssessment {
   perTicker: Record<ProxyTicker, StageResult | null>
-  /** 상승 전환(C) 단계인 종목 수 */
+  /** 상승 전환(C) 단계인 종목 수 — 화면 보조 표시용(신호등은 비중으로 매긴다) */
   cStageCount: number
-  /** 데이터가 있어 실제로 판정된 종목 수 (5개 미만이면 신호등이 아직 미완성) */
+  /** 데이터가 있어 실제로 판정된 종목 수 */
   evaluatedCount: number
+  /** 상승 전환한 종목의 비중 합 ÷ 판정 가능한 비중 합 (0~1). 신호등의 실제 근거. */
+  cStageWeightShare: number
+  /** 상승 전환한 종목의 비중 합 (ETF 전체 대비 %) */
+  cStageWeight: number
+  /** 판정 가능한 종목의 비중 합 (ETF 전체 대비 %) — 분모이자 "얼마나 보고 있는지" */
+  evaluatedWeight: number
   trafficLight: string
   trafficLabel: string
 }
 
-function trafficLightFor(cCount: number): { emoji: string; label: string } {
-  if (cCount <= 1) return { emoji: '🔴', label: '매수 보류 — 대장주 대부분이 아직 하락·관찰 단계' }
-  if (cCount === 2) return { emoji: '🟠', label: '관찰 — 상승 전환 조짐이 늘고 있음' }
-  if (cCount === 3) return { emoji: '🟡', label: '1차 매수 검토 가능' }
-  if (cCount === 4) return { emoji: '🟢', label: '적극적 분할매수 검토 가능' }
-  return { emoji: '🟢🟢', label: '강한 상승 확인 — 대장주 전부 상승 전환' }
+/**
+ * 신호등을 **개수가 아니라 비중**으로 매긴다 (2026-09-16).
+ *
+ * 원래 사용자 기준은 "5개 중 0~1개 🔴 / 2개 🟠 / 3개 🟡 / 4개 🟢 / 5개 🟢🟢"였다.
+ * 그런데 실제 구성은 엔비디아 14.67%와 아리스타 5.01%가 섞여 있어, 개수로 세면
+ * **세 배 차이 나는 종목이 똑같이 1표**가 된다.
+ *
+ * 그래서 원래 기준의 경계(1/5·2/5·3/5·4/5 = 20·40·60·80%)를 **비중 비율의 중간값**으로
+ * 옮겼다 — 개수로 셀 때와 같은 자리에서 등급이 바뀌도록 맞춘 것이지, 새로 고른
+ * 임계값이 아니다. "3개 이상이면 1차 매수"라는 사용자 규칙은 60% 지점에 그대로 있다.
+ */
+const TRAFFIC_THRESHOLDS = { orange: 0.3, yellow: 0.5, green: 0.7, doubleGreen: 0.9 } as const
+
+function trafficLightFor(weightShare: number): { emoji: string; label: string } {
+  const pct = `비중 ${(weightShare * 100).toFixed(0)}%가 상승 전환`
+  if (weightShare < TRAFFIC_THRESHOLDS.orange) {
+    return { emoji: '🔴', label: `매수 보류 — ${pct} (대부분 아직 하락·관찰 단계)` }
+  }
+  if (weightShare < TRAFFIC_THRESHOLDS.yellow) {
+    return { emoji: '🟠', label: `관찰 — ${pct}, 조짐이 늘고 있음` }
+  }
+  if (weightShare < TRAFFIC_THRESHOLDS.green) {
+    return { emoji: '🟡', label: `1차 매수 검토 가능 — ${pct}` }
+  }
+  if (weightShare < TRAFFIC_THRESHOLDS.doubleGreen) {
+    return { emoji: '🟢', label: `적극적 분할매수 검토 가능 — ${pct}` }
+  }
+  return { emoji: '🟢🟢', label: `강한 상승 확인 — ${pct}` }
 }
 
 export function assessProxyBasket(
@@ -341,12 +412,27 @@ export function assessProxyBasket(
 
   const evaluated = PROXY_TICKERS.map((t) => perTicker[t]).filter((r): r is StageResult => r !== null)
   const cStageCount = evaluated.filter((r) => r.stage === 'C').length
-  const { emoji, label } = trafficLightFor(cStageCount)
+
+  // 분모는 ETF 전체 비중이 아니라 **판정 가능한 비중**이다 — 일봉이 없는 종목이 점수를
+  // 조용히 끌어내리면 "데이터가 없다"와 "안 올랐다"가 구분되지 않는다.
+  let evaluatedWeight = 0
+  let cStageWeight = 0
+  for (const { ticker, weight } of PROXY_HOLDINGS) {
+    const result = perTicker[ticker]
+    if (result === null) continue
+    evaluatedWeight += weight
+    if (result.stage === 'C') cStageWeight += weight
+  }
+  const cStageWeightShare = evaluatedWeight > 0 ? cStageWeight / evaluatedWeight : 0
+  const { emoji, label } = trafficLightFor(cStageWeightShare)
 
   return {
     perTicker,
     cStageCount,
     evaluatedCount: evaluated.length,
+    cStageWeightShare,
+    cStageWeight,
+    evaluatedWeight,
     trafficLight: emoji,
     trafficLabel: label,
   }
@@ -399,11 +485,12 @@ export function buildTrancheGuide(
       cumulativeManwon: 500,
       label: '1차 — 시장에 발을 걸치는 매수',
       autoConditions: [
-        { text: '구성종목 5개 중 2개 이상 상승 전환', met: proxy.cStageCount >= 2 },
+        { text: `구성종목 비중 ${(TRAFFIC_THRESHOLDS.orange * 100).toFixed(0)}% 이상 상승 전환 (🟠)`,
+          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.orange },
         { text: '490590이 저점을 방어 중 (하락 추세 아님)', met: etfNotDowntrend },
       ],
       manualConditions: ['FOMC 충격이 진정되는 모습인지 (아래 뉴스 참고)'],
-      autoReady: proxy.cStageCount >= 2 && etfNotDowntrend,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.orange && etfNotDowntrend,
     },
     {
       order: 2,
@@ -411,12 +498,13 @@ export function buildTrancheGuide(
       cumulativeManwon: 2000,
       label: '2차',
       autoConditions: [
-        { text: '구성종목 5개 중 3개 이상 상승 전환', met: proxy.cStageCount >= 3 },
+        { text: `구성종목 비중 ${(TRAFFIC_THRESHOLDS.yellow * 100).toFixed(0)}% 이상 상승 전환 (🟡)`,
+          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow },
         { text: '490590 20일선 회복', met: etfAboveSma20 },
         { text: '490590 직전 단기 고점 돌파', met: etfBrokeHigh },
       ],
       manualConditions: [],
-      autoReady: proxy.cStageCount >= 3 && etfAboveSma20 && etfBrokeHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow && etfAboveSma20 && etfBrokeHigh,
     },
     {
       order: 3,
@@ -424,11 +512,12 @@ export function buildTrancheGuide(
       cumulativeManwon: 3500,
       label: '3차',
       autoConditions: [
-        { text: 'AI 구성종목 대부분 상승 (5개 중 4개 이상)', met: proxy.cStageCount >= 4 },
+        { text: `AI 구성종목 대부분 상승 (비중 ${(TRAFFIC_THRESHOLDS.green * 100).toFixed(0)}% 이상, 🟢)`,
+          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green },
         { text: '490590이 추가로 고점을 높임', met: etfFreshHigh },
       ],
       manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'],
-      autoReady: proxy.cStageCount >= 4 && etfFreshHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh,
     },
     {
       order: 4,
@@ -436,10 +525,11 @@ export function buildTrancheGuide(
       cumulativeManwon: 5000,
       label: '4차 — 무조건 넣을 필요 없음',
       autoConditions: [
-        { text: '3차 조건이 흔들림 없이 계속 유지', met: proxy.cStageCount >= 4 && etfFreshHigh },
+        { text: '3차 조건이 흔들림 없이 계속 유지',
+          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh },
       ],
       manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다 — "많이 떨어졌으니 오르겠지"는 금지'],
-      autoReady: proxy.cStageCount >= 4 && etfFreshHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh,
     },
   ]
 }
@@ -498,11 +588,31 @@ export function assessStopSignals(
 ): StopSignal[] {
   const etfFreshLow = etfBars.length > 0 ? madeFreshLow(etfBars.map((b) => b.low)) : null
 
-  const proxyFreshLowCount = PROXY_TICKERS.reduce((count, t) => {
-    const bars = proxyBars[t]
-    return madeFreshLowRecently(bars ?? []) ? count + 1 : count
-  }, 0)
-  const proxyEvaluated = PROXY_TICKERS.filter((t) => (proxyBars[t]?.length ?? 0) > 0).length
+  // 사용자 원래 규칙은 "NVIDIA·AMD·Marvell 동시 저점 이탈"이었다 — 즉 **큰 종목들이
+  // 한꺼번에 무너지는가**다. 종목 수가 5개에서 8개로 늘면서 "3개 이상"만 보면 같은 3개라도
+  // 전체에서 차지하는 무게가 달라지므로, 비중도 같이 본다.
+  // **둘 중 하나라도 걸리면 경고(OR)**다 — 매수를 멈추라는 신호라서, 늦게 울리는 것보다
+  // 일찍 울리는 쪽이 안전하다. 40%는 내가 고른 값이고 백테스트로 검증한 값이 아니다.
+  const PROXY_BREAKDOWN_WEIGHT = 0.4
+  const PROXY_BREAKDOWN_COUNT = 3
+  let proxyFreshLowCount = 0
+  let proxyFreshLowWeight = 0
+  let proxyEvaluatedWeight = 0
+  let proxyEvaluated = 0
+  for (const { ticker, weight } of PROXY_HOLDINGS) {
+    const bars = proxyBars[ticker]
+    if ((bars?.length ?? 0) === 0) continue
+    proxyEvaluated += 1
+    proxyEvaluatedWeight += weight
+    if (madeFreshLowRecently(bars ?? [])) {
+      proxyFreshLowCount += 1
+      proxyFreshLowWeight += weight
+    }
+  }
+  const proxyFreshLowShare =
+    proxyEvaluatedWeight > 0 ? proxyFreshLowWeight / proxyEvaluatedWeight : 0
+  const proxyBreakdown =
+    proxyFreshLowShare >= PROXY_BREAKDOWN_WEIGHT || proxyFreshLowCount >= PROXY_BREAKDOWN_COUNT
 
   // **^TNX는 퍼센트 값을 그대로 준다** (5.02 = 5.02%). CBOE 지수 원값은 수익률의
   // 10배지만 yfinance가 이미 나눠서 준다 — 처음엔 10배로 알고 또 10으로 나눠서
@@ -522,8 +632,12 @@ export function assessStopSignals(
   const proxyStages = PROXY_TICKERS.map((t) => classifyStage(proxyBars[t] ?? []))
   const evaluatedStages = proxyStages.filter((s): s is StageResult => s !== null)
   const aStageCount = evaluatedStages.filter((s) => s.stage === 'A').length
+  // "거의 전부가 하락"은 개수로 보는 게 맞다 — 비중으로 재면 큰 종목 둘만 버텨도
+  // "동반 하락이 아니다"가 돼서, 정작 '전체 분위기'라는 질문에 답하지 못한다.
+  // 표본이 너무 적으면 판정하지 않는다(8종목 중 3개만 판정됐는데 "거의 전부"는 무의미).
+  const MIN_MOOD_SAMPLE = 4
   const allDownTogether =
-    evaluatedStages.length >= 4 ? aStageCount >= evaluatedStages.length - 1 : null
+    evaluatedStages.length >= MIN_MOOD_SAMPLE ? aStageCount >= evaluatedStages.length - 1 : null
 
   return [
     {
@@ -545,18 +659,19 @@ export function assessStopSignals(
     },
     {
       id: 'proxyFreshLow',
-      topic: '대장주들이 한꺼번에 무너지고 있나',
-      state: proxyEvaluated === 0 ? 'unknown' : proxyFreshLowCount >= 3 ? 'alert' : 'ok',
+      topic: '구성종목이 한꺼번에 무너지고 있나',
+      state: proxyEvaluated === 0 ? 'unknown' : proxyBreakdown ? 'alert' : 'ok',
       headline:
         proxyEvaluated === 0
-          ? '대장주 가격 데이터가 없어 판단할 수 없습니다'
-          : proxyFreshLowCount >= 3
-            ? `대장주 ${proxyFreshLowCount}개가 한꺼번에 바닥을 깼습니다`
-            : '대장주가 한꺼번에 무너지는 모습은 아닙니다',
+          ? '구성종목 가격 데이터가 없어 판단할 수 없습니다'
+          : proxyBreakdown
+            ? `구성종목 ${proxyFreshLowCount}개(비중 ${(proxyFreshLowShare * 100).toFixed(0)}%)가 한꺼번에 바닥을 깼습니다`
+            : '구성종목이 한꺼번에 무너지는 모습은 아닙니다',
       detail:
         proxyEvaluated === 0
           ? '가격 데이터가 쌓이면 자동으로 판단합니다'
-          : `최근 ${FRESH_LOW_RECENT_DAYS}거래일 안에 바닥을 깬 대장주 ${proxyFreshLowCount}개 (5개 중 3개 이상이면 경고)`,
+          : `최근 ${FRESH_LOW_RECENT_DAYS}거래일 안에 바닥을 깬 구성종목 ${proxyFreshLowCount}개 · 비중 ${(proxyFreshLowShare * 100).toFixed(0)}%` +
+            ` (비중 ${PROXY_BREAKDOWN_WEIGHT * 100}% 이상 또는 ${PROXY_BREAKDOWN_COUNT}종목 이상이면 경고)`,
     },
     {
       id: 'yieldSpike',
@@ -575,18 +690,18 @@ export function assessStopSignals(
     },
     {
       id: 'allDownTogether',
-      topic: 'AI 대장주 전체 분위기',
+      topic: 'AI 구성종목 전체 분위기',
       state: allDownTogether === null ? 'unknown' : allDownTogether ? 'alert' : 'ok',
       headline:
         allDownTogether === null
-          ? '판정된 대장주가 적어 분위기를 볼 수 없습니다'
+          ? '판정된 구성종목이 적어 분위기를 볼 수 없습니다'
           : allDownTogether
-            ? 'AI 대장주가 거의 다 하락 단계입니다'
-            : 'AI 대장주가 다 같이 무너지지는 않았습니다',
+            ? 'AI 구성종목이 거의 다 하락 단계입니다'
+            : 'AI 구성종목이 다 같이 무너지지는 않았습니다',
       detail:
         allDownTogether === null
-          ? `판정된 대장주 ${evaluatedStages.length}개 (4개 이상이어야 판단합니다)`
-          : `대장주 ${evaluatedStages.length}개 중 ${aStageCount}개가 하락 단계 (거의 전부면 경고)`,
+          ? `판정된 구성종목 ${evaluatedStages.length}개 (${MIN_MOOD_SAMPLE}개 이상이어야 판단합니다)`
+          : `구성종목 ${evaluatedStages.length}개 중 ${aStageCount}개가 하락 단계 (거의 전부면 경고)`,
     },
   ]
 }
