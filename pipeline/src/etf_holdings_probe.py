@@ -29,29 +29,29 @@ from typing import Any
 
 import requests
 
-from .naver_api import HEADERS, TIMEOUT, body_snippet
+from .naver_api import HEADERS, TIMEOUT, body_snippet, find_first
 
 ETF_CODE = "490590"
 
 # 위에서부터 두드린다. 어느 것이 살아 있는지 모르므로 **판정하지 않고 구조만 찍는다.**
+# 2026-09-16 1차 탐색 결과 — 판정이 아니라 **실측**이다:
+#   ✓ m.stock.naver.com/api/stock/{code}/etfAnalysis  → 200, etfTop10MajorConstituentAssets 있음
+#   ✗ api.stock.naver.com/etf/{code}/constituents     → 404
+#   ✗ api.stock.naver.com/etf/{code}                  → 400 MethodArgumentTypeMismatch
+#   ✗ api.stock.naver.com/stock/{code}/integration    → 409 StockConflict (ETF는 이 경로가 아님)
+#   ✗ data.krx.co.kr .../getJsonData.cmd              → 400 "LOGOUT" (세션 쿠키 필요, trstk.py 참고)
+# 살아 있는 경로만 남기고, 정작 필요한 구성종목 리스트를 **통째로** 찍는다.
 _CANDIDATES: list[tuple[str, str, dict[str, Any] | None]] = [
     ("네이버 모바일 ETF 분석", f"https://m.stock.naver.com/api/stock/{ETF_CODE}/etfAnalysis", None),
-    ("네이버 모바일 종목 기본", f"https://m.stock.naver.com/api/stock/{ETF_CODE}/basic", None),
-    ("네이버 증권 ETF 구성종목", f"https://api.stock.naver.com/etf/{ETF_CODE}/constituents", None),
-    ("네이버 증권 ETF 상세", f"https://api.stock.naver.com/etf/{ETF_CODE}", None),
-    ("네이버 증권 종목 통합", f"https://api.stock.naver.com/stock/{ETF_CODE}/integration", None),
-    (
-        "KRX 정보데이터시스템 ETF PDF(구성종목)",
-        "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd",
-        {
-            "bld": "dbms/MDC/STAT/standard/MDCSTAT05001",
-            "isuCd": ETF_CODE,
-            "trdDd": "",
-            "share": "1",
-            "money": "1",
-        },
-    ),
 ]
+
+# 이 키 안에 구성종목·비중이 들어 있다. 키 이름이 바뀔 수 있으므로 후보로 찾는다.
+_HOLDING_KEYS = (
+    "etfTop10MajorConstituentAssets",
+    "majorConstituentAssets",
+    "constituentAssets",
+    "holdings",
+)
 
 
 def _walk_keys(payload: Any, prefix: str = "", depth: int = 0, out: list[str] | None = None) -> list[str]:
@@ -104,9 +104,19 @@ def probe_one(label: str, url: str, params: dict[str, Any] | None) -> None:
     for line in _walk_keys(payload):
         print(f"      {line}", flush=True)
 
-    # 비중으로 쓸 만한 숫자가 실제로 들어 있는지 눈으로 확인할 수 있게 원문 일부도 남긴다.
+    # ── 정작 필요한 것: 구성종목·비중 리스트를 통째로 ──────────────────────
+    # 위 _walk_keys는 깊이·길이를 잘라서 리스트 내용을 안 편다(1차 실행에서 실제로
+    # etfTop10MajorConstituentAssets가 "(list)"로만 찍히고 내용이 안 보였다).
+    holdings = find_first(payload, _HOLDING_KEYS)
+    if isinstance(holdings, list) and holdings:
+        print(f"\n  ★ 구성종목 {len(holdings)}개 — 전체:", flush=True)
+        for item in holdings:
+            print(f"      {json.dumps(item, ensure_ascii=False)}", flush=True)
+    else:
+        print(f"\n  ✗ 구성종목 리스트를 못 찾음 (후보 키: {', '.join(_HOLDING_KEYS)})", flush=True)
+
     raw = json.dumps(payload, ensure_ascii=False)
-    print(f"  원문 앞부분: {raw[:400]}{'...' if len(raw) > 400 else ''}", flush=True)
+    print(f"\n  원문 앞부분: {raw[:300]}{'...' if len(raw) > 300 else ''}", flush=True)
 
 
 def main() -> None:
