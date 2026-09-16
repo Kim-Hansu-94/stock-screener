@@ -29,20 +29,26 @@
  *  - 같은 종목이 STRIDE 간격으로 여러 번 들어가 표본이 서로 독립이 아니다.
  *  - 일봉 보관이 600일이라 기간이 2년 남짓이고 장세 한두 국면만 담긴다.
  */
+import { createReadStream } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { createClient } from '@supabase/supabase-js'
 import { classifyStage } from '../lib/etfEntryCheck.ts'
 import type { PriceHistoryRow } from '../lib/types.ts'
 
 /**
- * 시총 상위 몇 종목까지 훑을지.
+ * 훑을 종목 수 상한 — 사실상 안전장치다(기본값이 일봉 있는 종목 수보다 크다).
  *
- * **넉넉히 잡아야 한다.** `stock_price_history`에는 유니버스 전체가 아니라 파이프라인이
- * 실제로 받아온 종목(눌림목 스크리닝 대상 + 종목발굴 조정폭 밴드 + 감시 종목)만 있다.
- * 처음에 400으로 돌렸더니 **347개가 일봉 부족으로 빠지고 53종목만 남았다** — 시총
- * 상위 대형주는 대부분 조정폭 밴드(20~60% 하락) 밖이라 일봉을 안 받아오기 때문이다.
- * 일봉이 없는 종목은 조회가 빨리 끝나므로 넓게 훑는 비용이 크지 않다.
+ * **대상을 `stock_universe`에서 시총 순으로 고르던 것을 그만뒀다 (2026-09-16).**
+ * `stock_price_history`에는 유니버스 전체가 아니라 파이프라인이 실제로 저장하는 종목만
+ * 있는데(`pipeline/src/main.py`의 `US_OPP_INDEXES` = S&P500 + NASDAQ100, Russell 3000은
+ * 받아와도 메모리에서 패턴 계산만 하고 **저장하지 않는다**), 시총 순으로 고르면 그 집합과
+ * 무관한 순서로 뽑게 된다. 실제로 400으로 돌렸을 때 347개가 빠져 **53종목**, 2500으로
+ * 올렸을 때도 897개가 빠져 **103종목**밖에 안 남았다 — 상한을 올려도 안 늘어난다는 뜻이다.
+ *
+ * 지금은 **일봉 테이블에 실제로 들어 있는 종목을 직접 묻는다**(`tickersWithBars`).
+ * 있는 걸 다 쓰므로 "훑었는데 표본이 안 늘었다"가 구조적으로 안 생긴다.
  */
-const MAX_TICKERS = Number(process.env.MAX_TICKERS) || 2500
+const MAX_TICKERS = Number(process.env.MAX_TICKERS) || 5000
 /** 같은 종목을 며칠 간격으로 표본에 넣을지 — 겹침을 줄인다(가장 짧은 지평선과 맞춤). */
 const STRIDE = 20
 /** 진입 뒤 며칠 수익률을 볼지 (거래일). */
@@ -50,13 +56,23 @@ const HORIZONS = [20, 60] as const
 /** classifyStage가 판정 가능한 최소 봉 수와 같아야 한다. */
 const MIN_BARS = 66
 
+/**
+ * 일봉을 DB가 아니라 **파일**에서 읽는다 (`pipeline/src/backtest_bars_dump.py`가 만든 NDJSON).
+ *
+ * `stock_price_history`에는 S&P500+NASDAQ100만 저장돼 있다 — Russell 3000은 본 파이프라인이
+ * 매 실행 받아오지만 **Supabase 무료 플랜 500MB** 때문에 저장하지 않는다
+ * (`supabase/index_slimdown.sql`: 이미 426MB를 쓰고 있었고 일봉 인덱스 하나가 146MB).
+ * 그래서 백테스트만은 DB를 늘리지 않고 그때그때 받아서 파일로 읽는다.
+ */
+const BARS_FILE = process.env.BARS_FILE
+
 const url = process.env.SUPABASE_URL
 const key = process.env.SUPABASE_SERVICE_KEY
-if (!url || !key) {
-  console.error('SUPABASE_URL / SUPABASE_SERVICE_KEY 가 필요합니다.')
+if (!BARS_FILE && (!url || !key)) {
+  console.error('SUPABASE_URL / SUPABASE_SERVICE_KEY 또는 BARS_FILE 이 필요합니다.')
   process.exit(1)
 }
-const db = createClient(url, key)
+const db = createClient(url ?? 'https://unused.supabase.co', key ?? 'unused')
 
 /** Supabase 에러 객체는 그냥 String()하면 '[object Object]'가 돼서 사유를 잃는다. */
 function describeError(error: unknown): string {
@@ -88,6 +104,14 @@ type Sample = {
   ticker: string
   date: string
   stage: 'A' | 'B' | 'C'
+  /**
+   * 조건 5개를 다 세던 **옛 기준**(5개 중 3개)으로 매긴 단계.
+   *
+   * 조건 둘을 판정에서 뺀 뒤(2026-09-16), "빼서 정말 나아졌나"를 **같은 표본에서**
+   * 나란히 봐야 답이 나온다 — 옛 결과와 새 결과를 다른 실행끼리 비교하면 표본이
+   * 달라져서 무엇 때문에 달라진 건지 알 수 없다.
+   */
+  oldStage: 'A' | 'B' | 'C'
   metCount: number
   /** 조건 이름 → 충족 여부 */
   conditions: Record<string, boolean>
@@ -119,27 +143,83 @@ function describe(label: string, rows: Sample[], horizon: number): string {
   )
 }
 
-async function main(): Promise<void> {
-  console.log(`유니버스 조회 중 (US 시총 상위 ${MAX_TICKERS})...`)
-  // 유니버스도 페이지로 받는다 — PostgREST가 한 요청당 행 수를 제한해서, limit을 크게
-  // 줘도 조용히 잘린다(그러면 "훑었는데 표본이 안 늘었다"가 된다).
-  const universe = await fetchAll<{ ticker: string }>((from, to) =>
-    db
-      .from('stock_universe')
-      .select('ticker, market, market_cap')
-      .eq('market', 'US')
-      .order('market_cap', { ascending: false })
-      .range(from, Math.min(to, MAX_TICKERS - 1)),
-  )
-  const tickers = universe.slice(0, MAX_TICKERS).map((r) => r.ticker)
-  console.log(`  ${tickers.length}종목`)
+/** 그 시장에서 `on` 이하로 가장 가까운 실제 거래일 — 달력 날짜는 휴장일일 수 있다. */
+async function nearestTradingDate(on: string): Promise<string | null> {
+  const { data, error } = await db
+    .from('stock_price_history')
+    .select('date')
+    .eq('market', 'US')
+    .lte('date', on)
+    .order('date', { ascending: false })
+    .limit(1)
+  if (error) throw new Error(`거래일 조회 실패: ${describeError(error)}`)
+  return data?.[0]?.date ?? null
+}
 
-  const samples: Sample[] = []
-  let skipped = 0
-  const maxHorizon = Math.max(...HORIZONS)
+/**
+ * **일봉이 실제로 들어 있는 종목**을 테이블에 직접 묻는다.
+ *
+ * PostgREST에 DISTINCT가 없어서 전체 행을 훑을 수는 없고(종목당 600봉이라 수십만 행),
+ * **여러 시점의 하루치**를 뽑아 합집합을 만든다. 하루만 보면 그날 이후 수집이 끊긴 종목이
+ * 통째로 빠지므로, 보관 구간(600일)에 걸쳐 앵커를 여러 개 둔다.
+ */
+async function tickersWithBars(): Promise<string[]> {
+  const latest = await nearestTradingDate(new Date().toISOString().slice(0, 10))
+  if (!latest) return []
+  const anchors: string[] = []
+  for (const back of [0, 100, 200, 300, 400, 500]) {
+    const d = new Date(`${latest}T00:00:00Z`)
+    d.setUTCDate(d.getUTCDate() - back)
+    const hit = await nearestTradingDate(d.toISOString().slice(0, 10))
+    if (hit && !anchors.includes(hit)) anchors.push(hit)
+  }
+  const found = new Set<string>()
+  for (const day of anchors) {
+    const rows = await fetchAll<{ ticker: string }>((from, to) =>
+      db
+        .from('stock_price_history')
+        .select('ticker')
+        .eq('market', 'US')
+        .eq('date', day)
+        .range(from, to),
+    )
+    for (const r of rows) found.add(r.ticker)
+    console.log(`  ${day}: ${rows.length}종목 (누적 ${found.size})`)
+  }
+  return [...found]
+}
 
-  for (const [i, ticker] of tickers.entries()) {
-    if (i % 25 === 0) process.stdout.write(`\r  ${i}/${tickers.length} 진행 · 표본 ${samples.length}건`)
+type TickerBars = { ticker: string; bars: PriceHistoryRow[] }
+/** NDJSON 한 줄의 bars 배열 — date, open, high, low, close, volume 순서 (덤프 스크립트와 약속). */
+type DumpRow = [string, number, number, number, number, number]
+
+/**
+ * 파일에서 한 종목씩 흘려보낸다 — 통째로 배열에 담으면 수천 종목 × 수백 봉이 한꺼번에
+ * 메모리에 올라간다. NDJSON을 쓴 이유도 이것이다(한 줄이 한 종목).
+ */
+async function* barsFromFile(path: string): AsyncGenerator<TickerBars> {
+  const rl = createInterface({ input: createReadStream(path, 'utf-8'), crlfDelay: Infinity })
+  for await (const line of rl) {
+    if (!line.trim()) continue
+    const rec = JSON.parse(line) as { ticker: string; bars: DumpRow[] }
+    yield {
+      ticker: rec.ticker,
+      bars: rec.bars.map(([date, open, high, low, close, volume]) => ({
+        ticker: rec.ticker,
+        market: 'US',
+        date,
+        open,
+        high,
+        low,
+        close,
+        volume,
+      })) as PriceHistoryRow[],
+    }
+  }
+}
+
+async function* barsFromDb(tickers: string[]): AsyncGenerator<TickerBars> {
+  for (const ticker of tickers) {
     const bars = await fetchAll<PriceHistoryRow>((from, to) =>
       db
         .from('stock_price_history')
@@ -149,6 +229,38 @@ async function main(): Promise<void> {
         .order('date', { ascending: true })
         .range(from, to),
     )
+    yield { ticker, bars }
+  }
+}
+
+async function main(): Promise<void> {
+  let source: AsyncGenerator<TickerBars>
+  let scanned = 0
+  if (BARS_FILE) {
+    console.log(`일봉을 파일에서 읽는다: ${BARS_FILE}`)
+    source = barsFromFile(BARS_FILE)
+  } else {
+    // 진단용으로 유니버스 크기도 같이 찍는다 — "유니버스엔 3,000개인데 일봉은 600개"처럼
+    // 어디서 줄어드는지를 숫자로 봐야 다음에 뭘 고칠지가 정해진다.
+    const universe = await fetchAll<{ ticker: string }>((from, to) =>
+      db.from('stock_universe').select('ticker').eq('market', 'US').range(from, to),
+    )
+    console.log(`stock_universe US: ${universe.length}종목`)
+
+    console.log('일봉이 실제로 있는 종목 조회 중...')
+    const withBars = await tickersWithBars()
+    const tickers = withBars.slice(0, MAX_TICKERS)
+    console.log(`  → 일봉 보유 ${withBars.length}종목 (이 중 ${tickers.length}개를 훑는다)`)
+    source = barsFromDb(tickers)
+  }
+
+  const samples: Sample[] = []
+  let skipped = 0
+  const maxHorizon = Math.max(...HORIZONS)
+
+  for await (const { ticker, bars } of source) {
+    if (scanned % 100 === 0) process.stdout.write(`\r  ${scanned}종목 훑음 · 표본 ${samples.length}건`)
+    scanned += 1
     if (bars.length < MIN_BARS + maxHorizon + 1) {
       skipped += 1
       continue
@@ -163,10 +275,18 @@ async function main(): Promise<void> {
       for (const h of HORIZONS) returns[h] = bars[t + h].close / entry - 1
       const conditions: Record<string, boolean> = {}
       for (const c of result.upturnConditions) conditions[c.label] = c.met
+      // 옛 기준 재현: 하락 추세면 A, 아니면 **조건 5개 전부**를 세서 3개 이상이면 C.
+      const allMet = result.upturnConditions.filter((c) => c.met).length
+      const oldStage: 'A' | 'B' | 'C' = result.detail.lowerHighsAndLows
+        ? 'A'
+        : allMet >= 3
+          ? 'C'
+          : 'B'
       samples.push({
         ticker,
         date: bars[t].date,
         stage: result.stage,
+        oldStage,
         metCount: result.upturnMetCount,
         conditions,
         returns,
@@ -176,12 +296,13 @@ async function main(): Promise<void> {
   const contributing = new Set(samples.map((s) => s.ticker)).size
   console.log(
     `\r  완료 · 표본 ${samples.length}건 / **${contributing}종목** ` +
-      `(훑은 ${tickers.length}개 중 일봉 부족으로 건너뛴 ${skipped}개)          `,
+      `(훑은 ${scanned}개 중 일봉 부족으로 건너뛴 ${skipped}개)          `,
   )
-  if (contributing < 100) {
+  if (contributing < 300) {
     console.log(
       `  ⚠️ 기여 종목이 ${contributing}개뿐이다 — 조건별 차이를 결론으로 쓰기엔 얇다.` +
-        '\n     stock_price_history에 일봉이 있는 종목 자체가 적다는 뜻이니 MAX_TICKERS를 더 올릴 것.',
+        '\n     대상은 이미 "일봉이 있는 종목 전부"라 MAX_TICKERS를 올려도 안 늘어난다.' +
+        '\n     늘리려면 파이프라인이 일봉을 저장하는 범위(main.py의 US_OPP_INDEXES)를 넓혀야 한다.',
     )
   }
 
@@ -215,6 +336,12 @@ async function main(): Promise<void> {
     console.log('\n[3] 충족 개수별 — 많을수록 좋아지는가 (단조 증가해야 점수로 쓸 값어치가 있다)')
     for (let n = 0; n <= 5; n++) {
       console.log(describe(`${n}개 충족`, samples.filter((s) => s.metCount === n), horizon))
+    }
+
+    console.log('\n[5] 옛 기준(조건 5개 중 3개) vs 새 기준(세는 3개 중 2개) — 빼서 나아졌나')
+    for (const stage of ['A', 'B', 'C'] as const) {
+      console.log(describe(`옛 기준 ${stage}단계`, samples.filter((s) => s.oldStage === stage), horizon))
+      console.log(describe(`새 기준 ${stage}단계`, samples.filter((s) => s.stage === stage), horizon))
     }
 
     console.log('\n[4] "20일선 회복"을 필수로 만들면 나아지는가')
