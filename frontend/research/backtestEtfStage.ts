@@ -116,6 +116,19 @@ type Sample = {
   /** 조건 이름 → 충족 여부 */
   conditions: Record<string, boolean>
   returns: Record<number, number>
+  /**
+   * **같은 날 들어간 표본 전체의 중앙값을 뺀 초과수익.**
+   *
+   * 안 빼면 "그 기간에 시장이 올랐나"가 조건의 성적으로 둔갑한다. 실제로 유니버스를
+   * 3,679종목으로 넓히자 **A단계(하락 중)가 제일 좋고 조건이 전부 거꾸로**로 나왔는데,
+   * 표본 기간(약 2년)이 강세장이라 많이 빠진 종목일수록 크게 되튄 것이 그대로 찍힌
+   * 것일 수 있다. 날짜별로 중앙값을 빼면 "그날 산 것들 중에서 나았나"만 남는다.
+   *
+   * **이걸로도 생존 편향은 안 없어진다** — 유니버스가 *오늘* 기준 시총 상위라
+   * 2년 전 폭락 종목이 목록에 있다는 건 그 사이 회복했다는 뜻이다. 그래서 A단계가
+   * 구조적으로 유리하다. 과거 시점 유니버스가 없으면 이건 못 없앤다.
+   */
+  excess: Record<number, number>
 }
 
 function median(xs: number[]): number {
@@ -129,9 +142,11 @@ function pct(x: number): string {
   return `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`
 }
 
-/** 표본 묶음 하나의 성적 한 줄. */
-function describe(label: string, rows: Sample[], horizon: number): string {
-  const rets = rows.map((r) => r.returns[horizon]).filter((r) => Number.isFinite(r))
+/** 표본 묶음 하나의 성적 한 줄. `excess`면 날짜별 중앙값을 뺀 초과수익으로 잰다. */
+function describe(label: string, rows: Sample[], horizon: number, excess = false): string {
+  const rets = rows
+    .map((r) => (excess ? r.excess[horizon] : r.returns[horizon]))
+    .filter((r) => Number.isFinite(r))
   if (rets.length === 0) return `  ${label.padEnd(34)} 표본 없음`
   const win = rets.filter((r) => r > 0).length / rets.length
   return (
@@ -290,6 +305,7 @@ async function main(): Promise<void> {
         metCount: result.upturnMetCount,
         conditions,
         returns,
+        excess: {},
       })
     }
   }
@@ -311,6 +327,33 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
+  // 날짜별 중앙값을 빼서 "그날 시장이 어땠나"를 제거한다. 표본이 적은 날은 중앙값
+  // 자체가 흔들리므로 최소 건수를 두고, 못 미치는 날은 초과수익을 NaN으로 남겨 집계에서
+  // 빠지게 한다(0으로 채우면 "시장과 똑같았다"는 거짓 정보가 된다).
+  const MIN_PER_DATE = 20
+  const byDate = new Map<string, Sample[]>()
+  for (const s of samples) {
+    const bucket = byDate.get(s.date)
+    if (bucket) bucket.push(s)
+    else byDate.set(s.date, [s])
+  }
+  let thinDates = 0
+  for (const [, rows] of byDate) {
+    if (rows.length < MIN_PER_DATE) {
+      thinDates += 1
+      for (const s of rows) for (const h of HORIZONS) s.excess[h] = Number.NaN
+      continue
+    }
+    for (const h of HORIZONS) {
+      const base = median(rows.map((r) => r.returns[h]).filter((r) => Number.isFinite(r)))
+      for (const s of rows) s.excess[h] = s.returns[h] - base
+    }
+  }
+  console.log(
+    `\n날짜 ${byDate.size}개로 묶어 날짜별 중앙값을 뺀다` +
+      ` (표본 ${MIN_PER_DATE}건 미만이라 초과수익을 못 낸 날 ${thinDates}개)`,
+  )
+
   const conditionLabels = Object.keys(samples[0].conditions)
 
   for (const horizon of HORIZONS) {
@@ -322,6 +365,11 @@ async function main(): Promise<void> {
     }
     console.log(describe('전체(기준선)', samples, horizon))
 
+    console.log('\n[1-초과] 같은 날 산 것들 대비 — 시장이 오른 효과를 뺀 뒤에도 C가 나은가')
+    for (const stage of ['A', 'B', 'C'] as const) {
+      console.log(describe(`${stage}단계`, samples.filter((s) => s.stage === stage), horizon, true))
+    }
+
     console.log('\n[2] 조건별 — 충족한 쪽이 실제로 더 나은가 (아니면 그 조건이 거꾸로다)')
     for (const label of conditionLabels) {
       const yes = samples.filter((s) => s.conditions[label])
@@ -331,6 +379,13 @@ async function main(): Promise<void> {
       console.log(describe(`${label} 충족`, yes, horizon))
       console.log(describe(`${label} 미달`, no, horizon))
       console.log(`  ${''.padEnd(34)}→ 차이 ${pct(gap)} ${gap > 0 ? '(조건이 성과와 같은 방향)' : '(거꾸로다!)'}`)
+      const exGap =
+        median(yes.map((s) => s.excess[horizon]).filter(Number.isFinite)) -
+        median(no.map((s) => s.excess[horizon]).filter(Number.isFinite))
+      console.log(
+        `  ${''.padEnd(34)}→ 시장 효과 뺀 차이 ${pct(exGap)}` +
+          ` ${exGap > 0 ? '(같은 방향)' : '(거꾸로)'}`,
+      )
     }
 
     console.log('\n[3] 충족 개수별 — 많을수록 좋아지는가 (단조 증가해야 점수로 쓸 값어치가 있다)')
