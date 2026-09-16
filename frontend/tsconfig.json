@@ -6,6 +6,11 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // research/*.ts는 Node 22가 타입만 벗겨 그대로 실행한다(포팅본을 안 만들려고).
+    // Node의 타입 스트리핑은 확장자를 해석해 주지 않아 import에 .ts를 그대로 써야 하고,
+    // 그러려면 이 옵션이 필요하다. noEmit이라 빌드 산출물에는 영향이 없다 —
+    // Next는 tsc가 아니라 SWC로 트랜스파일한다.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

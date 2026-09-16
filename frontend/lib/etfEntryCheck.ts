@@ -75,6 +75,47 @@ function madeFreshLowRecently(bars: PriceHistoryRow[], recentDays = FRESH_LOW_RE
 }
 
 /**
+ * 몸통 ÷ (고가-저가)가 이 값 이하면 십자형(도지)으로 본다.
+ * `pipeline/src/pattern_discovery.py`의 `DOJI_BODY_RATIO`와 같은 값 — 같은 판정을
+ * 두 곳에서 다르게 하면 안 된다.
+ */
+const DOJI_BODY_RATIO = 0.1
+
+/**
+ * 최근 구간의 거래량이 **사는 쪽이었는지** — 양봉·십자형 날 거래량이 전체에서 차지하는 비중.
+ *
+ * 거래량이 늘었다는 것만으로는 방향을 알 수 없다. 『매매의 기술』(2장 거래량):
+ * **"거래량은 타이밍만 제공한다. 방향은 봉의 모양이 결정한다."** 같은 책이 거래량 8원칙
+ * 2번에서 "거래량 증가 + 장대음봉 = **매물**"이라고 정반대로 못 박는다.
+ *
+ * 이 저장소는 이미 같은 실수를 한 번 했다 — `pattern_discovery.py`의 거래량 트리거가
+ * 거래량 2배만 보고 **투매(대량거래 장대음봉)에도 매수 신호 배지를 붙였다**(2026-09-14 수정).
+ * 여기도 똑같이 "5일 평균이 늘었나"만 보고 있어서, **던지느라 터진 거래량**을 매수세로
+ * 세고 있었다.
+ *
+ * 하루가 아니라 구간을 보므로 봉 하나의 모양 대신 **양봉 쪽 거래량 비중**으로 잰다.
+ * 0.5면 양쪽이 같고, 그보다 크면 오른 날에 거래가 더 실렸다는 뜻이다.
+ *
+ * 전 구간 시가=종가인 소스(시가를 종가로 메운 데이터)는 모든 봉이 십자형으로 잡혀
+ * 비중이 항상 1이 된다 — 그런 입력은 `null`(판정 불가)로 돌려준다.
+ */
+function buyingVolumeShare(bars: PriceHistoryRow[]): number | null {
+  let buying = 0
+  let selling = 0
+  let hasAnyBody = false
+  for (const bar of bars) {
+    if (bar.close !== bar.open) hasAnyBody = true
+    const range = bar.high - bar.low
+    const isDoji = range > 0 && Math.abs(bar.close - bar.open) / range <= DOJI_BODY_RATIO
+    if (bar.close > bar.open || isDoji) buying += bar.volume
+    else selling += bar.volume
+  }
+  if (!hasAnyBody) return null
+  const total = buying + selling
+  return total > 0 ? buying / total : null
+}
+
+/**
  * 판정 근거에 찍을 가격 포맷. 국내 ETF(13,505원)와 미국 주식(180.52달러)을 같은
  * 함수가 처리하므로, 1,000 이상이면 정수+콤마, 미만이면 소수 둘째 자리까지 쓴다 —
  * 전부 정수로 자르면 미국 주식의 소수점 차이가 통째로 사라진다.
@@ -175,7 +216,12 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
   const baseVol =
     volumes.slice(-(VOLUME_RECENT_WINDOW + VOLUME_BASE_WINDOW), -VOLUME_RECENT_WINDOW).reduce((a, b) => a + b, 0) /
     VOLUME_BASE_WINDOW
-  const volumeUp = baseVol > 0 ? recentVol > baseVol : null
+  const volumeGrew = baseVol > 0 ? recentVol > baseVol : null
+  // 늘어난 거래량이 사는 쪽이었는지까지 봐야 한다 — 위 buyingVolumeShare 주석 참고.
+  // 0.5는 "오른 날과 내린 날에 똑같이 실렸다"는 중립선이지 조정한 임계값이 아니다.
+  const buyingShare = buyingVolumeShare(bars.slice(-VOLUME_RECENT_WINDOW))
+  const volumeUp =
+    volumeGrew === null || buyingShare === null ? null : volumeGrew && buyingShare >= 0.5
 
   // 조건 이름을 값과 같은 자리에서 만든다 — 화면이 "5개 중 1개 충족"이라고만 말하고
   // **어떤 조건인지는 안 알려줘서** 무슨 소린지 모르겠다는 지적을 받았다(2026-09-15).
@@ -213,12 +259,12 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
       detail: `최근 ${LOW_COMPARE_WINDOW}일 최저 ${fmtPrice(recentLow)} vs 그 이전 ${fmtPrice(priorLow)}`,
     },
     {
-      label: '거래량이 늘어남',
-      why: '사려는 사람이 실제로 붙었는가',
+      label: '사는 거래량이 늘어남',
+      why: '거래량이 늘었고, 그게 던지는 쪽이 아니라 사는 쪽이었는가',
       met: volumeUp === true,
       detail:
-        baseVol > 0
-          ? `최근 ${VOLUME_RECENT_WINDOW}일 평균 거래량이 그 이전 ${VOLUME_BASE_WINDOW}일의 ${(recentVol / baseVol).toFixed(1)}배`
+        baseVol > 0 && buyingShare !== null
+          ? `최근 ${VOLUME_RECENT_WINDOW}일 평균이 그 이전 ${VOLUME_BASE_WINDOW}일의 ${(recentVol / baseVol).toFixed(1)}배 · 그중 오른 날 거래량 비중 ${(buyingShare * 100).toFixed(0)}%`
           : '계산 불가',
     },
   ]
@@ -239,7 +285,7 @@ export function classifyStage(bars: PriceHistoryRow[]): StageResult | null {
     if (sma20Rising) reasons.push(`${SMA_WINDOW}일선이 ${SMA_TREND_LOOKBACK}거래일 전보다 상승 중`)
     if (brokeRecentHigh) reasons.push(`직전 단기 고점(${recentSwingHigh.toFixed(2)}) 돌파`)
     if (higherLow) reasons.push('저점이 높아지는 중')
-    if (volumeUp) reasons.push('거래량이 평소보다 증가')
+    if (volumeUp) reasons.push('거래량이 늘었고 오른 날에 더 실림')
   } else {
     stage = 'B'
     reasons.push('고점·저점이 계속 낮아지는 하락 추세는 멈췄지만')
