@@ -406,17 +406,18 @@ function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<Stage
     stage,
     label: stage === 'A' ? '하락 중' : stage === 'C' ? '상승 전환' : '하락 멈춤 (관찰)',
     reasons,
-    // 5개 조건 중 일부만 충족한 모습을 봐야 화면의 ✓/✗ 줄이 자연스러운지 확인된다.
+    // 세는 조건 3개 중 일부만 충족 + 관측 전용 2개가 섞인 모습을 봐야, 화면이 둘을
+    // 제대로 갈라 보여주는지(관측 전용이 충족인데 판정에는 안 세는 경우 포함) 확인된다.
     upturnConditions: [
-      { label: '20일선 회복', why: '최근 20거래일 평균 가격보다 오늘 종가가 위에 있는가', met,
+      { counted: true, label: '20일선 회복', why: '최근 20거래일 평균 가격보다 오늘 종가가 위에 있는가', met,
         detail: '종가 100.00 vs 20일선 98.00' },
-      { label: '20일선이 더는 안 떨어짐', why: '평균선 자체가 내려가기를 멈췄는가 (추세가 꺾였다는 뜻)', met,
+      { counted: true, label: '20일선이 더는 안 떨어짐', why: '평균선 자체가 내려가기를 멈췄는가 (추세가 꺾였다는 뜻)', met,
         detail: '5거래일 전 99.00 → 지금 98.00' },
-      { label: '직전 단기 고점 돌파', why: '최근에 막혔던 가격대를 뚫고 올라섰는가', met: false,
-        detail: '직전 고점 112.00 vs 종가 100.00' },
-      { label: '저점이 높아짐', why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)', met: stage !== 'A',
+      { counted: true, label: '저점이 높아짐', why: '더 싸게 팔려는 사람이 줄었는가 (바닥이 올라오는 모양)', met: stage !== 'A',
         detail: '최근 20일 최저 94.00 vs 그 이전 91.00' },
-      { label: '사는 거래량이 늘어남', why: '거래량이 늘었고, 그게 던지는 쪽이 아니라 사는 쪽이었는가', met: false,
+      { counted: false, label: '직전 단기 고점 돌파', why: '최근에 막혔던 가격대를 뚫고 올라섰는가', met: stage === 'C',
+        detail: '직전 고점 112.00 vs 종가 100.00' },
+      { counted: false, label: '사는 거래량이 늘어남', why: '거래량이 늘었고, 그게 던지는 쪽이 아니라 사는 쪽이었는가', met: false,
         detail: '최근 5일 평균이 그 이전 20일의 1.6배 · 그중 오른 날 거래량 비중 31%' },
     ],
     upturnMetCount: stage === 'C' ? 3 : stage === 'B' ? 1 : 0,
@@ -437,8 +438,8 @@ function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketA
       stages[t] === 'A'
         ? ['최근 3구간 고점·저점이 계속 낮아짐']
         : stages[t] === 'C'
-          ? ['20일선 위로 회복', '직전 단기 고점 돌파', '거래량이 평소보다 증가']
-          : ['하락 추세는 멈췄지만 상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'],
+          ? ['20일선 위로 회복', '20일선이 5거래일 전보다 상승 중', '저점이 높아지는 중']
+          : ['하락 추세는 멈췄지만 상승 전환 조건은 3개 중 1개만 충족 (2개 이상 필요)'],
     )
   }
   const cStageCount = Object.values(stages).filter((s) => s === 'C').length
@@ -478,7 +479,6 @@ function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
     { order: 2, amountManwon: 1500, cumulativeManwon: 2000, label: '2차', autoConditions: [
       { text: '구성종목 비중 50% 이상 상승 전환 (🟡)', met: readyUpTo >= 2 },
       { text: '490590 20일선 회복', met: readyUpTo >= 2 },
-      { text: '490590 직전 단기 고점 돌파', met: readyUpTo >= 2 },
     ], manualConditions: [] },
     { order: 3, amountManwon: 1500, cumulativeManwon: 3500, label: '3차', autoConditions: [
       { text: 'AI 구성종목 대부분 상승 (비중 70% 이상, 🟢)', met: readyUpTo >= 3 },
@@ -820,13 +820,32 @@ export default function PreviewPage() {
         </h2>
         <EtfWatchCard
           proxyAssessment={proxyBasket({ NVDA: 'C', GOOGL: 'C', MRVL: 'B', PLTR: 'B', MSFT: 'C', META: 'B', ANET: 'A', AMZN: 'B' })}
-          etfStage={etfStage('B', ['하락 추세는 멈췄지만', '상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'])}
+          etfStage={etfStage('B', ['하락 추세는 멈췄지만', '상승 전환 조건은 3개 중 1개만 충족 (2개 이상 필요)'])}
           etfLatest={{ close: 9850, date: '2026-09-12' }}
           hasEtfData
           tranches={trancheSteps(1)}
           stopSignals={STOP_SIGNALS_CALM}
           tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.52, prev_close: 4.505, updated_at: '2026-09-12T21:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
+        />
+      </section>
+
+      {/* 관측 전용 조건이 **충족인데도** 판정에는 안 세는 상태 — 2026-09-16에 조건 둘을
+          판정에서 빼면서 생긴 자리다. 둘을 한 목록에 섞어 두면 "✓인데 왜 상승 전환이
+          아니냐"가 되므로, 갈라져 보이는지 눈으로 확인할 케이스가 필요하다. */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          490590 매수체크 — 상승 전환 (참고 항목이 ✓여도 판정 개수에는 안 들어가야 정상)
+        </h2>
+        <EtfWatchCard
+          proxyAssessment={proxyBasket({ NVDA: 'C', GOOGL: 'C', MRVL: 'C', PLTR: 'C', MSFT: 'C', META: 'C', ANET: 'B', AMZN: 'B' })}
+          etfStage={etfStage('C', ['20일선(98.00) 위로 회복', '20일선이 5거래일 전보다 상승 중', '저점이 높아지는 중'])}
+          etfLatest={{ close: 10420, date: '2026-09-12' }}
+          hasEtfData
+          tranches={trancheSteps(3)}
+          stopSignals={STOP_SIGNALS_CALM}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.21, prev_close: 4.24, updated_at: '2026-09-12T21:30:00Z' }}
+          nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 18420.7, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
         />
       </section>
 
