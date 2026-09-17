@@ -13,14 +13,12 @@ import {
   PROXY_TICKERS,
   PROXY_WEIGHTS,
   PROXY_WEIGHTS_AS_OF,
-  UPTURN_REQUIRED,
   describeTenYearYield,
   summarizeStopSignals,
   type ProxyBasketAssessment,
   type StageResult,
   type StopSignal,
   type TrancheStep,
-  type UpturnCondition,
 } from '@/lib/etfEntryCheck'
 import { formatKstDateTime, usBarStatus } from '@/lib/usMarketSession'
 import type { MarketIndexSnapshotRow } from '@/lib/types'
@@ -78,46 +76,6 @@ function ConditionChip({ met, label }: { met: boolean; label: string }) {
   )
 }
 
-/**
- * 상승 전환(C) 조건 5개를 이름·충족여부·근거 숫자까지 그대로 편다.
- *
- * 예전엔 "상승 전환 조건은 5개 중 1개만 충족"이라고만 적어서, 정작 **그 5개가 뭔지**
- * 화면 어디에도 없었다(2026-09-15 지적). 개수만 보여주는 건 결론만 주고 근거를 감추는
- * 것과 같아서, 조건 이름 · 무엇을 보는 조건인지 · 지금 숫자를 한 줄씩 나열한다.
- */
-function UpturnConditionList({ conditions, metCount }: { conditions: UpturnCondition[]; metCount: number }) {
-  return (
-    <div className="mt-3 rounded-lg bg-muted/50 p-3">
-      <p className="text-xs font-semibold text-secondary-foreground">
-        상승 전환 조건 {conditions.length}개 중 <span className="text-primary">{metCount}개 충족</span>
-        <span className="font-normal text-muted-foreground"> ({UPTURN_REQUIRED}개 이상이면 “상승 전환”)</span>
-      </p>
-      <ol className="mt-2 space-y-2">
-        {conditions.map((c, i) => (
-          <li key={c.label} className="flex gap-2">
-            <span
-              className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                c.met ? 'bg-up/10 text-up' : 'bg-muted text-muted-foreground/70'
-              }`}
-              aria-hidden
-            >
-              {c.met ? '✓' : '·'}
-            </span>
-            <div className="min-w-0">
-              <p className={`text-xs font-semibold ${c.met ? 'text-secondary-foreground' : 'text-muted-foreground'}`}>
-                {i + 1}. {c.label}
-                <span className="sr-only">{c.met ? ' — 충족' : ' — 미충족'}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">{c.why}</p>
-              <p className="font-mono text-xs text-muted-foreground/70">{c.detail}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
-  )
-}
-
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <section className="space-y-1 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
@@ -130,7 +88,6 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 
 export function EtfWatchCard({
   proxyAssessment,
-  etfStage,
   etfLatest,
   hasEtfData,
   tranches,
@@ -139,7 +96,6 @@ export function EtfWatchCard({
   nasdaq,
 }: {
   proxyAssessment: ProxyBasketAssessment
-  etfStage: StageResult | null
   etfLatest: { close: number; date: string } | null
   hasEtfData: boolean
   tranches: TrancheStep[]
@@ -186,37 +142,31 @@ export function EtfWatchCard({
 
   return (
     <div className="space-y-4">
-      <Section title={`${ETF_NAME} 자체 판정`}>
+      {/*
+        490590 자체를 20일선·구조적 추세 같은 주식 기술적 기준으로 A/B/C 판정하던 절을
+        뺐다 (2026-09-17, 사용자 판단). 490590은 커버드콜(콜옵션 매도) 파생 상품이라
+        구성종목처럼 순수한 주가 흐름이 아니고, `research/checkTrancheGates.ts` 실측으로도
+        그 판정이 매수 타이밍을 절반 가까이 늦추고 있었다(buildTrancheGuide 주석 참고) —
+        "이 상품 자체를 이런 기준으로 판단하는 게 의미 없다"는 결론. 이제 490590 자체
+        가격은 현재가와 차트로만 보여주고(원본 데이터), 판정(A/B/C·상승 전환 조건)은
+        구성종목 신호등 쪽에만 둔다. `classifyStage`도 이제 구성종목에만 쓰인다.
+      */}
+      <Section title={`${ETF_NAME} 현재가`}>
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-xs text-muted-foreground">{ETF_TICKER}</span>
-          <StageBadge stage={etfStage?.stage ?? null} />
+          {etfLatest && (
+            <span className="text-sm font-semibold">
+              {Math.round(etfLatest.close).toLocaleString('ko-KR')}원
+              <span className="ml-1 font-normal text-muted-foreground">({etfLatest.date} 기준)</span>
+            </span>
+          )}
         </div>
 
-        {!hasEtfData ? (
+        {!hasEtfData && (
           <p className="mt-2 text-sm text-muted-foreground">
             아직 490590 일봉 데이터가 없습니다. 종목 발굴 → 감시 종목에서 490590을 관심 종목으로
             추가하면, 다음 파이프라인 실행부터 자동으로 데이터가 쌓입니다.
           </p>
-        ) : etfStage === null ? (
-          <p className="mt-2 text-sm text-muted-foreground">
-            일봉이 아직 부족해 단계를 판정할 수 없습니다 (최소 66거래일 필요).
-            {etfLatest && ` 현재가 ${Math.round(etfLatest.close).toLocaleString('ko-KR')}원 (${etfLatest.date} 기준)`}
-          </p>
-        ) : (
-          <>
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              기준일 {etfStage.detail.date} · 종가 {Math.round(etfStage.detail.close).toLocaleString('ko-KR')}원
-            </p>
-            <ul className="mt-1.5 space-y-0.5 text-xs text-secondary-foreground">
-              {etfStage.reasons.map((r) => (
-                <li key={r}>· {r}</li>
-              ))}
-            </ul>
-            <UpturnConditionList
-              conditions={etfStage.upturnConditions}
-              metCount={etfStage.upturnMetCount}
-            />
-          </>
         )}
 
         {hasEtfData && (
@@ -327,8 +277,9 @@ export function EtfWatchCard({
                         <li key={x}>· {x}</li>
                       ))}
                     </ul>
-                    {/* 5종목 × 5조건을 다 펼치면 화면이 길어져서, 여기선 이름과 ✓/✗만
-                        칩으로 보여준다. 근거 숫자까지 보는 곳은 490590 자체 판정 섹션. */}
+                    {/* 8종목 × 조건을 다 펼치면 화면이 너무 길어져서, 여기선 이름과
+                        ✓/✗만 칩으로 보여준다(왜·근거 숫자는 안 보여줌 — 개별 종목별로
+                        보려면 너무 많다). */}
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {r.upturnConditions.map((c) => (
                         <ConditionChip key={c.label} met={c.met} label={c.label} />

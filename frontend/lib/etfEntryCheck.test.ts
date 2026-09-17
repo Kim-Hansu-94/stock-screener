@@ -145,25 +145,30 @@ describe('assessProxyBasket', () => {
 })
 
 describe('buildTrancheGuide', () => {
-  it('대장주 2개 상승 전환 + ETF 저점 방어면 1차만 자동 조건 충족', () => {
+  it('구성종목 비중이 1차 임계값만 넘으면 1차만 자동 조건 충족', () => {
+    // 490590 자체 조건은 전부 뺐다(2026-09-17) — 이 결과는 구성종목 비중 하나로만 갈린다.
     const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
-    const etfStage = classifyStage(bars(uptrendReversalCloses(), boostedRecentVolume(66)))
-    const steps = buildTrancheGuide(proxy, etfStage)
+    const steps = buildTrancheGuide(proxy)
     expect(steps[0].autoReady).toBe(true)
     expect(steps[1].autoReady).toBe(false)
   })
 
-  it('ETF 자체가 하락 추세(A)면 1차 조건도 자동 충족되지 않는다', () => {
-    const proxy = { perTicker: {} as never, cStageCount: 3, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.55, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
-    const etfStage = classifyStage(bars(downtrendCloses()))
-    const steps = buildTrancheGuide(proxy, etfStage)
-    expect(etfStage?.stage).toBe('A')
-    expect(steps[0].autoReady).toBe(false)
+  it('4개 차수 전부 자동 조건이 구성종목 비중 단 하나뿐이다', () => {
+    // 490590 자체를 20일선·구조적 추세 같은 기준으로 판단하는 게 의미 없다는 사용자
+    // 판단으로, 1차의 "저점 방어"까지 마저 뺐다(2026-09-17). classifyStage는 이제
+    // 구성종목에만 쓰인다 — 이 테스트가 그 불변식을 못 박는다.
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
+    const steps = buildTrancheGuide(proxy)
+    for (const step of steps) {
+      expect(step.autoConditions).toHaveLength(1)
+      // 20일선·고점 돌파·신고가 같은 490590 자체 기술적 언급이 조건 문구에 남아있지 않아야 한다.
+      expect(step.autoConditions[0].text).not.toMatch(/20일선|고점 돌파|신고가|저점 방어/)
+    }
   })
 
   it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy, null)
+    const steps = buildTrancheGuide(proxy)
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
   })
 })
