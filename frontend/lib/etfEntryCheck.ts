@@ -466,23 +466,36 @@ export interface TrancheStep {
   autoReady: boolean
 }
 
-/** 최근 `window`일 안에서 오늘 종가가 신고가인가 — "추가로 고점을 높임" 판정에 쓴다. */
-function madeFreshHigh(bars: PriceHistoryRow[], window = BREAKOUT_LOOKBACK): boolean | null {
-  if (bars.length < window + 1) return null
-  const highs = bars.map((b) => b.high)
-  const priorHigh = Math.max(...highs.slice(-window - 1, -1))
-  return highs[highs.length - 1] > priorHigh
-}
-
+/**
+ * 2~4차의 "490590 자체 조건"(20일선 회복·직전 고점 돌파·신고가)을 뺐다 (2026-09-17).
+ *
+ * 사용자 질문 — "분할매수 타이밍이 490590 자체 차트 기준인데, 보유종목(구성종목)들의
+ * 차트 동향 기준으로 잡는 건 어떨까?" — 을 `research/checkTrancheGates.ts`로 490590
+ * 실제 477봉(2024-10-02~2026-09-16, 판정 가능 341일)에 대고 재봤다:
+ *
+ *                        구성종목 조건 충족   490590 자체 조건 충족   구성종목은 됐는데
+ *                                                                  490590이 막은 날
+ *   1차(저점 방어)              64.8%              94.7%              5% (2.9%p)
+ *   2차(20일선+고점돌파)        47.8%              30.2%             48%(23.2%p)
+ *   3차(신고가)                29.6%              22.3%             50%(14.7%p)
+ *
+ * **1차는 문제없다** — 490590 조건이 94.7%로 거의 항상 열려 있어 병목이 안 된다.
+ * **2·3차는 실측으로 확인됐다** — 구성종목이 이미 "가자"고 신호를 준 날의
+ * **절반**을 490590 자체 조건이 막았다. 490590은 커버드콜(콜옵션 매도) 상품이라
+ * 상승분 일부를 넘겨주므로, 구성종목이 신고가를 계속 갱신해도 490590 자체는
+ * 좀처럼 신고가를 못 만드는 구조적 이유가 있어 보인다 — 이 실측이 그 증거다.
+ *
+ * 그래서 2·3차를 **구성종목 조건 단독**으로 바꿨다. 4차는 원래도 3차와 조건이
+ * 완전히 같았으므로(코드상 동일 식) 그대로 3차와 같은 조건이 된다. **1차의
+ * "490590이 저점을 방어 중"은 남겨뒀다** — 이건 병목도 아니었고, 구성종목이 아니라
+ * "실제로 사려는 490590 자체가 지금 폭락 중은 아닌가"를 보는 별개의 안전장치라서
+ * 구성종목으로 대신할 수 없다.
+ */
 export function buildTrancheGuide(
   proxy: ProxyBasketAssessment,
   etfStage: StageResult | null,
-  etfBars: PriceHistoryRow[],
 ): TrancheStep[] {
   const etfNotDowntrend = etfStage !== null ? etfStage.stage !== 'A' : false
-  const etfAboveSma20 = etfStage?.detail.aboveSma20 ?? false
-  const etfBrokeHigh = etfStage?.detail.brokeRecentHigh ?? false
-  const etfFreshHigh = madeFreshHigh(etfBars) ?? false
 
   return [
     {
@@ -506,11 +519,9 @@ export function buildTrancheGuide(
       autoConditions: [
         { text: `구성종목 비중 ${(TRAFFIC_THRESHOLDS.yellow * 100).toFixed(0)}% 이상 상승 전환 (🟡)`,
           met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow },
-        { text: '490590 20일선 회복', met: etfAboveSma20 },
-        { text: '490590 직전 단기 고점 돌파', met: etfBrokeHigh },
       ],
       manualConditions: [],
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow && etfAboveSma20 && etfBrokeHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.yellow,
     },
     {
       order: 3,
@@ -520,10 +531,9 @@ export function buildTrancheGuide(
       autoConditions: [
         { text: `AI 구성종목 대부분 상승 (비중 ${(TRAFFIC_THRESHOLDS.green * 100).toFixed(0)}% 이상, 🟢)`,
           met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green },
-        { text: '490590이 추가로 고점을 높임', met: etfFreshHigh },
       ],
       manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'],
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green,
     },
     {
       order: 4,
@@ -532,10 +542,10 @@ export function buildTrancheGuide(
       label: '4차 — 무조건 넣을 필요 없음',
       autoConditions: [
         { text: '3차 조건이 흔들림 없이 계속 유지',
-          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh },
+          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green },
       ],
       manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다 — "많이 떨어졌으니 오르겠지"는 금지'],
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green && etfFreshHigh,
+      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green,
     },
   ]
 }

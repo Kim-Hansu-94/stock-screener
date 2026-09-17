@@ -41,7 +41,7 @@ async function EtfWatchContent() {
 
   const proxyAssessment = assessProxyBasket(proxyBars)
   const etfStage = classifyStage(etfBars)
-  const tranches = buildTrancheGuide(proxyAssessment, etfStage, etfBars)
+  const tranches = buildTrancheGuide(proxyAssessment, etfStage)
 
   const tenYearYield = indexSnapshots.find((s) => s.index_name === '미국10년물') ?? null
   const nasdaq = indexSnapshots.find((s) => s.index_name === '나스닥') ?? null
