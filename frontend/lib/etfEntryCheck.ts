@@ -439,9 +439,15 @@ export function assessProxyBasket(
 }
 
 // ── 1~4차 분할매수 가이드 ────────────────────────────────────────────────
-// 총 5,000만원을 500 → 1,500 → 1,500 → 1,500만원으로 나눠 넣는 계획. 자동으로
-// 판정 가능한 조건만 "충족 여부"로 표시하고, 판단이 필요한 항목은 별도로 안내한다
-// (자동 조건이 다 충족돼도 매수를 강제하지 않는다 — 최종 결정은 항상 사용자 몫).
+// 총 5,000만원을 500 → 1,000 → 1,500 → 2,000만원으로 나눠 넣는 계획 (2026-09-17 조정).
+// **원래는 500 → 1,500 → 1,500 → 1,500이었다** — 1차에서 2차로 넘어갈 때 금액이 3배로
+// 뛰었는데, 그 사이에 확신이 3배로 세진다는 근거는 없었다(1차는 비중 30%, 2차는 50% —
+// 딱 그만큼만 세진 것뿐이고, 백테스트로도 "20일선 회복" 조건 자체가 뚜렷한 효과가
+// 없었다). 지금은 확신이 느는 만큼 금액도 완만하게 늘어나도록 계단을 폈다 — 1→2차
+// 배수를 2배로 낮추고, 그만큼을 뒤(3→4차)로 옮겼다. 4차가 가장 크지만 **선택사항**
+// 이라는 점은 그대로다(확신이 제일 강한 단계에 여윳돈을 가장 많이 얹는 구조).
+// 자동으로 판정 가능한 조건만 "충족 여부"로 표시하고, 판단이 필요한 항목은 별도로
+// 안내한다(자동 조건이 다 충족돼도 매수를 강제하지 않는다 — 최종 결정은 항상 사용자 몫).
 
 export interface TrancheCondition {
   text: string
@@ -494,8 +500,8 @@ export function buildTrancheGuide(
     },
     {
       order: 2,
-      amountManwon: 1500,
-      cumulativeManwon: 2000,
+      amountManwon: 1000,
+      cumulativeManwon: 1500,
       label: '2차',
       autoConditions: [
         { text: `구성종목 비중 ${(TRAFFIC_THRESHOLDS.yellow * 100).toFixed(0)}% 이상 상승 전환 (🟡)`,
@@ -509,7 +515,7 @@ export function buildTrancheGuide(
     {
       order: 3,
       amountManwon: 1500,
-      cumulativeManwon: 3500,
+      cumulativeManwon: 3000,
       label: '3차',
       autoConditions: [
         { text: `AI 구성종목 대부분 상승 (비중 ${(TRAFFIC_THRESHOLDS.green * 100).toFixed(0)}% 이상, 🟢)`,
@@ -521,7 +527,7 @@ export function buildTrancheGuide(
     },
     {
       order: 4,
-      amountManwon: 1500,
+      amountManwon: 2000,
       cumulativeManwon: 5000,
       label: '4차 — 무조건 넣을 필요 없음',
       autoConditions: [

@@ -161,10 +161,10 @@ describe('buildTrancheGuide', () => {
     expect(steps[0].autoReady).toBe(false)
   })
 
-  it('누적 매수 금액이 500 → 2000 → 3500 → 5000만원으로 쌓인다', () => {
+  it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
     const steps = buildTrancheGuide(proxy, null, [])
-    expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 2000, 3500, 5000])
+    expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
   })
 })
 
