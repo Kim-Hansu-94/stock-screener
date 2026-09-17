@@ -475,16 +475,16 @@ function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
       { text: '구성종목 비중 30% 이상 상승 전환 (🟠)', met: readyUpTo >= 1 },
       { text: '490590이 저점을 방어 중 (하락 추세 아님)', met: readyUpTo >= 1 },
     ], manualConditions: ['FOMC 충격이 진정되는 모습인지 (아래 뉴스 참고)'] },
-    { order: 2, amountManwon: 1500, cumulativeManwon: 2000, label: '2차', autoConditions: [
+    { order: 2, amountManwon: 1000, cumulativeManwon: 1500, label: '2차', autoConditions: [
       { text: '구성종목 비중 50% 이상 상승 전환 (🟡)', met: readyUpTo >= 2 },
       { text: '490590 20일선 회복', met: readyUpTo >= 2 },
       { text: '490590 직전 단기 고점 돌파', met: readyUpTo >= 2 },
     ], manualConditions: [] },
-    { order: 3, amountManwon: 1500, cumulativeManwon: 3500, label: '3차', autoConditions: [
+    { order: 3, amountManwon: 1500, cumulativeManwon: 3000, label: '3차', autoConditions: [
       { text: 'AI 구성종목 대부분 상승 (비중 70% 이상, 🟢)', met: readyUpTo >= 3 },
       { text: '490590이 추가로 고점을 높임', met: readyUpTo >= 3 },
     ], manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'] },
-    { order: 4, amountManwon: 1500, cumulativeManwon: 5000, label: '4차 — 무조건 넣을 필요 없음', autoConditions: [
+    { order: 4, amountManwon: 2000, cumulativeManwon: 5000, label: '4차 — 무조건 넣을 필요 없음', autoConditions: [
       { text: '3차 조건이 흔들림 없이 계속 유지', met: readyUpTo >= 4 },
     ], manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다'] },
   ]
