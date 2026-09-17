@@ -18,6 +18,14 @@
 // 490590은 정규 유니버스 밖의 감시 종목이라 일봉이 짧다(2026-09-16 기준 476봉 ≈ 2년,
 // research/backtestEtfStage.ts 참고) — 표본이 "490590 하나의 2년"뿐이라는 점을
 // 결과를 읽을 때 감안할 것.
+//
+// **2026-09-17 실행 결과, 2·3차에서 실제로 확인됐다** — 구성종목이 이미 신호를 준 날의
+// 절반(2차 48%, 3차 50%)을 490590 자체 조건이 막았다(1차는 5%로 문제없었다). 그래서
+// `buildTrancheGuide`의 2~4차에서 490590 자체 조건을 뺐다 — 이 스크립트가 그 근거다.
+// **지금 다시 돌리면 2~4차의 "490590 자체 조건 충족"이 항상 100%로 나온다** —
+// `buildTrancheGuide`의 autoConditions가 이제 구성종목 조건 하나뿐이라 이 스크립트의
+// `[proxyCond, ...etfConds]` 파싱이 빈 배열을 만나기 때문이다(4차가 처음부터 그랬던 것과
+// 같은 이유, 아래 결과 표 참고). 조건을 또 바꿀 근거가 필요할 때만 다시 다듬을 것.
 import { createClient } from '@supabase/supabase-js'
 import {
   assessProxyBasket,
@@ -130,7 +138,7 @@ async function main(): Promise<void> {
     const proxyAssessment = assessProxyBasket(proxySlice)
     if (proxyAssessment.evaluatedCount === 0) continue // 구성종목 쪽도 데이터가 있어야 비교가 된다
 
-    const tranches = buildTrancheGuide(proxyAssessment, etfStage, etfSlice)
+    const tranches = buildTrancheGuide(proxyAssessment, etfStage)
     evaluatedDays += 1
 
     tranches.forEach((step, idx) => {

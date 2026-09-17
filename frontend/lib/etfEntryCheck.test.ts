@@ -148,7 +148,7 @@ describe('buildTrancheGuide', () => {
   it('대장주 2개 상승 전환 + ETF 저점 방어면 1차만 자동 조건 충족', () => {
     const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
     const etfStage = classifyStage(bars(uptrendReversalCloses(), boostedRecentVolume(66)))
-    const steps = buildTrancheGuide(proxy, etfStage, bars(uptrendReversalCloses()))
+    const steps = buildTrancheGuide(proxy, etfStage)
     expect(steps[0].autoReady).toBe(true)
     expect(steps[1].autoReady).toBe(false)
   })
@@ -156,14 +156,14 @@ describe('buildTrancheGuide', () => {
   it('ETF 자체가 하락 추세(A)면 1차 조건도 자동 충족되지 않는다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 3, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.55, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
     const etfStage = classifyStage(bars(downtrendCloses()))
-    const steps = buildTrancheGuide(proxy, etfStage, bars(downtrendCloses()))
+    const steps = buildTrancheGuide(proxy, etfStage)
     expect(etfStage?.stage).toBe('A')
     expect(steps[0].autoReady).toBe(false)
   })
 
   it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy, null, [])
+    const steps = buildTrancheGuide(proxy, null)
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
   })
 })
