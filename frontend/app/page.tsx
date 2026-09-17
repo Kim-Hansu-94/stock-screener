@@ -11,7 +11,6 @@ import {
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
-  classifyStage,
   type ProxyTicker,
 } from '@/lib/etfEntryCheck'
 import type { PriceHistoryRow } from '@/lib/types'
@@ -40,8 +39,7 @@ async function EtfWatchContent() {
   const etfBars = etfRows.filter((r) => r.ticker === ETF_TICKER).sort((a, b) => a.date.localeCompare(b.date))
 
   const proxyAssessment = assessProxyBasket(proxyBars)
-  const etfStage = classifyStage(etfBars)
-  const tranches = buildTrancheGuide(proxyAssessment, etfStage)
+  const tranches = buildTrancheGuide(proxyAssessment)
 
   const tenYearYield = indexSnapshots.find((s) => s.index_name === '미국10년물') ?? null
   const nasdaq = indexSnapshots.find((s) => s.index_name === '나스닥') ?? null
@@ -56,7 +54,6 @@ async function EtfWatchContent() {
   return (
     <EtfWatchCard
       proxyAssessment={proxyAssessment}
-      etfStage={etfStage}
       etfLatest={etfLatest ? { close: etfLatest.close, date: etfLatest.date } : null}
       hasEtfData={etfBars.length > 0}
       tranches={tranches}

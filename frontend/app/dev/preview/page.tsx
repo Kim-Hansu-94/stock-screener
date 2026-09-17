@@ -473,7 +473,6 @@ function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
   const base: Omit<TrancheStep, 'autoReady'>[] = [
     { order: 1, amountManwon: 500, cumulativeManwon: 500, label: '1차', autoConditions: [
       { text: '구성종목 비중 30% 이상 상승 전환 (🟠)', met: readyUpTo >= 1 },
-      { text: '490590이 저점을 방어 중 (하락 추세 아님)', met: readyUpTo >= 1 },
     ], manualConditions: ['FOMC 충격이 진정되는 모습인지 (아래 뉴스 참고)'] },
     { order: 2, amountManwon: 1000, cumulativeManwon: 1500, label: '2차', autoConditions: [
       { text: '구성종목 비중 50% 이상 상승 전환 (🟡)', met: readyUpTo >= 2 },
@@ -817,7 +816,6 @@ export default function PreviewPage() {
         </h2>
         <EtfWatchCard
           proxyAssessment={proxyBasket({ NVDA: 'C', GOOGL: 'C', MRVL: 'B', PLTR: 'B', MSFT: 'C', META: 'B', ANET: 'A', AMZN: 'B' })}
-          etfStage={etfStage('B', ['하락 추세는 멈췄지만', '상승 전환 조건은 5개 중 1개만 충족 (3개 이상 필요)'])}
           etfLatest={{ close: 9850, date: '2026-09-12' }}
           hasEtfData
           tranches={trancheSteps(1)}
@@ -833,7 +831,6 @@ export default function PreviewPage() {
         </h2>
         <EtfWatchCard
           proxyAssessment={proxyBasket({ NVDA: 'A', GOOGL: 'A', MRVL: 'A', PLTR: 'A', MSFT: 'B', META: 'A', ANET: 'A', AMZN: 'B' })}
-          etfStage={etfStage('A', ['최근 3구간(각 20일) 고점이 계속 낮아짐', '최근 3구간 저점도 계속 낮아짐'])}
           etfLatest={{ close: 8420, date: '2026-09-12' }}
           hasEtfData
           tranches={trancheSteps(0)}
@@ -849,7 +846,6 @@ export default function PreviewPage() {
         </h2>
         <EtfWatchCard
           proxyAssessment={proxyBasket({ NVDA: 'B', GOOGL: 'B', MRVL: 'B', PLTR: 'B', MSFT: 'B', META: 'B', ANET: 'B', AMZN: 'B' })}
-          etfStage={null}
           etfLatest={null}
           hasEtfData={false}
           tranches={trancheSteps(0)}
