@@ -14,6 +14,10 @@ interface StockChartProps {
   monthly?: boolean
   bollinger?: boolean
   rsi?: boolean
+  /** RSI 과매도 참고선 값. 기본 30이지만, 판정 기준이 따로 있는 화면은 그 값을 넘겨
+   * **카드가 말하는 기준과 차트에 그려진 선을 일치시킨다** — 어긋나면 RSI 33에서
+   * 카드는 '과매도', 차트는 '선 위'로 정반대로 읽힌다 (포지션 관리 카드는 35). */
+  rsiOversold?: number
   volume?: boolean
   /** 매물대(가격대별 거래량) — 왼쪽에 가로 막대로 깔고, 가장 두꺼운 가격대에 선을 긋는다. */
   volumeProfile?: boolean
@@ -108,6 +112,7 @@ export function StockChart({
   monthly = false,
   bollinger = false,
   rsi = false,
+  rsiOversold = 30,
   volume = false,
   volumeProfile = false,
   ichimoku = false,
@@ -401,7 +406,7 @@ export function StockChart({
       )
       // 70/30은 가격 방향이 아니라 과매수·과매도 참고선이라 등락 색(빨강/파랑)을 쓰지 않는다.
       rsiSeries.createPriceLine({ price: 70, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '70' })
-      rsiSeries.createPriceLine({ price: 30, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: '30' })
+      rsiSeries.createPriceLine({ price: rsiOversold, color: '#8b95a1', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: String(rsiOversold) })
 
       // ── 두 차트를 하나처럼 움직이게 묶는다 (2026-09-15) ────────────────────
       // v4에는 한 차트 안에 패널을 나누는 기능이 없어서 차트를 두 개 만들 수밖에 없다.
@@ -494,7 +499,7 @@ export function StockChart({
       chart.remove()
       rsiChart?.remove()
     }
-  }, [history, monthly, bollinger, rsi, volume, profile, ichimoku, boxRange, preAggregated, stopPrice, targetPrice, movingAverages])
+  }, [history, monthly, bollinger, rsi, rsiOversold, volume, profile, ichimoku, boxRange, preAggregated, stopPrice, targetPrice, movingAverages])
 
   if (history.length === 0) {
     return <p className="text-sm text-muted-foreground">차트 데이터가 없습니다.</p>
@@ -571,7 +576,7 @@ export function StockChart({
           {/* 위 차트가 시간축을 숨기고 아래 축 하나를 같이 쓰므로, 두 칸을 띄우지 않고
               옅은 구분선만 둬서 "한 차트의 아래 칸"으로 보이게 한다. */}
           <p className="border-t border-border pt-1 text-[11px] text-muted-foreground">
-            RSI ({monthly ? 6 : 14}) · 위 캔들과 같이 움직입니다
+            RSI ({monthly ? 6 : 14}) · 과매도 {rsiOversold} / 과매수 70 · 위 캔들과 같이 움직입니다
           </p>
           <div ref={rsiRef} />
         </>
