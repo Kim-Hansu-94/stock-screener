@@ -6,6 +6,7 @@ import {
   assessSupportSignals,
   drawdownFromHigh,
   profitLossPct,
+  RSI_OVERSOLD,
   summarizeSupportSignals,
 } from '@/lib/supportSignals'
 import { changeTextClass } from '@/lib/marketColors'
@@ -231,6 +232,8 @@ export function PositionCard({
                     expanded
                     volume
                     ichimoku
+                    rsi
+                    rsiOversold={RSI_OVERSOLD}
                     movingAverages={POSITION_MOVING_AVERAGES}
                   />
                 </div>

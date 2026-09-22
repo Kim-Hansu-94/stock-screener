@@ -793,6 +793,16 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
+          차트 — 일목구름 + RSI, 과매도선 35 (포지션 관리 카드가 쓰는 조합. 아래 참고선
+          라벨이 30이 아니라 35여야 정상 — 카드의 ‘RSI 과매도 후 반등’ 판정 기준과 같은 값)
+        </h2>
+        <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
+          <StockChart history={VOLUME_PROFILE_HISTORY} volume ichimoku rsi rsiOversold={35} />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
           차트 — 월봉 + RSI (종목발굴·저점 매집 후보가 쓰는 조합. 날짜 축이 아래 하나여야 정상)
         </h2>
         <div className="rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
