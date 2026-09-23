@@ -198,11 +198,21 @@ function volumeRiseSignal(bars: PriceHistoryRow[]): SupportSignal {
     id: 'volumeRise',
     label,
     met,
-    detail: `최근 ${VOLUME_RECENT_WINDOW}일 거래량 ${ratio.toFixed(1)}배 · 주가 ${signed(changePct)}`,
+    detail: `최근 ${VOLUME_RECENT_WINDOW}일 거래량이 직전 ${VOLUME_BASE_WINDOW}일 평균의 ${ratio.toFixed(1)}배 · 주가 ${signed(changePct)}`,
+    // 미충족일 때 "매수세 유입 흔적 없음"이라고 단정하지 않는다 (2026-09-23).
+    // 이 지표가 재는 건 "거래량이 직전 20일보다 늘었는가" 하나뿐인데, 그 문구는
+    // "사는 사람이 없다"로 읽힌다 — 실제로 SK하이닉스는 주가 +5.9%에 자사주를
+    // 매일 사들이고 있는 중에도 이 문장이 떴다. 자사주 매입처럼 꾸준히 조금씩
+    // 사는 수요는 거래량을 터뜨리지 않기 때문이다.
+    // 게다가 이 비율은 1을 넘기가 생각보다 어렵다 — 156일을 재보니 중간값이
+    // 0.93이고 61%가 1 이하였다(편향이 없다면 중간값이 1.00이어야 한다).
+    // 거래량은 가끔 확 터지는 분포라, 짧은 평균(5일)을 긴 평균(20일)으로 나누면
+    // 터진 날 하나를 분모가 오래 물고 있어 대체로 1보다 조금 작게 나온다.
+    // 그래서 판정(met)은 그대로 두되 **관측한 사실만** 말한다.
     phrase: met
       ? `거래량 ${ratio.toFixed(1)}배로 늘며 주가 ${signed(changePct)}`
       : ratio <= 1
-        ? `거래량이 ${ratio.toFixed(1)}배에 그쳐 매수세 유입 흔적 없음`
+        ? `거래량은 직전 ${VOLUME_BASE_WINDOW}일 평균의 ${ratio.toFixed(1)}배로 늘지 않음`
         : `거래량은 늘었지만 주가는 ${signed(changePct)}`,
   }
 }

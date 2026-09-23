@@ -163,6 +163,22 @@ describe('assessSupportSignals', () => {
     expect(signal(bars(closes, { volumes }), 'volumeRise').met).toBe(false)
   })
 
+  // 이 문구는 2026-09-23에 고쳤다. 원래 "매수세 유입 흔적 없음"이라고 단정했는데,
+  // 주가가 오르고 자사주를 매일 사들이는 중에도 그 문장이 떠서 정반대로 읽혔다.
+  // 이 지표가 아는 건 "거래량이 직전 20일보다 늘었는가" 하나뿐이니 그것만 말해야 한다.
+  it('states only what it measured when volume did not rise (no 매수세 verdict)', () => {
+    const closes = [...Array.from({ length: LONG - 5 }, () => 100), 102, 104, 106, 108, 110]
+    const volumes = [...Array.from({ length: LONG - 5 }, () => 3000), ...Array.from({ length: 5 }, () => 1500)]
+    const result = signal(bars(closes, { volumes }), 'volumeRise')
+
+    expect(result.met).toBe(false)
+    expect(result.phrase).toContain('늘지 않음')
+    // 관측하지 않은 것(매수 주체가 있는지)을 단정하면 안 된다.
+    expect(result.phrase).not.toContain('매수세')
+    // 0.9배가 무엇 대비인지 밝혀야 한다 — 숫자만 있으면 기준을 알 수 없다.
+    expect(result.detail).toContain('직전 20일 평균의')
+  })
+
   it('counts only evaluated conditions in the denominator', () => {
     const result = assessSupportSignals(bars(Array.from({ length: LONG }, () => 100)))
     expect(result.evaluatedCount).toBe(5)
