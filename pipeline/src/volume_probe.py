@@ -98,7 +98,7 @@ def main() -> None:
     print(f"대상: {market} {ticker}", flush=True)
 
     load_dotenv()
-    db = ScreenerDB()
+    db = ScreenerDB.from_env()
 
     # 화면은 180일치를 받아 그 안에서 계산한다 — 같은 양을 본다.
     db_bars = _db_bars(db, ticker, market, 180)
