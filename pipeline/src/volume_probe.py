@@ -62,7 +62,7 @@ def _live_bars(ticker: str, days: int) -> list[dict]:
 def _ratio(volumes: list[float]) -> tuple[float | None, float, float]:
     """화면과 똑같이 최근 5일 평균 ÷ 직전 20일 평균."""
     needed = _RECENT_WINDOW + _BASE_WINDOW
-    if len(volumes) < needed + 1:
+    if len(volumes) < needed:
         return None, 0.0, 0.0
     recent = volumes[-_RECENT_WINDOW:]
     base = volumes[-needed:-_RECENT_WINDOW]
@@ -71,6 +71,44 @@ def _ratio(volumes: list[float]) -> tuple[float | None, float, float]:
     if base_avg <= 0:
         return None, recent_avg, base_avg
     return recent_avg / base_avg, recent_avg, base_avg
+
+
+def _ratio_history(bars: list[dict]) -> None:
+    """과거 모든 날에 대해 같은 계산을 돌려 **이 지표가 보통 어디에 머무는지** 본다.
+
+    오늘 0.94가 나왔다는 것만으로는 "거래량이 실제로 줄었다"인지 "이 지표는 원래
+    1을 잘 안 넘는다"인지 구분할 수 없다. 거래량 분포는 오른쪽으로 길게 꼬리를
+    끄는 형태(가끔 터지는 날)라, 5일 평균이 20일 평균보다 **대부분의 날 낮게**
+    나올 수 있다 — 그렇다면 '거래량 실린 상승'은 조건이 아니라 사실상 상수가 된다.
+    저점 매집 후보 채점에서 거래량이 표본 대부분에게 만점을 줘 상수였던 것과
+    같은 종류의 문제다(pattern_discovery.py v8).
+    """
+    needed = _RECENT_WINDOW + _BASE_WINDOW
+    volumes = [float(b["volume"]) for b in bars]
+    ratios: list[tuple[str, float]] = []
+    for end in range(needed, len(volumes) + 1):
+        ratio, _, _ = _ratio(volumes[:end])
+        if ratio is not None:
+            ratios.append((bars[end - 1]["date"], ratio))
+
+    if not ratios:
+        print("\n  (이력이 모자라 분포를 못 낸다)", flush=True)
+        return
+
+    values = sorted(r for _, r in ratios)
+    n = len(values)
+    below = sum(1 for v in values if v <= 1.0)
+    median = values[n // 2]
+    print(f"\n--- 이 지표가 보통 어디에 머무는가 ({n}일) ---", flush=True)
+    print(f"  1배 이하인 날: {below}/{n}일 ({below / n * 100:.0f}%)", flush=True)
+    print(
+        f"  최솟값 {values[0]:.2f} · 중간값 {median:.2f} · 최댓값 {values[-1]:.2f}",
+        flush=True,
+    )
+    print("  최근 20일 추이:", flush=True)
+    for day, ratio in ratios[-20:]:
+        bar = "#" * max(1, round(ratio * 20))
+        print(f"    {day}  {ratio:.2f}배  {bar}", flush=True)
 
 
 def _report(label: str, bars: list[dict]) -> None:
@@ -103,6 +141,7 @@ def main() -> None:
     # 화면은 180일치를 받아 그 안에서 계산한다 — 같은 양을 본다.
     db_bars = _db_bars(db, ticker, market, 180)
     _report("DB(stock_price_history)에 저장된 값", db_bars)
+    _ratio_history(db_bars)
 
     if market == "KR":
         try:
