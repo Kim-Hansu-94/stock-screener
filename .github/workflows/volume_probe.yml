@@ -1,0 +1,52 @@
+name: Volume Signal Probe
+
+# 수동 실행 전용 진단. 거래량 신호가 이상할 때 DB 저장값·거래소 원본·화면 계산을
+# 나란히 찍어 어느 쪽이 틀렸는지 가린다(db_probe.yml과 같은 방식).
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: '종목코드 (기본 000660 SK하이닉스)'
+        type: string
+        default: '000660'
+      market:
+        description: 'KR / US'
+        type: string
+        default: 'KR'
+  push:
+    paths:
+      - 'pipeline/src/volume_probe.py'
+      - '.github/workflows/volume_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+
+      - name: Probe volume data
+        working-directory: pipeline
+        env:
+          TQDM_DISABLE: '1'
+        run: python -m src.volume_probe "${{ inputs.ticker || '000660' }}" "${{ inputs.market || 'KR' }}"
