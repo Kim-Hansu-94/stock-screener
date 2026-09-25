@@ -147,9 +147,12 @@ def _normalize(name: str) -> str:
 
 
 def resolve_and_weight(holdings: list[dict]) -> None:
+    from dotenv import load_dotenv
+
     from .db import ScreenerDB
 
     print(f"\n{'─' * 78}\n▶ 이름 → 티커 잇기 + 비중 계산 검산", flush=True)
+    load_dotenv()  # 워크플로가 pipeline/.env에 자격증명을 써 둔다
     db = ScreenerDB.from_env()
 
     rows = []
