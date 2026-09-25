@@ -17,37 +17,24 @@
 import type { PriceHistoryRow } from './types'
 
 /**
- * 490590이 실제로 담고 있는 미국 개별주와 그 비중 (2026-09-16 사용자 실측).
+ * 490590이 실제로 담고 있는 미국 개별주로 A/B/C를 판정한다.
  *
- * **처음엔 오라클·알파벳·엔비디아·AMD·마벨 5개를 동등하게 세고 있었는데, 실제 구성과
- * 달랐다.** 증권사 앱에서 확인한 상위 10개는 이렇다:
+ * **구성은 2026-09-25에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
+ * ETF의 **89.13%**를 차지하고, 나머지는 NASDAQ100 선물(6.36%)·원화현금(6.34%)·
+ * RISE 미국AI밸류체인TOP3Plus(4.45%)와 매도한 콜옵션(음수)이다. TOP3Plus는 국내 상장
+ * ETF인 데다 이름 그대로 AI 상위 3개를 담아 MRVL·NVDA·GOOGL을 두 번 세게 되므로 뺐다.
  *
- *   NVDA 14.67 · GOOGL 13.97 · MRVL 10.46 · PLTR 5.80 · MSFT 5.70 ·
- *   META 5.06 · ANET 5.01 · AMZN 4.65 · RISE 미국AI밸류체인TOP3Plus 4.6 · TSM 4.3
+ * **네이버 자동 수집만 믿으면 안 되는 이유가 여기서 드러났다 (2026-09-25).**
+ * `etfTop10MajorConstituentAssets`는 비중 순이 아니라 **주식 수 순 상위 10개**다.
+ * 그래서 주가가 비싼 종목이 통째로 빠진다 — AMD($629)·MU($1,080)·META($778)·
+ * TSM($451)·AVGO($350)·MSFT($498) 여섯이 실제로는 **ETF의 24.82%**인데 목록에 없었다
+ * (네이버가 덮는 건 64.31%뿐). 반대로 오라클($140)·인텔($127)처럼 싼 종목은 주식 수가
+ * 많아 들어온다. 비중을 `주식 수 × 주가`로 계산하는 것 자체는 맞다 — 사용자 실측과
+ * 대조하니 6종목 전부 같은 배율(≈0.52)로 일치했다 — **틀린 건 계산이 아니라 목록이다.**
  *
- * 즉 **오라클과 AMD는 상위 10개에 아예 없었다**(사용자 지시로 제외). 그리고 14.67%짜리
- * 엔비디아와 5.01%짜리 아리스타를 똑같이 1표씩 세고 있었다 — 그래서 개수가 아니라
- * **비중**으로 센다.
- *
- * 상위 10개 중 둘은 못 넣는다:
- *  - **TSM(4.3%)**: `stock_price_history`에 0봉이다(db_probe 실측 2026-09-16). ADR이라
- *    정규 스크리닝 유니버스에 안 들어와 일봉이 수집되지 않는다.
- *  - **RISE 미국AI밸류체인TOP3Plus(4.6%)**: 국내 상장 ETF라 `market='KR'`로 조회해야
- *    하고(미국 주식 일봉으로는 안 나온다), 무엇보다 **이름 그대로 AI 상위 3개를 담은
- *    ETF**라 아래 NVDA·GOOGL·MRVL과 같은 종목을 두 번 세게 된다.
- *
- * 그래서 여기 합은 100%가 아니다(65.32%). 신호등은 **판정 가능한 비중을 분모로** 쓰므로
- * 빠진 종목이 점수를 조용히 끌어내리지 않는다(supportSignals.ts의 '판정 불가는 미충족으로
- * 세지 않는다'와 같은 원칙).
- *
- * **2026-09-25부터 구성종목은 DB에서 온다**(`pipeline/src/etf_holdings.py`가 매일
- * 네이버에서 받아 `etf_holdings`에 저장). 아래 목록은 **수집 전·실패 시의 폴백**일
- * 뿐이다 — 손으로 적어두던 시절의 마지막 값이라 **이미 낡았다**(2026-09-25 실측에서
- * 10개 중 5개가 어긋나 있었다: 인텔·오라클·버티브가 들어오고 마이크로소프트·메타가
- * 빠졌다). 폴백을 쓰고 있는지는 화면이 밝혀 준다.
+ * 그래서 아래 목록은 "낡은 폴백"이 아니라 **지금 가장 정확한 기준**이고,
+ * `etf_holdings`(네이버 자동 수집)는 그 일부만 덮는 보조 수단이다.
  */
-/** 구성종목 한 줄. **리터럴 유니언이 아니라 string이다** — 종목이 리밸런싱으로
- * 바뀌므로 컴파일 시점에 고정할 수 없다(2026-09-25, DB 수집으로 전환). */
 export interface ProxyHolding {
   ticker: string
   name: string
@@ -58,18 +45,28 @@ export interface ProxyHolding {
 export type ProxyTicker = string
 
 export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
-  { ticker: 'NVDA', name: '엔비디아', weight: 14.67 },
-  { ticker: 'GOOGL', name: '알파벳', weight: 13.97 },
-  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 10.46 },
-  { ticker: 'PLTR', name: '팔란티어', weight: 5.8 },
-  { ticker: 'MSFT', name: '마이크로소프트', weight: 5.7 },
-  { ticker: 'META', name: '메타', weight: 5.06 },
-  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 5.01 },
-  { ticker: 'AMZN', name: '아마존', weight: 4.65 },
+  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.39 },
+  { ticker: 'NVDA', name: '엔비디아', weight: 13.11 },
+  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.38 },
+  { ticker: 'INTC', name: '인텔', weight: 4.73 },
+  { ticker: 'AMD', name: 'AMD', weight: 4.59 },
+  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.39 },
+  { ticker: 'META', name: '메타 플랫폼스', weight: 4.08 },
+  // TSM은 ADR이라 정규 유니버스 밖이고 stock_price_history에 일봉이 없을 수 있다.
+  // 그래도 **목록에는 넣는다** — 빼면 분모에서 조용히 사라져 "ETF의 89%를 보고 있다"는
+  // 말이 거짓이 된다. 일봉이 없으면 화면이 '판정 불가'로 세고 그 사실을 밝힌다.
+  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.05 },
+  { ticker: 'VRT', name: '버티브 홀딩스', weight: 4.01 },
+  { ticker: 'AVGO', name: '브로드컴', weight: 3.99 },
+  { ticker: 'PLTR', name: '팔란티어 테크', weight: 3.98 },
+  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 3.95 },
+  { ticker: 'ORCL', name: '오라클', weight: 3.95 },
+  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.81 },
+  { ticker: 'MSFT', name: '마이크로소프트', weight: 3.72 },
 ] as const
 
-/** 위 폴백 비중을 손으로 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
-export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-16'
+/** 위 폴백 비중을 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
+export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
 
 export const ETF_MARKET = 'KR' as const
 export const ETF_TICKER = '490590'
