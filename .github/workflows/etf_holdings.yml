@@ -1,0 +1,60 @@
+name: ETF Holdings
+
+# 490590 구성종목·비중 수집. 본 파이프라인과 분리한 이유는 realestate·kr_market_extras와
+# 같다 — 여기가 실패해도 주식 스크리닝이 죽으면 안 된다.
+#
+# 하루 한 번인 이유: 구성종목은 운용사가 하루 한 번 공시하는 값이라(네이버 응답의
+# 기준일도 전 영업일로 찍힌다) 더 자주 받아도 같은 값이다.
+on:
+  schedule:
+    # 09:10 KST (00:10 UTC) — 국내장 개장 직후. 전 영업일 기준 구성이 올라와 있다.
+    - cron: '10 0 * * 1-5'
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('pipeline/requirements.txt') }}
+          restore-keys: pip-
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
+
+      - name: Collect ETF holdings
+        working-directory: pipeline
+        env:
+          TQDM_DISABLE: '1'
+        run: python -m src.etf_holdings_main
+
+      # 화면이 'use cache'로 캐싱하므로 갱신 후 무효화해야 바로 반영된다.
+      - name: Revalidate frontend cache
+        env:
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+        run: |
+          if [ -z "$REVALIDATE_URL" ]; then
+            echo "::warning::REVALIDATE_URL 미설정 → 캐시 즉시 무효화 생략"
+            exit 0
+          fi
+          curl -fsS -X POST "$REVALIDATE_URL" -H "Authorization: Bearer $REVALIDATE_TOKEN" \
+            && echo "프론트 캐시 무효화 완료" \
+            || echo "::warning::캐시 무효화 호출 실패"
