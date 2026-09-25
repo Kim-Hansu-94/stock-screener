@@ -3,16 +3,12 @@
 import { useEffect, useState } from 'react'
 import { LazyStockChart } from '@/components/LazyStockChart'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
+import type { EtfHoldingsResult } from '@/lib/queries/etfHoldings'
 import {
   ETF_MARKET,
   ETF_NAME,
   ETF_TICKER,
   MANUAL_STOP_CHECKS,
-  PROXY_HOLDINGS,
-  PROXY_NAMES,
-  PROXY_TICKERS,
-  PROXY_WEIGHTS,
-  PROXY_WEIGHTS_AS_OF,
   describeTenYearYield,
   summarizeStopSignals,
   type ProxyBasketAssessment,
@@ -87,6 +83,7 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 }
 
 export function EtfWatchCard({
+  holdings,
   proxyAssessment,
   etfLatest,
   hasEtfData,
@@ -95,6 +92,7 @@ export function EtfWatchCard({
   tenYearYield,
   nasdaq,
 }: {
+  holdings: EtfHoldingsResult
   proxyAssessment: ProxyBasketAssessment
   etfLatest: { close: number; date: string } | null
   hasEtfData: boolean
@@ -228,7 +226,7 @@ export function EtfWatchCard({
 
       <Section
         title="구성종목 신호등"
-        subtitle={`490590이 실제로 담고 있는 미국 주식 ${PROXY_HOLDINGS.length}개 — 개수가 아니라 비중으로 가늠합니다.`}
+        subtitle={`490590이 실제로 담고 있는 미국 주식 ${holdings.holdings.length}개 — 개수가 아니라 비중으로 가늠합니다.`}
       >
         <div className="flex items-center gap-3">
           <span className="text-3xl leading-none">{proxyAssessment.trafficLight}</span>
@@ -242,30 +240,46 @@ export function EtfWatchCard({
             <p className="text-xs text-muted-foreground">{proxyAssessment.trafficLabel}</p>
           </div>
         </div>
-        {/* 분모가 ETF 전체가 아니라 "판정 가능한 비중"이라는 걸 숨기지 않는다 — 우리가
-            ETF의 몇 %를 실제로 보고 있는지 알아야 신호등을 어느 정도 믿을지 정할 수 있다. */}
+        {/* 비중이 어느 시점·어느 출처의 값인지 숨기지 않는다. 리밸런싱을 모르고 지나가
+            화면이 조용히 틀린 바구니로 계산한 적이 있어서(2026-09-25) 만든 표시다. */}
         <p className="mt-1.5 text-xs text-muted-foreground/70">
-          이 {PROXY_HOLDINGS.length}종목이 ETF의 {proxyAssessment.evaluatedWeight.toFixed(1)}%를 차지합니다
-          (비중 {PROXY_WEIGHTS_AS_OF} 기준). 남은 부분은 커버드콜 옵션·현금과, 여기서 뺀
-          TSM(4.3%, 일봉 미수집)·RISE 미국AI밸류체인TOP3Plus(4.6%, 위 3종목과 겹쳐 중복)입니다.
+          {holdings.fromDb ? (
+            <>
+              구성 {holdings.asOf} 기준 (매일 네이버에서 자동 수집). 비중은 상위 구성
+              {' '}{holdings.holdings.length}종목 안에서의 상대 비중이며, ETF 전체에서 몇 %인지는
+              네이버가 상위 10개만 공개해 알 수 없습니다. 490590이 담은 RISE
+              미국AI밸류체인TOP3Plus는 엔비디아·알파벳·마벨과 겹쳐 중복이라 제외했습니다.
+            </>
+          ) : (
+            <span className="text-down">
+              ⚠ 자동 수집 값이 아직 없어 {holdings.asOf}에 손으로 적어둔 목록으로 계산했습니다 —
+              그 뒤 리밸런싱됐다면 실제 구성과 다를 수 있습니다.
+            </span>
+          )}
         </p>
-        {proxyAssessment.evaluatedCount < PROXY_HOLDINGS.length && (
+        {holdings.unresolved.length > 0 && (
           <p className="mt-1.5 text-xs text-down">
-            {PROXY_HOLDINGS.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다
+            {holdings.unresolved.join(', ')}는 종목을 특정하지 못해 판정에서 빠졌습니다
+            (비중 계산에서도 제외).
+          </p>
+        )}
+        {proxyAssessment.evaluatedCount < holdings.holdings.length && (
+          <p className="mt-1.5 text-xs text-down">
+            {holdings.holdings.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다
             (빠진 종목은 비중 계산에서도 제외됩니다).
           </p>
         )}
 
         <div className="mt-3 space-y-2">
-          {PROXY_TICKERS.map((t) => {
+          {holdings.holdings.map(({ ticker: t, name, weight }) => {
             const r = proxyAssessment.perTicker[t]
             return (
               <div key={t} className="rounded-lg bg-muted/50 p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">
-                    {PROXY_NAMES[t]} <span className="font-mono text-xs text-muted-foreground">{t}</span>
+                    {name} <span className="font-mono text-xs text-muted-foreground">{t}</span>
                     <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-xs font-medium text-secondary-foreground">
-                      {PROXY_WEIGHTS[t].toFixed(2)}%
+                      {weight.toFixed(2)}%
                     </span>
                   </span>
                   <StageBadge stage={r?.stage ?? null} />

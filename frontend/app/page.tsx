@@ -4,10 +4,10 @@ import { LoadingFallback } from '@/components/LoadingFallback'
 import { EtfWatchCard } from '@/components/EtfWatchCard'
 import { fetchPriceRowsPaged } from '@/lib/queries/shared'
 import { getMarketIndexSnapshots } from '@/lib/queries/marketOverview'
+import { getEtfHoldings } from '@/lib/queries/etfHoldings'
 import {
   ETF_MARKET,
   ETF_TICKER,
-  PROXY_TICKERS,
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
@@ -25,20 +25,24 @@ async function EtfWatchContent() {
   cutoff.setDate(cutoff.getDate() - LOOKBACK_DAYS)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
+  // 구성종목은 리밸런싱으로 바뀌므로 **먼저 받아와야** 어느 종목의 일봉을 받을지 정해진다.
+  const holdingsResult = await getEtfHoldings()
+  const proxyTickers = holdingsResult.holdings.map((h) => h.ticker)
+
   const columns = 'ticker, market, date, open, high, low, close, volume'
   const [proxyRows, etfRows, indexSnapshots] = await Promise.all([
-    fetchPriceRowsPaged<PriceHistoryRow>('US', [...PROXY_TICKERS], columns, cutoffStr),
+    fetchPriceRowsPaged<PriceHistoryRow>('US', proxyTickers, columns, cutoffStr),
     fetchPriceRowsPaged<PriceHistoryRow>(ETF_MARKET, [ETF_TICKER], columns, cutoffStr),
     getMarketIndexSnapshots(),
   ])
 
   const proxyBars = {} as Record<ProxyTicker, PriceHistoryRow[]>
-  for (const t of PROXY_TICKERS) {
+  for (const t of proxyTickers) {
     proxyBars[t] = proxyRows.filter((r) => r.ticker === t).sort((a, b) => a.date.localeCompare(b.date))
   }
   const etfBars = etfRows.filter((r) => r.ticker === ETF_TICKER).sort((a, b) => a.date.localeCompare(b.date))
 
-  const proxyAssessment = assessProxyBasket(proxyBars)
+  const proxyAssessment = assessProxyBasket(proxyBars, holdingsResult.holdings)
   const tranches = buildTrancheGuide(proxyAssessment)
 
   const tenYearYield = indexSnapshots.find((s) => s.index_name === '미국10년물') ?? null
@@ -47,12 +51,14 @@ async function EtfWatchContent() {
     etfBars,
     proxyBars,
     tenYearYield ? { close: tenYearYield.close, prevClose: tenYearYield.prev_close } : null,
+    holdingsResult.holdings,
   )
 
   const etfLatest = etfBars.length > 0 ? etfBars[etfBars.length - 1] : null
 
   return (
     <EtfWatchCard
+      holdings={holdingsResult}
       proxyAssessment={proxyAssessment}
       etfLatest={etfLatest ? { close: etfLatest.close, date: etfLatest.date } : null}
       hasEtfData={etfBars.length > 0}
@@ -70,8 +76,8 @@ export default function EtfWatchPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">490590 매수체크</h1>
         <p className="text-sm text-muted-foreground">
-          RISE 미국AI밸류체인데일리고정커버드콜(490590)을 살 때가 됐는지, 미국 AI 밸류체인
-          대장주 5개의 추세로 판단하는 개인 체크리스트입니다.
+          RISE 미국AI밸류체인데일리고정커버드콜(490590)을 살 때가 됐는지, 이 ETF가 실제로
+          담고 있는 미국 AI 밸류체인 대장주들의 추세로 판단하는 개인 체크리스트입니다.
         </p>
       </div>
 

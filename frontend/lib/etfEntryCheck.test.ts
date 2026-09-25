@@ -9,8 +9,7 @@ import {
   summarizeStopSignals,
   UPTURN_REQUIRED,
   MANUAL_STOP_CHECKS,
-  PROXY_HOLDINGS,
-  PROXY_TICKERS,
+  FALLBACK_PROXY_HOLDINGS,
   type ProxyTicker,
   type StopSignal,
 } from './etfEntryCheck'
@@ -90,7 +89,7 @@ describe('assessProxyBasket', () => {
     const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: uptrendReversalCloses() }
     const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
     const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
-    for (const t of PROXY_TICKERS) {
+    for (const t of Object.keys(stages)) {
       const stage = stages[t]
       barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
     }
@@ -99,21 +98,21 @@ describe('assessProxyBasket', () => {
 
   /** 전 종목을 같은 단계로 */
   function allStages(stage: 'A' | 'B' | 'C') {
-    return Object.fromEntries(PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
+    return Object.fromEntries(FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
       ProxyTicker,
       'A' | 'B' | 'C'
     >
   }
 
   it('전부 상승 전환이면 강한 상승 확인(🟢🟢)이다', () => {
-    const assessment = assessProxyBasket(basket(allStages('C')))
-    expect(assessment.cStageCount).toBe(PROXY_HOLDINGS.length)
+    const assessment = assessProxyBasket(basket(allStages('C')), FALLBACK_PROXY_HOLDINGS)
+    expect(assessment.cStageCount).toBe(FALLBACK_PROXY_HOLDINGS.length)
     expect(assessment.cStageWeightShare).toBeCloseTo(1, 6)
     expect(assessment.trafficLight).toBe('🟢🟢')
   })
 
   it('전부 하락이면 매수 보류(🔴)이다', () => {
-    const assessment = assessProxyBasket(basket(allStages('A')))
+    const assessment = assessProxyBasket(basket(allStages('A')), FALLBACK_PROXY_HOLDINGS)
     expect(assessment.cStageWeightShare).toBe(0)
     expect(assessment.trafficLight).toBe('🔴')
   })
@@ -121,8 +120,8 @@ describe('assessProxyBasket', () => {
   it('**개수가 아니라 비중으로 센다** — 큰 종목 둘이 작은 종목 셋보다 무겁다', () => {
     // NVDA 14.67 + GOOGL 13.97 = 28.64 (2종목)  vs
     // ANET 5.01 + AMZN 4.65 + META 5.06 = 14.72 (3종목)
-    const big = assessProxyBasket(basket({ ...allStages('B'), NVDA: 'C', GOOGL: 'C' }))
-    const small = assessProxyBasket(basket({ ...allStages('B'), ANET: 'C', AMZN: 'C', META: 'C' }))
+    const big = assessProxyBasket(basket({ ...allStages('B'), NVDA: 'C', GOOGL: 'C' }), FALLBACK_PROXY_HOLDINGS)
+    const small = assessProxyBasket(basket({ ...allStages('B'), ANET: 'C', AMZN: 'C', META: 'C' }), FALLBACK_PROXY_HOLDINGS)
     expect(big.cStageCount).toBe(2)
     expect(small.cStageCount).toBe(3)
     // 종목 수는 적은데 비중은 더 크다 — 개수로 셌다면 반대로 나왔을 자리다.
@@ -133,21 +132,46 @@ describe('assessProxyBasket', () => {
     // "데이터가 없다"와 "안 올랐다"가 구분돼야 한다 — 빠진 종목이 비중을 끌어내리면 안 된다.
     const partial = basket(allStages('C'))
     partial.MRVL = []
-    const assessment = assessProxyBasket(partial)
-    expect(assessment.evaluatedCount).toBe(PROXY_HOLDINGS.length - 1)
+    const assessment = assessProxyBasket(partial, FALLBACK_PROXY_HOLDINGS)
+    expect(assessment.evaluatedCount).toBe(FALLBACK_PROXY_HOLDINGS.length - 1)
     // 전부 C이므로 판정된 비중은 전부 상승 전환 → 여전히 100%
     expect(assessment.cStageWeightShare).toBeCloseTo(1, 6)
     expect(assessment.evaluatedWeight).toBeCloseTo(
-      PROXY_HOLDINGS.reduce((sum, h) => (h.ticker === 'MRVL' ? sum : sum + h.weight), 0),
+      FALLBACK_PROXY_HOLDINGS.reduce((sum, h) => (h.ticker === 'MRVL' ? sum : sum + h.weight), 0),
       6,
     )
+  })
+
+  // 2026-09-25: 구성종목이 DB에서 오게 바뀌었다. 코드에 박힌 목록이 아니라
+  // **넘겨받은 목록**으로 계산해야, 리밸런싱이 실제로 화면에 반영된다.
+  it('코드 상수가 아니라 넘겨받은 구성종목으로 계산한다', () => {
+    const rebalanced = [
+      { ticker: 'INTC', name: 'INTEL CORP', weight: 70 },
+      { ticker: 'ORCL', name: 'ORACLE CORP', weight: 30 },
+    ]
+    const assessment = assessProxyBasket(basket({ INTC: 'C', ORCL: 'A' }), rebalanced)
+
+    // 폴백 목록에는 INTC·ORCL이 아예 없다 — 그걸 쓰고 있었다면 0개가 판정됐을 것이다.
+    expect(FALLBACK_PROXY_HOLDINGS.some((h) => h.ticker === 'INTC')).toBe(false)
+    expect(assessment.evaluatedCount).toBe(2)
+    expect(assessment.cStageWeightShare).toBeCloseTo(0.7, 6)
+  })
+
+  it('넘겨받은 목록에 없는 종목의 일봉은 무시한다', () => {
+    // 구성에서 빠진 종목의 일봉이 남아 있어도 신호등에 섞이면 안 된다.
+    const only = [{ ticker: 'NVDA', name: '엔비디아', weight: 100 }]
+    const withStale = { ...basket({ NVDA: 'A' }), ...basket({ MSFT: 'C' }) }
+    const assessment = assessProxyBasket(withStale, only)
+
+    expect(assessment.evaluatedCount).toBe(1)
+    expect(assessment.cStageWeightShare).toBe(0)
   })
 })
 
 describe('buildTrancheGuide', () => {
   it('구성종목 비중이 1차 임계값만 넘으면 1차만 자동 조건 충족', () => {
     // 490590 자체 조건은 전부 뺐다(2026-09-17) — 이 결과는 구성종목 비중 하나로만 갈린다.
-    const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
     const steps = buildTrancheGuide(proxy)
     expect(steps[0].autoReady).toBe(true)
     expect(steps[1].autoReady).toBe(false)
@@ -157,7 +181,7 @@ describe('buildTrancheGuide', () => {
     // 490590 자체를 20일선·구조적 추세 같은 기준으로 판단하는 게 의미 없다는 사용자
     // 판단으로, 1차의 "저점 방어"까지 마저 뺐다(2026-09-17). classifyStage는 이제
     // 구성종목에만 쓰인다 — 이 테스트가 그 불변식을 못 박는다.
-    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
     const steps = buildTrancheGuide(proxy)
     for (const step of steps) {
       expect(step.autoConditions).toHaveLength(1)
@@ -167,7 +191,7 @@ describe('buildTrancheGuide', () => {
   })
 
   it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
-    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
     const steps = buildTrancheGuide(proxy)
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
   })
@@ -178,7 +202,7 @@ describe('assessStopSignals', () => {
 
   it('490590이 최근 저점보다 더 낮은 저가를 만들면 경고한다', () => {
     const closes = [...linspace(100, 90, 40), 80]
-    const signals = assessStopSignals(bars(closes), noProxy, null)
+    const signals = assessStopSignals(bars(closes), noProxy, null, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'etfFreshLow')!
     expect(s.state).toBe('alert')
     // 문장만 읽어도 뜻이 통해야 한다 — 상태와 제목을 곱해서 읽게 두지 않는다.
@@ -187,7 +211,7 @@ describe('assessStopSignals', () => {
 
   it('저점을 지키고 있으면 이상 없음이고, 문구도 지키는 쪽으로 바뀐다', () => {
     const closes = [...linspace(90, 100, 40), 101]
-    const signals = assessStopSignals(bars(closes), noProxy, null)
+    const signals = assessStopSignals(bars(closes), noProxy, null, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'etfFreshLow')!
     expect(s.state).toBe('ok')
     expect(s.headline).toContain('지키고')
@@ -195,13 +219,13 @@ describe('assessStopSignals', () => {
 
   it('10년물 금리가 기준 이상 올랐으면 경고한다', () => {
     // ^TNX는 퍼센트 값 그대로다(4.65 = 4.65%) — 하루 +0.15%p 이상이면 급등으로 본다.
-    const signals = assessStopSignals(bars([]), noProxy, { close: 4.65, prevClose: 4.5 })
+    const signals = assessStopSignals(bars([]), noProxy, { close: 4.65, prevClose: 4.5 }, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('alert')
   })
 
   it('10년물 금리 변동이 작으면 이상 없음이고, %p 대신 직전→최근 값을 보여준다', () => {
-    const signals = assessStopSignals(bars([]), noProxy, { close: 4.52, prevClose: 4.5 })
+    const signals = assessStopSignals(bars([]), noProxy, { close: 4.52, prevClose: 4.5 }, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('ok')
     // "오늘"이 아니라 "최근" — 미국장 종가는 항상 하루 전 것이다.
@@ -209,13 +233,13 @@ describe('assessStopSignals', () => {
   })
 
   it('금리 데이터가 없으면 확인 불가로 남긴다', () => {
-    const signals = assessStopSignals(bars([]), noProxy, null)
+    const signals = assessStopSignals(bars([]), noProxy, null, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'yieldSpike')!
     expect(s.state).toBe('unknown')
   })
 
   it('뉴스로 직접 판단해야 하는 항목은 자동 판정 목록에 아예 넣지 않는다', () => {
-    const signals = assessStopSignals(bars([]), noProxy, null)
+    const signals = assessStopSignals(bars([]), noProxy, null, FALLBACK_PROXY_HOLDINGS)
     expect(signals.map((s) => s.id)).not.toContain('hawkishFomc')
     expect(signals.map((s) => s.id)).not.toContain('nasdaqGiveback')
     expect(MANUAL_STOP_CHECKS.map((c) => c.id)).toEqual(['nasdaqGiveback', 'hawkishFomc'])
@@ -225,13 +249,13 @@ describe('assessStopSignals', () => {
     const freshLowBars = bars([...linspace(100, 90, 40), 80])
     const okBars = bars([...linspace(90, 100, 40), 101])
     const proxyBars = Object.fromEntries(
-      PROXY_HOLDINGS.map((h) => [h.ticker, okBars]),
+      FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, okBars]),
     ) as Record<ProxyTicker, PriceHistoryRow[] | undefined>
     // 비중 큰 셋(NVDA 14.67 + GOOGL 13.97 + MRVL 10.46 = 39.1 / 65.32 ≈ 60%)이 동시에 무너지는 경우
     proxyBars.NVDA = freshLowBars
     proxyBars.GOOGL = freshLowBars
     proxyBars.MRVL = freshLowBars
-    const signals = assessStopSignals(bars([]), proxyBars, null)
+    const signals = assessStopSignals(bars([]), proxyBars, null, FALLBACK_PROXY_HOLDINGS)
     const s = signals.find((x) => x.id === 'proxyFreshLow')!
     expect(s.state).toBe('alert')
   })
