@@ -10,6 +10,8 @@ import {
   UPTURN_REQUIRED,
   MANUAL_STOP_CHECKS,
   FALLBACK_PROXY_HOLDINGS,
+  JUDGED_HOLDINGS_COUNT,
+  judgedHoldings,
   type ProxyTicker,
   type StopSignal,
 } from './etfEntryCheck'
@@ -373,5 +375,51 @@ describe('거래량 조건은 방향을 본다', () => {
     expect(result.detail.volumeUp).toBeNull()
     // 판정 불가는 '충족'이 아니다 — 조건 개수에 들어가면 안 된다.
     expect(result.upturnConditions.find((c) => c.label === '사는 거래량이 늘어남')!.met).toBe(false)
+  })
+})
+
+describe('judgedHoldings', () => {
+  it('비중 상위 8개만 남긴다', () => {
+    const picked = judgedHoldings(FALLBACK_PROXY_HOLDINGS)
+
+    expect(picked).toHaveLength(JUDGED_HOLDINGS_COUNT)
+    expect(picked.map((h) => h.ticker)).toEqual([
+      'MRVL', 'NVDA', 'GOOGL', 'INTC', 'AMD', 'MU', 'META', 'TSM',
+    ])
+  })
+
+  it('목록이 비중 순으로 안 와도 비중 순으로 고른다', () => {
+    // DB에서 온 목록은 주식 수 순이라 비중 순서가 아니다.
+    const shuffled = [
+      { ticker: 'C', name: '작은', weight: 1 },
+      { ticker: 'A', name: '큰', weight: 30 },
+      { ticker: 'B', name: '중간', weight: 10 },
+    ]
+
+    expect(judgedHoldings(shuffled).map((h) => h.ticker)).toEqual(['A', 'B', 'C'])
+  })
+
+  it('원본 배열을 건드리지 않는다', () => {
+    const input = [
+      { ticker: 'C', name: '작은', weight: 1 },
+      { ticker: 'A', name: '큰', weight: 30 },
+    ]
+
+    judgedHoldings(input)
+
+    expect(input.map((h) => h.ticker)).toEqual(['C', 'A'])
+  })
+
+  it('비중이 같으면 원래 순서를 지킨다', () => {
+    // 같은 입력에 다른 바구니가 나오면 신호등이 이유 없이 흔들린다.
+    const tied = Array.from({ length: 10 }, (_, i) => ({
+      ticker: `T${i}`,
+      name: `종목${i}`,
+      weight: 5,
+    }))
+
+    expect(judgedHoldings(tied).map((h) => h.ticker)).toEqual([
+      'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7',
+    ])
   })
 })

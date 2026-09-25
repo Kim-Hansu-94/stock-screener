@@ -11,6 +11,7 @@ import {
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
+  judgedHoldings,
   type ProxyTicker,
 } from '@/lib/etfEntryCheck'
 import type { PriceHistoryRow } from '@/lib/types'
@@ -27,7 +28,11 @@ async function EtfWatchContent() {
 
   // 구성종목은 리밸런싱으로 바뀌므로 **먼저 받아와야** 어느 종목의 일봉을 받을지 정해진다.
   const holdingsResult = await getEtfHoldings()
-  const proxyTickers = holdingsResult.holdings.map((h) => h.ticker)
+  // 판정은 비중 상위 8개로만 한다(JUDGED_HOLDINGS_COUNT) — 하위 종목은 서로 비중이
+  // 거의 같아 신호등을 흔들기만 한다는 사용자 판단. 목록 자체는 15개를 그대로 두고
+  // (리밸런싱 알람의 기준이고, "ETF의 몇 %를 보는지" 적을 근거다) 여기서만 좁힌다.
+  const judged = judgedHoldings(holdingsResult.holdings)
+  const proxyTickers = judged.map((h) => h.ticker)
 
   const columns = 'ticker, market, date, open, high, low, close, volume'
   const [proxyRows, etfRows, indexSnapshots] = await Promise.all([
@@ -42,7 +47,7 @@ async function EtfWatchContent() {
   }
   const etfBars = etfRows.filter((r) => r.ticker === ETF_TICKER).sort((a, b) => a.date.localeCompare(b.date))
 
-  const proxyAssessment = assessProxyBasket(proxyBars, holdingsResult.holdings)
+  const proxyAssessment = assessProxyBasket(proxyBars, judged)
   const tranches = buildTrancheGuide(proxyAssessment)
 
   const tenYearYield = indexSnapshots.find((s) => s.index_name === '미국10년물') ?? null
@@ -51,7 +56,7 @@ async function EtfWatchContent() {
     etfBars,
     proxyBars,
     tenYearYield ? { close: tenYearYield.close, prevClose: tenYearYield.prev_close } : null,
-    holdingsResult.holdings,
+    judged,
   )
 
   const etfLatest = etfBars.length > 0 ? etfBars[etfBars.length - 1] : null

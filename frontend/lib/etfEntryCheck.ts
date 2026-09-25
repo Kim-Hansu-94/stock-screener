@@ -17,7 +17,9 @@
 import type { PriceHistoryRow } from './types'
 
 /**
- * 490590이 실제로 담고 있는 미국 개별주로 A/B/C를 판정한다.
+ * 490590이 실제로 담고 있는 미국 개별주로 A/B/C를 판정한다. 단 **판정에 쓰는 건 비중
+ * 상위 8개뿐이다**(`JUDGED_HOLDINGS_COUNT`, 2026-09-25 사용자 결정) — 목록은 15개를
+ * 그대로 두고 판정 대상만 좁힌다. 이유는 그 상수의 주석에 있다.
  *
  * **구성은 2026-09-25에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
  * ETF의 **89.13%**를 차지하고, 나머지는 NASDAQ100 선물(6.36%)·원화현금(6.34%)·
@@ -70,6 +72,40 @@ export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
 
 /** 위 폴백 비중을 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
 export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
+
+/**
+ * A/B/C 판정에 실제로 쓰는 종목 수 (비중 상위 N개). **2026-09-25, 사용자 결정.**
+ *
+ * 왜 전부 안 쓰는가 — "너무 많아봐야 하위 종목들은 혼선만 준다"는 것이 이유다.
+ * 상위 8개면 ETF의 61.72%이고, 상위 3개(MRVL·NVDA·GOOGL)만으로도 39.88%다.
+ *
+ * **경계는 깔끔하지 않다는 것을 알고 정했다.** 4위부터 15위까지가 4.73%~3.72% 사이에
+ * 몰려 있어 사실상 동률이고, 8위 TSM(4.05)과 9위 VRT(4.01)의 차이는 0.04%p다. 즉
+ * "8개"는 자연스러운 절벽이 아니라 **사람이 고른 개수**다 — 비중이 조금만 흔들려도
+ * 9위와 8위가 자리를 바꾼다. 백테스트로 검증한 값이 아니므로 바꿀 때 근거를 남길 것.
+ *
+ * **목록 자체(FALLBACK_PROXY_HOLDINGS)는 15개를 그대로 둔다.** 두 가지 이유다.
+ * (1) 리밸런싱 알람이 이 목록을 기준으로 "자동 수집엔 있는데 우리 목록엔 없는 종목"을
+ *     찾는다(`getEtfHoldings`의 `staleNames`). 8개로 줄이면 네이버가 매일 주는
+ *     ORCL·VRT·ANET·AMZN 같은 실제 보유 종목이 "새 종목"으로 잡혀 **매일 거짓 알람**이 뜬다.
+ * (2) "ETF의 몇 %를 보고 있는지"를 정직하게 적으려면 실제로 무엇을 담고 있는지 알아야 한다.
+ */
+export const JUDGED_HOLDINGS_COUNT = 8
+
+/**
+ * 판정 대상 = 비중 상위 `JUDGED_HOLDINGS_COUNT`개.
+ *
+ * 원본 배열을 건드리지 않고(readonly 입력) 비중 내림차순으로 정렬해 자른다. 목록이
+ * 이미 비중 순이라도 정렬하는 이유는, DB에서 온 목록(주식 수 순)이 들어올 수도 있어서다.
+ * 비중이 같으면 원래 순서를 지킨다(안 그러면 같은 입력에 다른 바구니가 나올 수 있다).
+ */
+export function judgedHoldings(holdings: readonly ProxyHolding[]): ProxyHolding[] {
+  return holdings
+    .map((h, i) => ({ h, i }))
+    .sort((a, b) => b.h.weight - a.h.weight || a.i - b.i)
+    .slice(0, JUDGED_HOLDINGS_COUNT)
+    .map(({ h }) => h)
+}
 
 export const ETF_MARKET = 'KR' as const
 export const ETF_TICKER = '490590'
