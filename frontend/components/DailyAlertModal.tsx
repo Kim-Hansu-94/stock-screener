@@ -1,12 +1,15 @@
 import { Dialog } from '@base-ui/react/dialog'
 import Link from 'next/link'
-import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock } from '@/lib/types'
+import type {
+  AlertStock, HoldingsChangeAlert, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock,
+} from '@/lib/types'
 
 interface Props {
   pullback: AlertStock[]
   opportunity: OpportunityAlertStock[]
   newEntries: NewEntryAlertStock[]
   turnSignals: TurnSignalAlertStock[]
+  holdingsChange: HoldingsChangeAlert | null
   open: boolean
   onClose: () => void
 }
@@ -25,13 +28,37 @@ function StockName({ stock }: { stock: AlertStock }) {
 
 /** 사이트 진입 알림 팝업 — 실제 표시는 DailyAlertPopup(fetch 담당)이 호출하고,
  * /dev/preview에서는 이 컴포넌트에 픽스처를 직접 넘겨 렌더 확인한다. */
-export function DailyAlertModal({ pullback, opportunity, newEntries, turnSignals, open, onClose }: Props) {
+export function DailyAlertModal({
+  pullback, opportunity, newEntries, turnSignals, holdingsChange, open, onClose,
+}: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-foreground/40 backdrop-blur-[1px] transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 max-h-[80vh] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)] transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
           <Dialog.Title className="text-base font-bold text-foreground">오늘의 알림</Dialog.Title>
+
+          {/* 매매 신호가 아니라 **내가 손봐야 하는 일**이라 맨 위에 따로 둔다 —
+              종목 목록에 섞으면 "오늘 뜬 종목" 중 하나로 읽힌다. */}
+          {holdingsChange && (
+            <div className="mt-3 rounded-lg border-l-4 border-down bg-muted/50 p-3">
+              <p className="text-sm font-semibold text-down">490590 구성종목이 바뀐 것 같습니다</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                지금 쓰는 비중은 <strong>{holdingsChange.currentAsOf}</strong> 기준인데, 자동 점검
+                {holdingsChange.checkedAt && <>({holdingsChange.checkedAt})</>}에서 목록에 없는 종목이
+                보였습니다:
+              </p>
+              <ul className="mt-1.5 space-y-0.5 text-xs font-medium">
+                {holdingsChange.newNames.map((name) => (
+                  <li key={name}>· {name}</li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                증권사 앱 → 490590 → <strong>구성종목</strong> 화면을 캡처해서 알려주시면 비중을
+                갱신합니다. 그때까지는 {holdingsChange.currentAsOf} 비중으로 계산됩니다.
+              </p>
+            </div>
+          )}
 
           <div className="mt-3 space-y-4">
             {pullback.length > 0 && (

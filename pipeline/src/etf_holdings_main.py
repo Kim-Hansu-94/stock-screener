@@ -21,6 +21,16 @@ from .etf_holdings import ETF_CODE, collect_etf_holdings, describe
 
 _KST = timezone(timedelta(hours=9))
 
+# 화면이 실제로 쓰는 구성종목 (frontend/lib/etfEntryCheck.ts의 FALLBACK_PROXY_HOLDINGS).
+# **둘은 손으로 맞춰야 하는 동기화 지점이다** — TS를 파싱해서 읽을 수도 있지만, 그러면
+# 파이프라인이 프론트 소스 구조에 묶여 리팩터링 한 번에 조용히 깨진다. 여기선 티커만
+# 알면 되고(비중은 화면 쪽만 쓴다) 목록이 바뀌는 일 자체가 드물어서 상수로 둔다.
+# 어긋나면 이 스크립트가 "바뀌었다"고 잘못 알릴 뿐이라 안전한 쪽으로 실패한다.
+KNOWN_TICKERS = frozenset({
+    "MRVL", "NVDA", "GOOGL", "INTC", "AMD", "MU", "META", "TSM",
+    "VRT", "AVGO", "PLTR", "ANET", "ORCL", "AMZN", "MSFT",
+})
+
 
 def main() -> None:
     load_dotenv()
@@ -40,8 +50,7 @@ def main() -> None:
 
     print(describe(rows), flush=True)
 
-    # 무엇이 바뀌었는지 로그에 남긴다 — 리밸런싱을 모르고 지나가는 것이 이 표를
-    # 만든 이유라, "저장했다"만 찍으면 그 목적을 반만 달성한다.
+    # 어제와 뭐가 달라졌는지 (부가 정보)
     try:
         before = (
             db.client.table("etf_holdings")
@@ -49,20 +58,42 @@ def main() -> None:
             .eq("etf_ticker", ETF_CODE)
             .execute()
         ).data or []
-        old = {r["name"] for r in before}
-        new = {r["name"] for r in rows}
-        if before and old != new:
-            added = sorted(new - old)
-            removed = sorted(old - new)
-            if added:
-                print(f"  ⚠ 새로 들어온 종목: {', '.join(added)}", flush=True)
-            if removed:
-                print(f"  ⚠ 빠진 종목: {', '.join(removed)}", flush=True)
+        prev_names = {r["name"] for r in before}
+        now_names = {r["name"] for r in rows}
+        if before and prev_names != now_names:
+            if added := sorted(now_names - prev_names):
+                print(f"  어제 대비 새로 들어옴: {', '.join(added)}", flush=True)
+            if removed := sorted(prev_names - now_names):
+                print(f"  어제 대비 빠짐: {', '.join(removed)}", flush=True)
     except Exception as exc:  # noqa: BLE001
-        # 비교는 부가 정보일 뿐이라 여기서 실패해도 저장은 계속한다.
         print(f"  (이전 구성과 비교 실패: {exc})", flush=True)
 
     db.save_etf_holdings(rows)
+
+    # ── 화면이 쓰는 목록과 어긋나면 **사람을 부른다** ──────────────────────
+    # 화면의 비중은 사용자가 증권사 앱에서 확인해 코드(FALLBACK_PROXY_HOLDINGS)에
+    # 적어 둔 실측값이다. 네이버 자동 수집은 그걸 대신하지 못한다(주식 수 순 상위
+    # 10개라 비싼 종목이 빠져 64%만 덮는다) — **대신 바뀐 것을 알아채는 역할**을 한다.
+    #
+    # 여기서 `::error::` + exit 1을 내는 건 수집이 실패해서가 아니라, **화면이 지금
+    # 낡은 바구니로 신호등을 계산하고 있어 사람 손이 필요한 상태**이기 때문이다.
+    # 초록불로 끝내면 로그를 들여다보는 사람이 없어 또 모르고 지나간다 — 실제로
+    # 10개 중 5개가 어긋난 채로 며칠을 갔다(2026-09-25). 워크플로가 빨간불이면
+    # GitHub이 저장소 주인에게 메일을 보내므로, 새 시크릿 없이 알림이 닿는다.
+    # 사이트에 들어오면 같은 내용이 팝업으로도 뜬다(`/api/alerts`의 holdingsChange).
+    unknown = sorted(
+        f"{r['name']} ({r['ticker']})" for r in rows
+        if r["ticker"] and r["ticker"] not in KNOWN_TICKERS
+    )
+    if unknown:
+        print(
+            "::error::490590 구성종목이 바뀐 것 같습니다 — 화면이 쓰는 목록에 없는 종목: "
+            f"{', '.join(unknown)} / 증권사 앱의 구성종목 화면을 캡처해 비중을 갱신해 주세요"
+            " (frontend/lib/etfEntryCheck.ts의 FALLBACK_PROXY_HOLDINGS)",
+            flush=True,
+        )
+        sys.exit(1)
+    print("  화면이 쓰는 목록과 일치 — 갱신할 것 없음", flush=True)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { DailyAlertModal } from './DailyAlertModal'
-import type { AlertStock, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock } from '@/lib/types'
+import type {
+  AlertStock, HoldingsChangeAlert, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock,
+} from '@/lib/types'
 
 const STORAGE_KEY_PREFIX = 'daily-alert-seen:'
 
@@ -11,13 +13,19 @@ type AlertData = {
   opportunity: OpportunityAlertStock[]
   newEntries: NewEntryAlertStock[]
   turnSignals: TurnSignalAlertStock[]
+  holdingsChange: HoldingsChangeAlert | null
 }
 
 // 알림 내용이 바뀌면(저녁 KR 재실행으로 새 종목이 뜨는 등) 다시 보여줘야 하므로,
 // 날짜가 아니라 "오늘 뜬 종목 조합" 자체를 키로 삼는다 — 같은 조합을 다시 보면
 // 스킵하고, 조합이 달라지면 새 알림으로 다시 띄운다.
-function signatureOf({ pullback, opportunity, newEntries, turnSignals }: AlertData): string {
+function signatureOf({ pullback, opportunity, newEntries, turnSignals, holdingsChange }: AlertData): string {
   const parts = [
+    // 구성 변경은 종목 목록으로 서명한다 — 내가 실측값을 갱신하기 전까지 매일 같은
+    // 내용이 뜨는데, 한 번 닫았다고 영영 안 보이면 알림의 목적이 없어진다.
+    // 그래서 "닫으면 그 조합은 다시 안 뜬다"는 기존 규칙을 그대로 따르되,
+    // 종목이 하나라도 더 바뀌면 새 알림으로 다시 뜬다.
+    ...(holdingsChange ? [`H:${holdingsChange.newNames.join(',')}`] : []),
     ...pullback.map((s) => `P:${s.market}:${s.ticker}`),
     ...opportunity.map((s) => `O:${s.market}:${s.ticker}:${s.score.toFixed(2)}`),
     ...newEntries.map((s) => `N:${s.market}:${s.ticker}`),
@@ -42,7 +50,8 @@ export function DailyAlertPopup() {
         if (cancelled || !json) return
         if (
           json.pullback.length === 0 && json.opportunity.length === 0 &&
-          json.newEntries.length === 0 && json.turnSignals.length === 0
+          json.newEntries.length === 0 && json.turnSignals.length === 0 &&
+          !json.holdingsChange
         ) return
 
         const key = STORAGE_KEY_PREFIX + signatureOf(json)
@@ -80,6 +89,7 @@ export function DailyAlertPopup() {
       opportunity={data.opportunity}
       newEntries={data.newEntries}
       turnSignals={data.turnSignals}
+      holdingsChange={data.holdingsChange}
       open={open}
       onClose={close}
     />
