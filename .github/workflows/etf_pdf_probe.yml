@@ -21,6 +21,10 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install requests
+      # KIS는 이미 등록된 키를 쓴다(미장 일봉에 쓰는 그 키).
       - name: Probe ETF PDF sources
         working-directory: pipeline
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
         run: python -m src.etf_pdf_probe

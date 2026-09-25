@@ -153,10 +153,78 @@ def probe_naver_full(session: requests.Session) -> None:
                 print(f"      JSON 아님: {_preview(resp.text, 200)}", flush=True)
 
 
+
+def probe_kis(session: requests.Session) -> None:
+    """한국투자증권 KIS OpenAPI에 ETF 구성종목 경로가 있는지.
+
+    **키가 이미 등록돼 있다**(미장 일봉·시총에 쓰는 그 키, `kis_auth.py`). 증권사
+    앱이 보여주는 화면이 바로 이 계열의 데이터라, 전체 구성과 **비중까지** 줄
+    가능성이 가장 높은 후보다.
+
+    tr_id·경로는 **추측이므로 판정하지 않고 응답을 그대로 찍는다** — KIS는 틀린
+    tr_id에 200 + `rt_cd != '0'` + 한글 사유를 주므로, 본문을 봐야 무엇이 틀렸는지
+    알 수 있다(상태코드만 보면 전부 성공으로 보인다).
+    """
+    print(f"\n{'─' * 78}\n▶ 한국투자증권 KIS OpenAPI", flush=True)
+    try:
+        from .kis_auth import headers as kis_headers
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ✗ 인증 모듈 로드 실패: {type(exc).__name__}: {exc}", flush=True)
+        return
+
+    base = "https://openapi.koreainvestment.com:9443"
+    candidates = [
+        # (설명, 경로, tr_id, 쿼리)
+        (
+            "ETF 구성종목시세",
+            "/uapi/etfetn/v1/quotations/inquire-component-stock-price",
+            "FHKST121600C0",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE, "FID_COND_SCR_DIV_CODE": "11216"},
+        ),
+        (
+            "ETF/ETN 현재가",
+            "/uapi/etfetn/v1/quotations/inquire-price",
+            "FHPST02400000",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE},
+        ),
+        (
+            "국내주식 현재가(대조용 — 키가 살아 있는지)",
+            "/uapi/domestic-stock/v1/quotations/inquire-price",
+            "FHKST01010100",
+            {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ETF_CODE},
+        ),
+    ]
+
+    for label, path, tr_id, params in candidates:
+        try:
+            resp = session.get(
+                f"{base}{path}", headers=kis_headers(tr_id), params=params, timeout=_TIMEOUT
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [{label}] ✗ {type(exc).__name__}: {exc}", flush=True)
+            continue
+        print(f"  [{label}] tr_id={tr_id} status={resp.status_code} · {len(resp.text):,}자", flush=True)
+        try:
+            payload = resp.json()
+        except ValueError:
+            print(f"      JSON 아님: {_preview(resp.text, 200)}", flush=True)
+            continue
+        # KIS는 실패도 200으로 주고 rt_cd/msg1에 사유를 담는다 — 그게 진짜 판정 근거다.
+        print(f"      rt_cd={payload.get('rt_cd')} msg={payload.get('msg1')}", flush=True)
+        rows = _rows(payload)
+        if rows:
+            print(f"      ★ {len(rows)}행 — 첫 두 행(키 이름을 봐야 비중 필드를 찾는다):", flush=True)
+            for row in rows[:2]:
+                print(f"        {_preview(row, 500)}", flush=True)
+        else:
+            print(f"      행 없음: {_preview(payload, 300)}", flush=True)
+
+
 def main() -> None:
     print("490590 전체 구성종목(PDF) 소스 탐색")
     print("네이버 상위10개는 '주식 수 순'이라 비싼 종목이 빠진다 — 전체를 주는 곳을 찾는다.")
     session = requests.Session()
+    probe_kis(session)
     probe_naver_full(session)
     probe_krx_pdf(session)
     print(
