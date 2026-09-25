@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from . import prices_kr, prices_us
 from .db import PipelineResult, ScreenerDB
+from .etf_holdings import KNOWN_TICKERS as ETF_SCREEN_TICKERS
 from .pattern_discovery import compute_pattern_matches
 from .fundamentals import refresh_fundamentals
 from .long_history import seed_long_monthly
@@ -43,6 +44,31 @@ _WATCHLIST_INCREMENTAL_DAYS = 14  # 감시 종목 일봉 증분 갱신 창 (겹�
 _KR_FRESH_WINDOW_DAYS = 3
 # 횡보·조정 스크리너 대상 미국 지수 (frontend discover/page.tsx와 동일)
 US_OPP_INDEXES = ("NASDAQ100", "S&P500")
+# 위 지수 어디에도 없지만 화면이 일봉을 필요로 하는 종목 = 홈 화면 490590 매수체크의
+# 구성종목(etf_holdings.KNOWN_TICKERS). 대부분은 S&P500·NASDAQ100에 이미 있어 그대로
+# 걸러지고, 실제로 남는 건 TSM처럼 지수 밖 종목이다 — TSM은 대만 회사의 ADR이라
+# 두 지수 어디에도 없고, 러셀3000 목록에는 있지만 그쪽 일봉은 용량 때문에 저장하지
+# 않으므로(아래 russell_tickers는 패턴 매칭용 메모리 계산만 한다)
+# stock_price_history에 영구히 0봉이었다(2026-09-25 volume_probe 실측) — 매수체크가
+# 비중 4.05%를 계속 '일봉 부족'으로 건너뛰고 있었다.
+#
+# 티커를 여기 다시 적지 않고 그 목록을 그대로 읽는 이유: 리밸런싱으로 또 지수 밖
+# 종목이 들어와도 KNOWN_TICKERS만 고치면 일봉이 따라오고, 손으로 맞출 곳이 늘지 않는다.
+#
+# 일봉만 같이 받고 종목발굴(횡보·조정) 유니버스는 건드리지 않는다: 그쪽은 지수 소속을
+# 기준으로 삼는 화면이라 ADR을 끼워 넣으면 두 화면의 기준이 갈라진다.
+US_EXTRA_PRICE_TICKERS = tuple(sorted(ETF_SCREEN_TICKERS))
+
+
+def us_price_tickers(opp_tickers: list[str]) -> list[str]:
+    """일봉을 받을 미국 종목 = 종목발굴 유니버스 + 지수 밖 화면 종목.
+
+    순서를 지키고 중복을 빼는 게 중요하다 — 이 목록이 그대로
+    `.yfinance_opp_seeded_tickers`에 저장돼 "이미 3년치를 받은 종목"의 근거가 되므로,
+    같은 티커가 두 번 들어가면 증분 대상 판단이 흔들린다.
+    """
+    seen = set(opp_tickers)
+    return opp_tickers + [t for t in US_EXTRA_PRICE_TICKERS if t not in seen]
 
 
 def _today_kst() -> date:
@@ -440,6 +466,9 @@ def main() -> None:
         us_result.universe_df["market_cap"] >= US_MIN_MARKET_CAP
     )
     opp_tickers = us_result.universe_df.loc[opp_mask, "ticker"].tolist()
+    # 일봉만 추가로 받는 종목(US_EXTRA_PRICE_TICKERS 참고). 스냅샷·실적·월봉 대상은
+    # opp_tickers 그대로 두고, 아래 수집·시드 판단에만 이 목록을 쓴다.
+    price_tickers = us_price_tickers(opp_tickers)
 
     if _SEED_FILE.exists():
         seed_date = date.fromisoformat(_SEED_FILE.read_text().strip())
@@ -450,8 +479,8 @@ def main() -> None:
             if _SEEDED_TICKERS_FILE.exists()
             else set()
         )
-        new_tickers = [t for t in opp_tickers if t not in seeded_tickers]
-        existing_tickers = [t for t in opp_tickers if t in seeded_tickers]
+        new_tickers = [t for t in price_tickers if t not in seeded_tickers]
+        existing_tickers = [t for t in price_tickers if t in seeded_tickers]
 
         opp_histories: dict = {}
         if new_tickers:
@@ -475,13 +504,13 @@ def main() -> None:
             opp_histories.update(incremental)
     else:
         print("  최초 실행: 3년 전체 다운로드", flush=True)
-        opp_histories = prices_us.get_opportunity_histories(opp_tickers, today, lookback_days=1095)
+        opp_histories = prices_us.get_opportunity_histories(price_tickers, today, lookback_days=1095)
 
     opp_rows = _us_histories_to_rows(opp_histories)
     db.save_price_history(opp_rows)
     print(f"  → {len(opp_rows)}행 저장", flush=True)
     _SEED_FILE.write_text(today.isoformat())
-    _SEEDED_TICKERS_FILE.write_text(json.dumps(opp_tickers))
+    _SEEDED_TICKERS_FILE.write_text(json.dumps(price_tickers))
 
     seed_long_monthly(db, "US", opp_tickers, today)
 

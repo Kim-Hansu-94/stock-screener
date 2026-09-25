@@ -66,3 +66,24 @@ def test_known_tickers_matches_the_frontend_list():
         f"목록이 어긋난다. 파이프라인에만: {sorted(KNOWN_TICKERS - frontend)} / "
         f"화면에만: {sorted(frontend - KNOWN_TICKERS)}"
     )
+
+
+def test_us_price_tickers_adds_screen_tickers_missing_from_the_universe():
+    """지수 밖 구성종목(TSM 등)의 일봉도 같이 받는지.
+
+    TSM은 ADR이라 S&P500·NASDAQ100 어디에도 없어 stock_price_history에 0봉이었고
+    (2026-09-25 volume_probe 실측), 홈 화면 매수체크가 비중 4.05%를 영구히
+    '일봉 부족'으로 건너뛰고 있었다.
+    """
+    from pipeline.src.etf_holdings import KNOWN_TICKERS
+    from pipeline.src.main import us_price_tickers
+
+    result = us_price_tickers(["NVDA", "MSFT"])
+
+    # 유니버스 종목이 앞에 그대로 남고
+    assert result[:2] == ["NVDA", "MSFT"]
+    # 중복은 안 생기고
+    assert len(result) == len(set(result))
+    # 화면이 쓰는 종목은 전부 들어 있다
+    assert KNOWN_TICKERS <= set(result)
+    assert "TSM" in result

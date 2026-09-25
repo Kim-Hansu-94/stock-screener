@@ -17,19 +17,9 @@ from datetime import date, timedelta, timezone
 from dotenv import load_dotenv
 
 from .db import ScreenerDB
-from .etf_holdings import ETF_CODE, collect_etf_holdings, describe
+from .etf_holdings import ETF_CODE, KNOWN_TICKERS, collect_etf_holdings, describe
 
 _KST = timezone(timedelta(hours=9))
-
-# 화면이 실제로 쓰는 구성종목 (frontend/lib/etfEntryCheck.ts의 FALLBACK_PROXY_HOLDINGS).
-# **둘은 손으로 맞춰야 하는 동기화 지점이다** — TS를 파싱해서 읽을 수도 있지만, 그러면
-# 파이프라인이 프론트 소스 구조에 묶여 리팩터링 한 번에 조용히 깨진다. 여기선 티커만
-# 알면 되고(비중은 화면 쪽만 쓴다) 목록이 바뀌는 일 자체가 드물어서 상수로 둔다.
-# 어긋나면 이 스크립트가 "바뀌었다"고 잘못 알릴 뿐이라 안전한 쪽으로 실패한다.
-KNOWN_TICKERS = frozenset({
-    "MRVL", "NVDA", "GOOGL", "INTC", "AMD", "MU", "META", "TSM",
-    "VRT", "AVGO", "PLTR", "ANET", "ORCL", "AMZN", "MSFT",
-})
 
 
 def main() -> None:
