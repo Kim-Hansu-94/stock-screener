@@ -203,8 +203,20 @@ def resolve_and_weight(holdings: list[dict]) -> None:
             unresolved.append(name)
 
     print(f"\n  이어짐 {len(resolved)}개 / 못 이음 {len(unresolved)}개", flush=True)
+    # **못 이은 이름은 사유를 추측하지 않는다** — DB에 실제로 어떤 표기로 들어 있는지
+    # 후보를 찍어 준다. 이게 없으면 "아마 이런 이름이겠지"로 별칭을 찍어 맞히게 되고,
+    # 틀리면 그 종목이 조용히 빠진 채로 배포된다(지금 MSFT·META가 그렇게 남아 있다).
     for name in unresolved:
-        print(f"    ✗ {name}  → _NAME_ALIASES에 추가해야 한다", flush=True)
+        print(f"    ✗ {name}  (정규화: '{_normalize(name)}')", flush=True)
+        first = _normalize(name).split()[0] if _normalize(name).split() else ""
+        hits = [(r["ticker"], r["name"]) for r in rows
+                if r.get("name") and first and first in _normalize(r["name"])]
+        if hits:
+            print("        DB 후보:", flush=True)
+            for ticker, db_name in hits[:5]:
+                print(f"          {ticker:<7} '{db_name}'  → 정규화 '{_normalize(db_name)}'", flush=True)
+        else:
+            print(f"        DB에 '{first}'를 포함한 종목이 하나도 없다 — 유니버스 밖 종목이다", flush=True)
 
     if not resolved:
         print("  비중 계산 불가 — 이은 종목이 없다", flush=True)
