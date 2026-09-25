@@ -138,12 +138,23 @@ def _is_domestic_etf(item: dict) -> bool:
     return bool(str(item.get("itemCode") or "").strip())
 
 
+# 법인격·주식 종류를 나타내는 꼬리말. **단어 단위로** 떼어낸다 — 글자로 자르면
+# "ORACLE CORPORATION"에서 " CORP"를 빼 "ORACLE ORATION"이 된다(1차 검산에서 실제로
+# 이것 때문에 9개 중 4개를 못 이었다).
+_CORPORATE_TOKENS = {
+    "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC",
+    "SA", "NV", "AG", "CLASS", "CL", "A", "B", "C", "GROUP",
+}
+
+
 def _normalize(name: str) -> str:
-    """'NVIDIA CORP' ↔ 'NVIDIA Corp' 같은 표기 차이를 흡수한다."""
-    out = name.upper()
-    for suffix in (" INC-CL A", " INC-A", " CO-A", " CORP", " INC", " CO", " LTD", " PLC", "."):
-        out = out.replace(suffix, " ")
-    return " ".join(out.split())
+    """'AMAZON.COM INC' ↔ 'Amazon.com, Inc.' 같은 표기 차이를 흡수한다.
+
+    구두점을 전부 공백으로 바꾼 뒤 법인격 단어를 떼어 남는 실제 상호만 비교한다.
+    """
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in name.upper())
+    tokens = [t for t in cleaned.split() if t not in _CORPORATE_TOKENS]
+    return " ".join(tokens)
 
 
 def resolve_and_weight(holdings: list[dict]) -> None:
