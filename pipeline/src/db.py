@@ -474,6 +474,21 @@ class ScreenerDB:
             self.client.table("recommendation_history").insert(base).execute()
         print(f"  [history] {len(rows)}개 추천 기록 저장", flush=True)
 
+    def save_etf_holdings(self, rows: list[dict]) -> None:
+        """490590 구성종목을 통째로 갈아끼운다.
+
+        upsert만 하면 **구성에서 빠진 종목의 지난 행이 유령처럼 남는다** — 바로 그
+        "빠진 줄 모르고 계속 세는" 상황을 없애려고 만든 표라, 남으면 만든 의미가 없다
+        (db.py의 _replace_day가 날짜별 표에 하는 것과 같은 이유).
+        """
+        if not rows:
+            print("  ::warning::구성종목이 0개라 저장하지 않는다 (기존 값을 지우지 않음)", flush=True)
+            return
+        etf_ticker = rows[0]["etf_ticker"]
+        self.client.table("etf_holdings").delete().eq("etf_ticker", etf_ticker).execute()
+        _batch_upsert(self.client, "etf_holdings", rows)
+        print(f"  → {len(rows)}개 저장", flush=True)
+
     def count_price_bars(self, ticker: str, market: str) -> int:
         """stock_price_history에 이 종목의 일봉이 몇 개 있는지. 감시 종목 히스토리
         보완 대상을 고를 때 쓴다(정규 유니버스 밖 종목은 0일 수 있음)."""

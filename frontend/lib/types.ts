@@ -115,6 +115,20 @@ export interface TurnSignalAlertStock extends AlertStock {
   breakoutSince: string
 }
 
+/** 490590 구성종목이 바뀌었다는 알림 (2026-09-25 추가).
+ *
+ * 비중은 사용자가 증권사 앱에서 확인한 실측값을 코드에 적어 쓰는데, 리밸런싱되면
+ * 그 값이 조용히 낡는다 — 실제로 10개 중 5개가 어긋난 채로 신호등이 계산되고
+ * 있었다. 자동 수집(네이버)이 목록에 없는 종목을 보면 이걸로 알린다. */
+export interface HoldingsChangeAlert {
+  /** 자동 수집엔 있는데 지금 쓰는 목록엔 없는 종목 (예: "INTEL CORP (INTC)") */
+  newNames: string[]
+  /** 지금 쓰는 비중의 기준일 */
+  currentAsOf: string
+  /** 자동 수집이 마지막으로 확인한 날짜 */
+  checkedAt: string | null
+}
+
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */
 export interface FundamentalsRow {
   ticker: string

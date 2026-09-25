@@ -1,0 +1,30 @@
+name: ETF PDF Probe
+
+# 490590 **전체** 구성종목 소스 탐색. 네이버 상위 10개가 '주식 수 순'이라 비싼 종목
+# (AMD·MU·META·TSM·AVGO·MSFT = ETF의 24.8%)이 통째로 빠지는 것을 2026-09-25에 발견해
+# 만들었다. 작업 컨테이너는 네이버·KRX가 막혀 있어 여기서만 확인된다.
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'pipeline/src/etf_pdf_probe.py'
+      - '.github/workflows/etf_pdf_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      # KIS는 이미 등록된 키를 쓴다(미장 일봉에 쓰는 그 키).
+      - name: Probe ETF PDF sources
+        working-directory: pipeline
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+        run: python -m src.etf_pdf_probe

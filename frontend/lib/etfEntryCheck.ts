@@ -17,57 +17,56 @@
 import type { PriceHistoryRow } from './types'
 
 /**
- * 490590이 실제로 담고 있는 미국 개별주와 그 비중 (2026-09-16 사용자 실측).
+ * 490590이 실제로 담고 있는 미국 개별주로 A/B/C를 판정한다.
  *
- * **처음엔 오라클·알파벳·엔비디아·AMD·마벨 5개를 동등하게 세고 있었는데, 실제 구성과
- * 달랐다.** 증권사 앱에서 확인한 상위 10개는 이렇다:
+ * **구성은 2026-09-25에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
+ * ETF의 **89.13%**를 차지하고, 나머지는 NASDAQ100 선물(6.36%)·원화현금(6.34%)·
+ * RISE 미국AI밸류체인TOP3Plus(4.45%)와 매도한 콜옵션(음수)이다. TOP3Plus는 국내 상장
+ * ETF인 데다 이름 그대로 AI 상위 3개를 담아 MRVL·NVDA·GOOGL을 두 번 세게 되므로 뺐다.
  *
- *   NVDA 14.67 · GOOGL 13.97 · MRVL 10.46 · PLTR 5.80 · MSFT 5.70 ·
- *   META 5.06 · ANET 5.01 · AMZN 4.65 · RISE 미국AI밸류체인TOP3Plus 4.6 · TSM 4.3
+ * **네이버 자동 수집만 믿으면 안 되는 이유가 여기서 드러났다 (2026-09-25).**
+ * `etfTop10MajorConstituentAssets`는 비중 순이 아니라 **주식 수 순 상위 10개**다.
+ * 그래서 주가가 비싼 종목이 통째로 빠진다 — AMD($629)·MU($1,080)·META($778)·
+ * TSM($451)·AVGO($350)·MSFT($498) 여섯이 실제로는 **ETF의 24.82%**인데 목록에 없었다
+ * (네이버가 덮는 건 64.31%뿐). 반대로 오라클($140)·인텔($127)처럼 싼 종목은 주식 수가
+ * 많아 들어온다. 비중을 `주식 수 × 주가`로 계산하는 것 자체는 맞다 — 사용자 실측과
+ * 대조하니 6종목 전부 같은 배율(≈0.52)로 일치했다 — **틀린 건 계산이 아니라 목록이다.**
  *
- * 즉 **오라클과 AMD는 상위 10개에 아예 없었다**(사용자 지시로 제외). 그리고 14.67%짜리
- * 엔비디아와 5.01%짜리 아리스타를 똑같이 1표씩 세고 있었다 — 그래서 개수가 아니라
- * **비중**으로 센다.
- *
- * 상위 10개 중 둘은 못 넣는다:
- *  - **TSM(4.3%)**: `stock_price_history`에 0봉이다(db_probe 실측 2026-09-16). ADR이라
- *    정규 스크리닝 유니버스에 안 들어와 일봉이 수집되지 않는다.
- *  - **RISE 미국AI밸류체인TOP3Plus(4.6%)**: 국내 상장 ETF라 `market='KR'`로 조회해야
- *    하고(미국 주식 일봉으로는 안 나온다), 무엇보다 **이름 그대로 AI 상위 3개를 담은
- *    ETF**라 아래 NVDA·GOOGL·MRVL과 같은 종목을 두 번 세게 된다.
- *
- * 그래서 여기 합은 100%가 아니다(65.32%). 신호등은 **판정 가능한 비중을 분모로** 쓰므로
- * 빠진 종목이 점수를 조용히 끌어내리지 않는다(supportSignals.ts의 '판정 불가는 미충족으로
- * 세지 않는다'와 같은 원칙).
- *
- * **비중은 수집되는 값이 아니라 손으로 적어 둔 스냅샷이다** — ETF 리밸런싱으로 바뀌므로,
- * 화면이 기준일(`PROXY_WEIGHTS_AS_OF`)을 같이 보여준다. 자동 수집 경로는 아직 없다
- * (`pipeline/src/etf_holdings_probe.py`로 네이버 `etfAnalysis`가 살아 있는 것은 확인했다).
+ * 그래서 아래 목록은 "낡은 폴백"이 아니라 **지금 가장 정확한 기준**이고,
+ * `etf_holdings`(네이버 자동 수집)는 그 일부만 덮는 보조 수단이다.
  */
-export const PROXY_HOLDINGS = [
-  { ticker: 'NVDA', name: '엔비디아', weight: 14.67 },
-  { ticker: 'GOOGL', name: '알파벳', weight: 13.97 },
-  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 10.46 },
-  { ticker: 'PLTR', name: '팔란티어', weight: 5.8 },
-  { ticker: 'MSFT', name: '마이크로소프트', weight: 5.7 },
-  { ticker: 'META', name: '메타', weight: 5.06 },
-  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 5.01 },
-  { ticker: 'AMZN', name: '아마존', weight: 4.65 },
+export interface ProxyHolding {
+  ticker: string
+  name: string
+  /** 상위 구성 안에서의 상대 비중(%). DB 값은 '주식 수 × 종가'로 낸다. */
+  weight: number
+}
+
+export type ProxyTicker = string
+
+export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
+  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.39 },
+  { ticker: 'NVDA', name: '엔비디아', weight: 13.11 },
+  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.38 },
+  { ticker: 'INTC', name: '인텔', weight: 4.73 },
+  { ticker: 'AMD', name: 'AMD', weight: 4.59 },
+  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.39 },
+  { ticker: 'META', name: '메타 플랫폼스', weight: 4.08 },
+  // TSM은 ADR이라 정규 유니버스 밖이고 stock_price_history에 일봉이 없을 수 있다.
+  // 그래도 **목록에는 넣는다** — 빼면 분모에서 조용히 사라져 "ETF의 89%를 보고 있다"는
+  // 말이 거짓이 된다. 일봉이 없으면 화면이 '판정 불가'로 세고 그 사실을 밝힌다.
+  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.05 },
+  { ticker: 'VRT', name: '버티브 홀딩스', weight: 4.01 },
+  { ticker: 'AVGO', name: '브로드컴', weight: 3.99 },
+  { ticker: 'PLTR', name: '팔란티어 테크', weight: 3.98 },
+  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 3.95 },
+  { ticker: 'ORCL', name: '오라클', weight: 3.95 },
+  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.81 },
+  { ticker: 'MSFT', name: '마이크로소프트', weight: 3.72 },
 ] as const
 
-/** 위 비중을 확인한 날짜 — 리밸런싱으로 바뀌므로 화면이 이걸 같이 보여준다. */
-export const PROXY_WEIGHTS_AS_OF = '2026-09-16'
-
-export const PROXY_TICKERS = PROXY_HOLDINGS.map((h) => h.ticker) as unknown as readonly ProxyTicker[]
-export type ProxyTicker = (typeof PROXY_HOLDINGS)[number]['ticker']
-
-export const PROXY_NAMES = Object.fromEntries(
-  PROXY_HOLDINGS.map((h) => [h.ticker, h.name]),
-) as Record<ProxyTicker, string>
-
-export const PROXY_WEIGHTS = Object.fromEntries(
-  PROXY_HOLDINGS.map((h) => [h.ticker, h.weight]),
-) as Record<ProxyTicker, number>
+/** 위 폴백 비중을 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
+export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
 
 export const ETF_MARKET = 'KR' as const
 export const ETF_TICKER = '490590'
@@ -406,20 +405,22 @@ function trafficLightFor(weightShare: number): { emoji: string; label: string } 
 
 export function assessProxyBasket(
   barsByTicker: Record<ProxyTicker, PriceHistoryRow[] | undefined>,
+  holdings: readonly ProxyHolding[],
 ): ProxyBasketAssessment {
+  const tickers = holdings.map((h) => h.ticker)
   const perTicker = {} as Record<ProxyTicker, StageResult | null>
-  for (const t of PROXY_TICKERS) perTicker[t] = classifyStage(barsByTicker[t] ?? [])
+  for (const t of tickers) perTicker[t] = classifyStage(barsByTicker[t] ?? [])
 
-  const evaluated = PROXY_TICKERS.map((t) => perTicker[t]).filter((r): r is StageResult => r !== null)
+  const evaluated = tickers.map((t) => perTicker[t]).filter((r): r is StageResult => r !== null)
   const cStageCount = evaluated.filter((r) => r.stage === 'C').length
 
   // 분모는 ETF 전체 비중이 아니라 **판정 가능한 비중**이다 — 일봉이 없는 종목이 점수를
   // 조용히 끌어내리면 "데이터가 없다"와 "안 올랐다"가 구분되지 않는다.
   let evaluatedWeight = 0
   let cStageWeight = 0
-  for (const { ticker, weight } of PROXY_HOLDINGS) {
+  for (const { ticker, weight } of holdings) {
     const result = perTicker[ticker]
-    if (result === null) continue
+    if (result === null || result === undefined) continue
     evaluatedWeight += weight
     if (result.stage === 'C') cStageWeight += weight
   }
@@ -593,6 +594,7 @@ export function assessStopSignals(
   etfBars: PriceHistoryRow[],
   proxyBars: Record<ProxyTicker, PriceHistoryRow[] | undefined>,
   tenYearYield: { close: number; prevClose: number } | null,
+  holdings: readonly ProxyHolding[],
 ): StopSignal[] {
   const etfFreshLow = etfBars.length > 0 ? madeFreshLow(etfBars.map((b) => b.low)) : null
 
@@ -607,7 +609,7 @@ export function assessStopSignals(
   let proxyFreshLowWeight = 0
   let proxyEvaluatedWeight = 0
   let proxyEvaluated = 0
-  for (const { ticker, weight } of PROXY_HOLDINGS) {
+  for (const { ticker, weight } of holdings) {
     const bars = proxyBars[ticker]
     if ((bars?.length ?? 0) === 0) continue
     proxyEvaluated += 1
@@ -637,7 +639,7 @@ export function assessStopSignals(
     ? `직전 ${tenYearYield.prevClose.toFixed(2)}% → 최근 ${tenYearYield.close.toFixed(2)}%`
     : ''
 
-  const proxyStages = PROXY_TICKERS.map((t) => classifyStage(proxyBars[t] ?? []))
+  const proxyStages = holdings.map((h) => classifyStage(proxyBars[h.ticker] ?? []))
   const evaluatedStages = proxyStages.filter((s): s is StageResult => s !== null)
   const aStageCount = evaluatedStages.filter((s) => s.stage === 'A').length
   // "거의 전부가 하락"은 개수로 보는 게 맞다 — 비중으로 재면 큰 종목 둘만 버텨도

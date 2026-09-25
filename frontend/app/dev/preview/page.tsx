@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import type { EtfHoldingsResult } from '@/lib/queries/etfHoldings'
 import { DailyAlertPreview } from './DailyAlertPreview'
 import { CriteriaLegend } from '@/app/discover/DailyReport'
 import { Badge } from '@/components/ui/badge'
@@ -17,8 +18,8 @@ import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import { EtfWatchCard } from '@/components/EtfWatchCard'
 import {
-  PROXY_HOLDINGS,
-  PROXY_TICKERS,
+  FALLBACK_PROXY_HOLDINGS,
+  FALLBACK_PROXY_WEIGHTS_AS_OF,
   type ProxyBasketAssessment,
   type ProxyTicker,
   type StageResult,
@@ -429,9 +430,38 @@ function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<Stage
   }
 }
 
+// 미리보기는 자동 수집이 실패했을 때의 폴백 목록으로 그린다 — 화면 배치를 보는 것이
+// 목적이라 실제 구성과 같을 필요는 없다(아래에 '자동 수집 중' 케이스를 따로 둔다).
+const PREVIEW_HOLDINGS: EtfHoldingsResult = {
+  holdings: FALLBACK_PROXY_HOLDINGS,
+  asOf: FALLBACK_PROXY_WEIGHTS_AS_OF,
+  fromDb: false,
+  unresolved: [],
+  staleNames: [],
+  autoCheckedAt: '2026-09-25',
+}
+
+// 자동 수집이 정상인 상태. 종목·비중이 DB에서 온 경우로, 실제 운영에서 보게 될 모습이다.
+const PREVIEW_HOLDINGS_FROM_DB: EtfHoldingsResult = {
+  holdings: [
+    { ticker: 'MRVL', name: 'MARVELL TECHNOLOGY INC', weight: 27.6 },
+    { ticker: 'NVDA', name: 'NVIDIA CORP', weight: 24.97 },
+    { ticker: 'GOOGL', name: 'ALPHABET INC-CL A', weight: 23.02 },
+    { ticker: 'INTC', name: 'INTEL CORP', weight: 9.05 },
+    { ticker: 'PLTR', name: 'PALANTIR TECHNOLOGIES INC-A', weight: 7.96 },
+    { ticker: 'ORCL', name: 'ORACLE CORP', weight: 7.39 },
+  ],
+  asOf: '2026-09-25',
+  fromDb: true,
+  unresolved: ['VERTIV HOLDINGS CO-A'],
+  // 자동 점검이 목록에 없는 종목을 봤을 때 = 리밸런싱 알람이 떠야 하는 경우.
+  staleNames: ['SOME NEW HOLDING (XYZ)'],
+  autoCheckedAt: '2026-09-25',
+}
+
 function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketAssessment {
   const perTicker = {} as Record<ProxyTicker, StageResult | null>
-  for (const t of PROXY_TICKERS) {
+  for (const t of Object.keys(stages)) {
     perTicker[t] = etfStage(
       stages[t],
       stages[t] === 'A'
@@ -444,8 +474,8 @@ function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketA
   const cStageCount = Object.values(stages).filter((s) => s === 'C').length
   // 신호등은 개수가 아니라 **비중**으로 매긴다 — 픽스처도 실제 비중으로 계산해야
   // 화면에 뜨는 퍼센트가 진짜와 같은 방식으로 나온다.
-  const evaluatedWeight = PROXY_HOLDINGS.reduce((sum, h) => sum + h.weight, 0)
-  const cStageWeight = PROXY_HOLDINGS.reduce(
+  const evaluatedWeight = FALLBACK_PROXY_HOLDINGS.reduce((sum, h) => sum + h.weight, 0)
+  const cStageWeight = FALLBACK_PROXY_HOLDINGS.reduce(
     (sum, h) => (stages[h.ticker] === 'C' ? sum + h.weight : sum),
     0,
   )
@@ -460,7 +490,7 @@ function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketA
   return {
     perTicker,
     cStageCount,
-    evaluatedCount: PROXY_HOLDINGS.length,
+    evaluatedCount: Object.keys(stages).length,
     cStageWeightShare,
     cStageWeight,
     evaluatedWeight,
@@ -825,6 +855,7 @@ export default function PreviewPage() {
           490590 매수체크 — 관찰 단계 (뉴스는 실제 API 호출)
         </h2>
         <EtfWatchCard
+          holdings={PREVIEW_HOLDINGS}
           proxyAssessment={proxyBasket({ NVDA: 'C', GOOGL: 'C', MRVL: 'B', PLTR: 'B', MSFT: 'C', META: 'B', ANET: 'A', AMZN: 'B' })}
           etfLatest={{ close: 9850, date: '2026-09-12' }}
           hasEtfData
@@ -837,9 +868,27 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
+          490590 매수체크 — 리밸런싱 알람 (자동 점검이 목록에 없는 종목을 봤을 때.
+          파란 띠 경고가 떠야 정상)
+        </h2>
+        <EtfWatchCard
+          holdings={PREVIEW_HOLDINGS_FROM_DB}
+          proxyAssessment={proxyBasket({ MRVL: 'C', NVDA: 'C', GOOGL: 'B', INTC: 'B', PLTR: 'B', ORCL: 'A' })}
+          etfLatest={{ close: 9850, date: '2026-09-22' }}
+          hasEtfData
+          tranches={trancheSteps(1)}
+          stopSignals={STOP_SIGNALS_CALM}
+          tenYearYield={{ index_name: '미국10년물', date: '2026-09-22', close: 4.52, prev_close: 4.505, updated_at: '2026-09-22T21:30:00Z' }}
+          nasdaq={{ index_name: '나스닥', date: '2026-09-22', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-22T21:30:00Z' }}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
           490590 매수체크 — 매수 중단 신호 감지 (경고 배너 + 10년물이 “장중” 표기여야 정상)
         </h2>
         <EtfWatchCard
+          holdings={PREVIEW_HOLDINGS}
           proxyAssessment={proxyBasket({ NVDA: 'A', GOOGL: 'A', MRVL: 'A', PLTR: 'A', MSFT: 'B', META: 'A', ANET: 'A', AMZN: 'B' })}
           etfLatest={{ close: 8420, date: '2026-09-12' }}
           hasEtfData
@@ -855,6 +904,7 @@ export default function PreviewPage() {
           490590 매수체크 — 일봉 데이터 아직 없음 (감시 종목 추가 안내가 떠야 정상)
         </h2>
         <EtfWatchCard
+          holdings={PREVIEW_HOLDINGS}
           proxyAssessment={proxyBasket({ NVDA: 'B', GOOGL: 'B', MRVL: 'B', PLTR: 'B', MSFT: 'B', META: 'B', ANET: 'B', AMZN: 'B' })}
           etfLatest={null}
           hasEtfData={false}

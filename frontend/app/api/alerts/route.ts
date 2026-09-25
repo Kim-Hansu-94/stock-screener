@@ -1,7 +1,9 @@
 import { createServerSupabaseClient } from '@/lib/supabase'
 import { NEW_ENTRY_WINDOW_DAYS, TURN_SIGNAL_WINDOW_DAYS } from '@/lib/buySignal'
+import { getEtfHoldings } from '@/lib/queries/etfHoldings'
 import type {
-  AlertStock, Market, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock,
+  AlertStock, HoldingsChangeAlert, Market, NewEntryAlertStock, OpportunityAlertStock,
+  TurnSignalAlertStock,
 } from '@/lib/types'
 
 /**
@@ -119,5 +121,20 @@ export async function GET() {
     score: r.score, breakoutSince: r.breakout_since,
   }))
 
-  return Response.json({ pullback: [...pullbackKr, ...pullbackUs], opportunity, newEntries, turnSignals })
+  // 490590 구성종목이 바뀌었는지 — 종목 알림과 성격이 다르지만(내가 손봐야 하는
+  // 일이지 매매 신호가 아니다) **같은 팝업에 태워야 실제로 눈에 띈다.** 화면 안쪽에만
+  // 두면 그 화면을 열어야 보이고, 리밸런싱을 모르고 지나가는 것이 원래 문제였다.
+  const etfHoldings = await getEtfHoldings()
+  const holdingsChange: HoldingsChangeAlert | null =
+    etfHoldings.staleNames.length > 0
+      ? {
+          newNames: etfHoldings.staleNames,
+          currentAsOf: etfHoldings.asOf,
+          checkedAt: etfHoldings.autoCheckedAt,
+        }
+      : null
+
+  return Response.json({
+    pullback: [...pullbackKr, ...pullbackUs], opportunity, newEntries, turnSignals, holdingsChange,
+  })
 }

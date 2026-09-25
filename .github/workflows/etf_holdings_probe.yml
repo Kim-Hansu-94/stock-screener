@@ -23,9 +23,18 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 이름 → 티커 잇기 검산에 stock_universe(Supabase)와 주가(yfinance)가 필요해
+      # requests만으로는 부족하다.
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > pipeline/.env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> pipeline/.env
 
       - name: Probe ETF holdings sources
         working-directory: pipeline
+        env:
+          TQDM_DISABLE: '1'
         run: python -m src.etf_holdings_probe

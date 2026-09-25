@@ -76,7 +76,7 @@ def _walk_keys(payload: Any, prefix: str = "", depth: int = 0, out: list[str] | 
     return out
 
 
-def probe_one(label: str, url: str, params: dict[str, Any] | None) -> None:
+def probe_one(label: str, url: str, params: dict[str, Any] | None) -> list[dict] | None:
     print(f"\n{'─' * 78}\n▶ {label}\n  {url}", flush=True)
     try:
         if params:
@@ -87,7 +87,7 @@ def probe_one(label: str, url: str, params: dict[str, Any] | None) -> None:
             resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         print(f"  ✗ 요청 실패: {type(exc).__name__}: {exc}", flush=True)
-        return
+        return None
 
     print(f"  status={resp.status_code} · {len(resp.text):,}자", flush=True)
     # 400과 404는 전혀 다르다 — 400이면 주소는 맞고 조건만 모르는 상태다(trstk.py 교훈).
@@ -98,7 +98,7 @@ def probe_one(label: str, url: str, params: dict[str, Any] | None) -> None:
         payload = resp.json()
     except ValueError:
         print(f"  ✗ JSON 아님(봇 차단 페이지는 200+HTML로 온다): {body_snippet(resp)}", flush=True)
-        return
+        return None
 
     print("  ✓ JSON 수신 — 키 구조:", flush=True)
     for line in _walk_keys(payload):
@@ -117,13 +117,159 @@ def probe_one(label: str, url: str, params: dict[str, Any] | None) -> None:
 
     raw = json.dumps(payload, ensure_ascii=False)
     print(f"\n  원문 앞부분: {raw[:300]}{'...' if len(raw) > 300 else ''}", flush=True)
+    return holdings if isinstance(holdings, list) else None
+
+
+
+# ── 2단계: 이름 → 티커 + 비중 계산이 실제로 되는지 검산 ────────────────────
+# 네이버는 미국 종목의 itemCode를 **빈 문자열로** 준다(실측). 이름("NVIDIA CORP")밖에
+# 없으므로 stock_universe의 name과 이어야 하는데, 그게 실제로 붙는지 **먼저 확인**한다.
+# 붙지 않는 이름이 하나라도 있으면 그 종목이 조용히 빠져 신호등이 틀린 바구니로
+# 계산된다 — 지금 벌어지고 있는 일이 정확히 그것이다.
+
+# 네이버 표기와 stock_universe 표기가 다를 수 있어 손으로 못 박아 두는 별칭.
+# **비워두고 시작한다** — 프로브가 못 붙인 이름을 찍어 주면 그때 근거를 갖고 추가한다.
+_NAME_ALIASES: dict[str, str] = {}
+
+# 국내 상장 ETF는 이름 그대로 itemCode가 오고(485690), 미국 개별주와 성격이 달라
+# 여기서 갈라낸다 — 490590이 담은 RISE TOP3Plus는 NVDA·GOOGL·MRVL을 다시 담고 있어
+# 그대로 세면 같은 종목을 두 번 세게 된다(CLAUDE.md에 적힌 이유).
+def _is_domestic_etf(item: dict) -> bool:
+    return bool(str(item.get("itemCode") or "").strip())
+
+
+# 법인격·주식 종류를 나타내는 꼬리말. **단어 단위로** 떼어낸다 — 글자로 자르면
+# "ORACLE CORPORATION"에서 " CORP"를 빼 "ORACLE ORATION"이 된다(1차 검산에서 실제로
+# 이것 때문에 9개 중 4개를 못 이었다).
+_CORPORATE_TOKENS = {
+    "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC",
+    "SA", "NV", "AG", "CLASS", "CL", "A", "B", "C", "GROUP",
+}
+
+
+def _normalize(name: str) -> str:
+    """'AMAZON.COM INC' ↔ 'Amazon.com, Inc.' 같은 표기 차이를 흡수한다.
+
+    구두점을 전부 공백으로 바꾼 뒤 법인격 단어를 떼어 남는 실제 상호만 비교한다.
+    """
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in name.upper())
+    tokens = [t for t in cleaned.split() if t not in _CORPORATE_TOKENS]
+    return " ".join(tokens)
+
+
+def resolve_and_weight(holdings: list[dict]) -> None:
+    from dotenv import load_dotenv
+
+    from .db import ScreenerDB
+
+    print(f"\n{'─' * 78}\n▶ 이름 → 티커 잇기 + 비중 계산 검산", flush=True)
+    load_dotenv()  # 워크플로가 pipeline/.env에 자격증명을 써 둔다
+    db = ScreenerDB.from_env()
+
+    rows = []
+    start = 0
+    while True:
+        res = (
+            db.client.table("stock_universe")
+            .select("ticker, name")
+            .eq("market", "US")
+            .range(start, start + 999)
+            .execute()
+        )
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        start += 1000
+    print(f"  stock_universe US {len(rows)}개 로드", flush=True)
+
+    by_name: dict[str, str] = {}
+    for row in rows:
+        if row.get("name"):
+            by_name.setdefault(_normalize(row["name"]), row["ticker"])
+
+    resolved: list[tuple[str, str, int]] = []
+    unresolved: list[str] = []
+    for item in holdings:
+        name = item.get("itemName", "")
+        if _is_domestic_etf(item):
+            print(f"  · 국내 ETF라 제외: {name} ({item.get('itemCode')})", flush=True)
+            continue
+        count = int(str(item.get("stockCount", "0")).replace(",", "") or 0)
+        ticker = _NAME_ALIASES.get(name) or by_name.get(_normalize(name))
+        if ticker:
+            resolved.append((name, ticker, count))
+        else:
+            unresolved.append(name)
+
+    print(f"\n  이어짐 {len(resolved)}개 / 못 이음 {len(unresolved)}개", flush=True)
+    # **못 이은 이름은 사유를 추측하지 않는다** — DB에 실제로 어떤 표기로 들어 있는지
+    # 후보를 찍어 준다. 이게 없으면 "아마 이런 이름이겠지"로 별칭을 찍어 맞히게 되고,
+    # 틀리면 그 종목이 조용히 빠진 채로 배포된다(지금 MSFT·META가 그렇게 남아 있다).
+    for name in unresolved:
+        print(f"    ✗ {name}  (정규화: '{_normalize(name)}')", flush=True)
+        first = _normalize(name).split()[0] if _normalize(name).split() else ""
+        hits = [(r["ticker"], r["name"]) for r in rows
+                if r.get("name") and first and first in _normalize(r["name"])]
+        if hits:
+            print("        DB 후보:", flush=True)
+            for ticker, db_name in hits[:5]:
+                print(f"          {ticker:<7} '{db_name}'  → 정규화 '{_normalize(db_name)}'", flush=True)
+        else:
+            print(f"        DB에 '{first}'를 포함한 종목이 하나도 없다 — 유니버스 밖 종목이다", flush=True)
+
+    if not resolved:
+        print("  비중 계산 불가 — 이은 종목이 없다", flush=True)
+        return
+
+    # 비중 = 주식 수 × 주가. 절대 비중은 1좌(CU)당 수량이라 알 수 없지만, 신호등이
+    # 쓰는 건 **판정 대상끼리의 상대 비중**(cStageWeight / evaluatedWeight)이라
+    # 상대값만 맞으면 된다.
+    import yfinance as yf
+
+    tickers = [t for _, t, _ in resolved]
+    data = yf.download(tickers, period="5d", progress=False)["Close"]
+    values: list[tuple[str, str, int, float, float]] = []
+    for name, ticker, count in resolved:
+        try:
+            price = float(data[ticker].dropna().iloc[-1])
+        except Exception:  # noqa: BLE001
+            print(f"    ✗ {ticker} 종가 없음 — 비중에서 뺀다", flush=True)
+            continue
+        values.append((name, ticker, count, price, count * price))
+
+    total = sum(v[-1] for v in values)
+    print(f"\n  {'종목':<28} {'티커':<7} {'주식수':>8} {'종가':>10} {'상대비중':>9}", flush=True)
+    for name, ticker, count, price, value in sorted(values, key=lambda v: -v[-1]):
+        print(
+            f"  {name[:27]:<28} {ticker:<7} {count:>8,} {price:>10,.2f} {value / total * 100:>8.2f}%",
+            flush=True,
+        )
+
+    # 손으로 적어둔 2026-09-16 스냅샷과 **순서**를 비교한다. 비중 절대값은 분모가
+    # 달라(그땐 ETF 전체, 여긴 상위10) 그대로 못 맞추지만, 순서가 뒤집히면 계산이
+    # 틀렸다는 신호다.
+    old = {"NVDA": 14.67, "GOOGL": 13.97, "MRVL": 10.46, "PLTR": 5.80,
+           "MSFT": 5.70, "META": 5.06, "ANET": 5.01, "AMZN": 4.65}
+    print("\n  손으로 적어둔 2026-09-16 값과 대조(그때도 있던 종목만):", flush=True)
+    for name, ticker, count, price, value in sorted(values, key=lambda v: -v[-1]):
+        if ticker in old:
+            print(f"    {ticker:<7} 계산 {value / total * 100:>6.2f}%  ↔  당시 {old[ticker]:>5.2f}%", flush=True)
 
 
 def main() -> None:
     print(f"490590 구성종목·비중 소스 탐색 ({len(_CANDIDATES)}개 후보)")
     print("성패를 판정하지 않는다 — 어떤 키로 오는지 보고 수집기를 짜는 것이 목적이다.")
+    found: list[dict] | None = None
     for label, url, params in _CANDIDATES:
-        probe_one(label, url, params)
+        result = probe_one(label, url, params)
+        if result:
+            found = result
+    if found:
+        try:
+            resolve_and_weight(found)
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n  ✗ 검산 실패: {type(exc).__name__}: {exc}", flush=True)
     print(
         f"\n{'─' * 78}\n"
         "다음 단계: 비중 숫자가 실제로 찍힌 경로가 있으면 그 키 이름을 고정하지 말고\n"
