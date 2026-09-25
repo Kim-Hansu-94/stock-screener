@@ -52,9 +52,12 @@ export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
   { ticker: 'AMD', name: 'AMD', weight: 4.59 },
   { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.39 },
   { ticker: 'META', name: '메타 플랫폼스', weight: 4.08 },
-  // TSM은 ADR이라 정규 유니버스 밖이고 stock_price_history에 일봉이 없을 수 있다.
-  // 그래도 **목록에는 넣는다** — 빼면 분모에서 조용히 사라져 "ETF의 89%를 보고 있다"는
-  // 말이 거짓이 된다. 일봉이 없으면 화면이 '판정 불가'로 세고 그 사실을 밝힌다.
+  // TSM은 ADR이라 S&P500·NASDAQ100 어디에도 없어 2026-09-25까지 일봉이 0봉이었다.
+  // 그래도 목록에는 뒀다 — 빼면 분모에서 조용히 사라져 "ETF의 89%를 보고 있다"는 말이
+  // 거짓이 되므로. 지금은 pipeline/src/main.py의 us_price_tickers()가 이 목록(파이프라인
+  // 쪽 사본 etf_holdings.KNOWN_TICKERS)을 읽어 지수 밖 종목의 일봉도 같이 받는다.
+  // 그래도 '일봉 없음' 경로는 남겨둔다 — 새 종목이 들어온 날부터 3년치가 쌓이기까지는
+  // 비어 있고, 그때 조용히 분모에서 빠지면 "데이터가 없다"와 "안 올랐다"가 구분되지 않는다.
   { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.05 },
   { ticker: 'VRT', name: '버티브 홀딩스', weight: 4.01 },
   { ticker: 'AVGO', name: '브로드컴', weight: 3.99 },

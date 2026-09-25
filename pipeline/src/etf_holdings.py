@@ -49,6 +49,20 @@ from datetime import date, timedelta
 from .naver_api import find_first, get_json
 
 ETF_CODE = "490590"
+
+# 화면이 실제로 쓰는 구성종목 (frontend/lib/etfEntryCheck.ts의 FALLBACK_PROXY_HOLDINGS).
+# **둘은 손으로 맞춰야 하는 동기화 지점이다** — TS를 파싱해서 읽을 수도 있지만, 그러면
+# 파이프라인이 프론트 소스 구조에 묶여 리팩터링 한 번에 조용히 깨진다. 여기선 티커만
+# 알면 되고(비중은 화면 쪽만 쓴다) 목록이 바뀌는 일 자체가 드물어서 상수로 둔다.
+# 어긋나면 etf_holdings_main이 "바뀌었다"고 잘못 알릴 뿐이라 안전한 쪽으로 실패한다.
+#
+# 수집기가 아니라 여기(라이브러리)에 두는 이유: main.py도 이 목록을 읽는다.
+# 정규 유니버스(S&P500·NASDAQ100) 밖 종목의 일봉을 같이 받으려면 "화면이 어떤
+# 종목을 쓰는지"를 알아야 하고, 그걸 세 번째 상수로 또 적으면 어긋날 곳이 하나 더 는다.
+KNOWN_TICKERS = frozenset({
+    "MRVL", "NVDA", "GOOGL", "INTC", "AMD", "MU", "META", "TSM",
+    "VRT", "AVGO", "PLTR", "ANET", "ORCL", "AMZN", "MSFT",
+})
 _URL = f"https://m.stock.naver.com/api/stock/{ETF_CODE}/etfAnalysis"
 
 # 감싸는 키 이름은 예고 없이 바뀌므로 고정하지 않고 후보로 찾는다(naver_api 원칙).
