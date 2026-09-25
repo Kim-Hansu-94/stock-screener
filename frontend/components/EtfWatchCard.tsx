@@ -10,6 +10,7 @@ import {
   ETF_TICKER,
   MANUAL_STOP_CHECKS,
   describeTenYearYield,
+  judgedHoldings,
   summarizeStopSignals,
   type ProxyBasketAssessment,
   type StageResult,
@@ -101,6 +102,12 @@ export function EtfWatchCard({
   tenYearYield: MarketIndexSnapshotRow | null
   nasdaq: MarketIndexSnapshotRow | null
 }) {
+  // 판정에 쓰는 건 비중 상위 8개뿐이다(JUDGED_HOLDINGS_COUNT). holdings.holdings는
+  // ETF가 실제로 담고 있는 15개 전부라, 둘을 섞어 쓰면 "일봉 부족 7개"처럼 거짓말을 한다.
+  const judged = judgedHoldings(holdings.holdings)
+  const judgedWeight = judged.reduce((sum, h) => sum + h.weight, 0)
+  const heldWeight = holdings.holdings.reduce((sum, h) => sum + h.weight, 0)
+  const excluded = holdings.holdings.filter((h) => !judged.some((j) => j.ticker === h.ticker))
   const [done, setDone] = useState<boolean[]>([false, false, false, false])
   const [chartOpen, setChartOpen] = useState(false)
 
@@ -226,7 +233,7 @@ export function EtfWatchCard({
 
       <Section
         title="구성종목 신호등"
-        subtitle={`490590이 실제로 담고 있는 미국 주식 ${holdings.holdings.length}개 — 개수가 아니라 비중으로 가늠합니다.`}
+        subtitle={`비중 상위 ${judged.length}개로 판정합니다 — 개수가 아니라 비중으로 가늠합니다.`}
       >
         <div className="flex items-center gap-3">
           <span className="text-3xl leading-none">{proxyAssessment.trafficLight}</span>
@@ -243,8 +250,10 @@ export function EtfWatchCard({
         {/* 비중이 어느 시점 값인지 숨기지 않는다. 리밸런싱을 모르고 지나가 화면이
             조용히 틀린 바구니로 계산한 적이 있어서(2026-09-25) 만든 표시다. */}
         <p className="mt-1.5 text-xs text-muted-foreground/70">
-          구성 {holdings.asOf} 기준 · 미국 개별주 {holdings.holdings.length}종목이 ETF의{' '}
-          {holdings.holdings.reduce((sum, h) => sum + h.weight, 0).toFixed(2)}%를 차지합니다.
+          구성 {holdings.asOf} 기준 · 490590이 담은 미국 개별주는 {holdings.holdings.length}종목
+          (ETF의 {heldWeight.toFixed(2)}%)이고, 그중 <b>비중 상위 {judged.length}개
+          (ETF의 {judgedWeight.toFixed(2)}%)</b>로만 판정합니다. 아래 비중 %는 ETF 전체 기준이고,
+          신호등은 이 {judged.length}개 안에서의 비중으로 매깁니다.
           나머지는 NASDAQ100 선물·원화현금과, 여기서 뺀 RISE 미국AI밸류체인TOP3Plus
           (엔비디아·알파벳·마벨을 다시 담아 중복), 그리고 매도한 콜옵션입니다.
           {holdings.autoCheckedAt && (
@@ -265,15 +274,15 @@ export function EtfWatchCard({
             (비중 계산에서도 제외).
           </p>
         )}
-        {proxyAssessment.evaluatedCount < holdings.holdings.length && (
+        {proxyAssessment.evaluatedCount < judged.length && (
           <p className="mt-1.5 text-xs text-down">
-            {holdings.holdings.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다
+            {judged.length - proxyAssessment.evaluatedCount}개 종목은 일봉 부족으로 판정에서 빠졌습니다
             (빠진 종목은 비중 계산에서도 제외됩니다).
           </p>
         )}
 
         <div className="mt-3 space-y-2">
-          {holdings.holdings.map(({ ticker: t, name, weight }) => {
+          {judged.map(({ ticker: t, name, weight }) => {
             const r = proxyAssessment.perTicker[t]
             return (
               <div key={t} className="rounded-lg bg-muted/50 p-2.5">
@@ -309,6 +318,17 @@ export function EtfWatchCard({
             )
           })}
         </div>
+        {/* 판정에서 뺀 종목을 감추지 않는다. 개수만 적으면 "뭘 빼고 본 건지" 알 수 없고,
+            나중에 리밸런싱으로 순위가 바뀌었을 때 바뀐 줄도 모르게 된다. */}
+        {excluded.length > 0 && (
+          <p className="mt-2.5 text-xs text-muted-foreground/70">
+            판정에서 뺀 {excluded.length}종목 (합 {excluded.reduce((sum, h) => sum + h.weight, 0).toFixed(2)}%):{' '}
+            {excluded.map((h) => `${h.name} ${h.weight.toFixed(2)}%`).join(' · ')}.
+            비중이 서로 거의 같아 신호등을 흔들기만 하므로 제외했습니다 — 8위와 9위의
+            차이는 {Math.abs(judged[judged.length - 1].weight - excluded[0].weight).toFixed(2)}%p라
+            비중이 조금만 움직여도 자리가 바뀝니다.
+          </p>
+        )}
       </Section>
 
       <Section
