@@ -240,23 +240,25 @@ export function EtfWatchCard({
             <p className="text-xs text-muted-foreground">{proxyAssessment.trafficLabel}</p>
           </div>
         </div>
-        {/* 비중이 어느 시점·어느 출처의 값인지 숨기지 않는다. 리밸런싱을 모르고 지나가
-            화면이 조용히 틀린 바구니로 계산한 적이 있어서(2026-09-25) 만든 표시다. */}
+        {/* 비중이 어느 시점 값인지 숨기지 않는다. 리밸런싱을 모르고 지나가 화면이
+            조용히 틀린 바구니로 계산한 적이 있어서(2026-09-25) 만든 표시다. */}
         <p className="mt-1.5 text-xs text-muted-foreground/70">
-          {holdings.fromDb ? (
-            <>
-              구성 {holdings.asOf} 기준 (매일 네이버에서 자동 수집). 비중은 상위 구성
-              {' '}{holdings.holdings.length}종목 안에서의 상대 비중이며, ETF 전체에서 몇 %인지는
-              네이버가 상위 10개만 공개해 알 수 없습니다. 490590이 담은 RISE
-              미국AI밸류체인TOP3Plus는 엔비디아·알파벳·마벨과 겹쳐 중복이라 제외했습니다.
-            </>
-          ) : (
-            <span className="text-down">
-              ⚠ 자동 수집 값이 아직 없어 {holdings.asOf}에 손으로 적어둔 목록으로 계산했습니다 —
-              그 뒤 리밸런싱됐다면 실제 구성과 다를 수 있습니다.
-            </span>
+          구성 {holdings.asOf} 기준 · 미국 개별주 {holdings.holdings.length}종목이 ETF의{' '}
+          {holdings.holdings.reduce((sum, h) => sum + h.weight, 0).toFixed(2)}%를 차지합니다.
+          나머지는 NASDAQ100 선물·원화현금과, 여기서 뺀 RISE 미국AI밸류체인TOP3Plus
+          (엔비디아·알파벳·마벨을 다시 담아 중복), 그리고 매도한 콜옵션입니다.
+          {holdings.autoCheckedAt && (
+            <> 자동 점검은 {holdings.autoCheckedAt}까지 돌았습니다.</>
           )}
         </p>
+        {/* 자동 수집(네이버)은 상위 10개를 **주식 수 순**으로만 줘서 64%밖에 못 덮는다.
+            그래서 비중 계산에는 안 쓰고, "새 종목이 보인다"는 알람으로만 쓴다. */}
+        {holdings.staleNames.length > 0 && (
+          <p className="mt-1.5 rounded-md border-l-2 border-down bg-muted/50 p-2 text-xs text-down">
+            ⚠ 자동 점검에서 목록에 없는 종목이 보입니다: {holdings.staleNames.join(', ')}.
+            리밸런싱된 것 같으니 증권사 앱의 구성종목 화면을 확인해 주세요.
+          </p>
+        )}
         {holdings.unresolved.length > 0 && (
           <p className="mt-1.5 text-xs text-down">
             {holdings.unresolved.join(', ')}는 종목을 특정하지 못해 판정에서 빠졌습니다

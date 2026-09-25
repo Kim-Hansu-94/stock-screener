@@ -437,6 +437,8 @@ const PREVIEW_HOLDINGS: EtfHoldingsResult = {
   asOf: FALLBACK_PROXY_WEIGHTS_AS_OF,
   fromDb: false,
   unresolved: [],
+  staleNames: [],
+  autoCheckedAt: '2026-09-25',
 }
 
 // 자동 수집이 정상인 상태. 종목·비중이 DB에서 온 경우로, 실제 운영에서 보게 될 모습이다.
@@ -449,9 +451,12 @@ const PREVIEW_HOLDINGS_FROM_DB: EtfHoldingsResult = {
     { ticker: 'PLTR', name: 'PALANTIR TECHNOLOGIES INC-A', weight: 7.96 },
     { ticker: 'ORCL', name: 'ORACLE CORP', weight: 7.39 },
   ],
-  asOf: '2026-09-22',
+  asOf: '2026-09-25',
   fromDb: true,
   unresolved: ['VERTIV HOLDINGS CO-A'],
+  // 자동 점검이 목록에 없는 종목을 봤을 때 = 리밸런싱 알람이 떠야 하는 경우.
+  staleNames: ['SOME NEW HOLDING (XYZ)'],
+  autoCheckedAt: '2026-09-25',
 }
 
 function proxyBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>): ProxyBasketAssessment {
@@ -863,8 +868,8 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          490590 매수체크 — 구성종목 자동 수집 중 (폴백 경고가 없고 기준일 2026-09-22가
-          떠야 정상. 버티브는 ‘특정 못 함’으로 따로 안내돼야 한다)
+          490590 매수체크 — 리밸런싱 알람 (자동 점검이 목록에 없는 종목을 봤을 때.
+          파란 띠 경고가 떠야 정상)
         </h2>
         <EtfWatchCard
           holdings={PREVIEW_HOLDINGS_FROM_DB}

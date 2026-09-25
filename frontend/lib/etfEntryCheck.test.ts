@@ -145,14 +145,17 @@ describe('assessProxyBasket', () => {
   // 2026-09-25: 구성종목이 DB에서 오게 바뀌었다. 코드에 박힌 목록이 아니라
   // **넘겨받은 목록**으로 계산해야, 리밸런싱이 실제로 화면에 반영된다.
   it('코드 상수가 아니라 넘겨받은 구성종목으로 계산한다', () => {
+    // 지금 목록에 **없는** 티커를 골라야 "상수를 안 쓴다"를 실제로 검증한다.
+    // (INTC·ORCL은 2026-09-25에 실측 목록으로 들어와서 더는 쓸 수 없다.)
     const rebalanced = [
-      { ticker: 'INTC', name: 'INTEL CORP', weight: 70 },
-      { ticker: 'ORCL', name: 'ORACLE CORP', weight: 30 },
+      { ticker: 'AAPL', name: '애플', weight: 70 },
+      { ticker: 'CRM', name: '세일즈포스', weight: 30 },
     ]
-    const assessment = assessProxyBasket(basket({ INTC: 'C', ORCL: 'A' }), rebalanced)
+    const assessment = assessProxyBasket(basket({ AAPL: 'C', CRM: 'A' }), rebalanced)
 
-    // 폴백 목록에는 INTC·ORCL이 아예 없다 — 그걸 쓰고 있었다면 0개가 판정됐을 것이다.
-    expect(FALLBACK_PROXY_HOLDINGS.some((h) => h.ticker === 'INTC')).toBe(false)
+    // 상수 목록에 없는 종목이다 — 그걸 쓰고 있었다면 0개가 판정됐을 것이다.
+    expect(FALLBACK_PROXY_HOLDINGS.some((h) => h.ticker === 'AAPL')).toBe(false)
+    expect(FALLBACK_PROXY_HOLDINGS.some((h) => h.ticker === 'CRM')).toBe(false)
     expect(assessment.evaluatedCount).toBe(2)
     expect(assessment.cStageWeightShare).toBeCloseTo(0.7, 6)
   })
