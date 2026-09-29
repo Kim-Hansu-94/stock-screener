@@ -1,8 +1,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase'
 import { NEW_ENTRY_WINDOW_DAYS, TURN_SIGNAL_WINDOW_DAYS } from '@/lib/buySignal'
 import { getEtfHoldings } from '@/lib/queries/etfHoldings'
+import { WEIGHTS_RECHECK_DAYS, todayInSeoul, weightsRecheck } from '@/lib/etfEntryCheck'
 import type {
   AlertStock, HoldingsChangeAlert, Market, NewEntryAlertStock, OpportunityAlertStock,
+  WeightsRecheckAlert,
   TurnSignalAlertStock,
 } from '@/lib/types'
 
@@ -126,15 +128,31 @@ export async function GET() {
   // 두면 그 화면을 열어야 보이고, 리밸런싱을 모르고 지나가는 것이 원래 문제였다.
   const etfHoldings = await getEtfHoldings()
   const holdingsChange: HoldingsChangeAlert | null =
-    etfHoldings.staleNames.length > 0
+    etfHoldings.staleNames.length > 0 || etfHoldings.droppedNames.length > 0
       ? {
           newNames: etfHoldings.staleNames,
+          droppedNames: etfHoldings.droppedNames,
           currentAsOf: etfHoldings.asOf,
           checkedAt: etfHoldings.autoCheckedAt,
         }
       : null
 
+  // 아무 일도 안 일어났어도 주기적으로 실측 비중을 다시 받아야 한다 — 자동 수집은
+  // 판정 8개 중 AMD·마이크론·메타·TSMC(비중 27.7%)를 아예 못 보므로, 그 넷이
+  // 바뀌면 위 알람으로는 영영 알 수 없다. 사람이 증권사 앱을 보는 수밖에 없다.
+  const recheck = weightsRecheck(etfHoldings.asOf, todayInSeoul())
+  const weightsReminder: WeightsRecheckAlert | null =
+    recheck?.due
+      ? {
+          daysSince: recheck.daysSince,
+          asOf: etfHoldings.asOf,
+          everyDays: WEIGHTS_RECHECK_DAYS,
+          bucket: recheck.bucket,
+        }
+      : null
+
   return Response.json({
-    pullback: [...pullbackKr, ...pullbackUs], opportunity, newEntries, turnSignals, holdingsChange,
+    pullback: [...pullbackKr, ...pullbackUs], opportunity, newEntries, turnSignals,
+    holdingsChange, weightsReminder,
   })
 }

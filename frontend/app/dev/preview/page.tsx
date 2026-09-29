@@ -438,6 +438,7 @@ const PREVIEW_HOLDINGS: EtfHoldingsResult = {
   fromDb: false,
   unresolved: [],
   staleNames: [],
+  droppedNames: [],
   autoCheckedAt: '2026-09-25',
 }
 
@@ -456,6 +457,7 @@ const PREVIEW_HOLDINGS_FROM_DB: EtfHoldingsResult = {
   unresolved: ['VERTIV HOLDINGS CO-A'],
   // 자동 점검이 목록에 없는 종목을 봤을 때 = 리밸런싱 알람이 떠야 하는 경우.
   staleNames: ['SOME NEW HOLDING (XYZ)'],
+  droppedNames: [],
   autoCheckedAt: '2026-09-25',
 }
 

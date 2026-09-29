@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { WEIGHTS_RECHECK_DAYS } from '@/lib/etfEntryCheck'
 import { DailyAlertModal } from '@/components/DailyAlertModal'
 import type {
   AlertStock, HoldingsChangeAlert, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock,
+  WeightsRecheckAlert,
 } from '@/lib/types'
 
 const PULLBACK_FIXTURE: AlertStock[] = [
@@ -25,8 +27,18 @@ const TURN_SIGNAL_FIXTURE: TurnSignalAlertStock[] = [
 
 const HOLDINGS_CHANGE_FIXTURE: HoldingsChangeAlert = {
   newNames: ['INTEL CORP (INTC)', 'VERTIV HOLDINGS CO-A (VRT)'],
+  // 새로 보인 종목과 안 보이게 된 종목이 **같이** 떴을 때의 모양을 본다 — 둘은
+  // 서로 다른 상황이라 문구도 다르고, 한 팝업에 겹쳐 뜰 수 있다.
+  droppedNames: ['ORACLE CORP (ORCL)'],
   currentAsOf: '2026-09-25',
   checkedAt: '2026-09-30',
+}
+
+const WEIGHTS_REMINDER_FIXTURE: WeightsRecheckAlert = {
+  daysSince: 4,
+  asOf: '2026-09-25',
+  everyDays: WEIGHTS_RECHECK_DAYS,
+  bucket: 2,
 }
 
 /** DailyAlertModal은 onClose 콜백을 받는 클라이언트 컴포넌트라, 서버 컴포넌트인
@@ -51,6 +63,7 @@ export function DailyAlertPreview() {
         newEntries={NEW_ENTRY_FIXTURE}
         turnSignals={TURN_SIGNAL_FIXTURE}
         holdingsChange={HOLDINGS_CHANGE_FIXTURE}
+        weightsReminder={WEIGHTS_REMINDER_FIXTURE}
         open={open}
         onClose={() => setOpen(false)}
       />
