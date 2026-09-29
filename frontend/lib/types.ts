@@ -121,12 +121,32 @@ export interface TurnSignalAlertStock extends AlertStock {
  * 그 값이 조용히 낡는다 — 실제로 10개 중 5개가 어긋난 채로 신호등이 계산되고
  * 있었다. 자동 수집(네이버)이 목록에 없는 종목을 보면 이걸로 알린다. */
 export interface HoldingsChangeAlert {
-  /** 자동 수집엔 있는데 지금 쓰는 목록엔 없는 종목 (예: "INTEL CORP (INTC)") */
+  /** 자동 수집엔 있는데 지금 쓰는 목록에 없는 종목 (예: "INTEL CORP (INTC)") */
   newNames: string[]
+  /**
+   * 어제까지 수집에 잡히던 목록 속 종목이 오늘 안 잡힌 것.
+   * **"ETF에서 빠졌다"가 아니다** — 네이버가 주식 수 순 상위 10개만 주므로 그대로
+   * 담고 있어도 11위로 밀리면 사라진다. 화면 문구도 그렇게 쓴다.
+   */
+  droppedNames: string[]
   /** 지금 쓰는 비중의 기준일 */
   currentAsOf: string
   /** 자동 수집이 마지막으로 확인한 날짜 */
   checkedAt: string | null
+}
+
+/** 실측 비중을 다시 확인할 때가 됐다는 알림 (frontend/lib/etfEntryCheck.ts의
+ *  weightsRecheck). 구성 변경과 달리 **아무 일도 안 일어났어도** 주기적으로 뜬다 —
+ *  자동 수집이 판정 8개 중 4개(비중 27.7%)를 아예 못 보기 때문이다. */
+export interface WeightsRecheckAlert {
+  /** 실측 비중 기준일로부터 지난 일수 */
+  daysSince: number
+  /** 실측 비중 기준일 */
+  asOf: string
+  /** 다시 확인하는 주기(일) — 문구에 그대로 쓴다 */
+  everyDays: number
+  /** 같은 알림을 반복해 띄우지 않게 팝업이 쓰는 칸 번호 */
+  bucket: number
 }
 
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */

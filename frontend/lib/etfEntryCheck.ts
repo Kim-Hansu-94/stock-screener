@@ -93,6 +93,72 @@ export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
 export const JUDGED_HOLDINGS_COUNT = 8
 
 /**
+ * 실측 비중을 며칠마다 다시 확인할지 (2026-09-29, 사용자 요청: "2일에 한번씩").
+ *
+ * 왜 사람한테 물어야 하는가 — 자동 수집(네이버)은 **주식 수 순 상위 10개**만 줘서
+ * 판정 8개 중 AMD·마이크론·메타·TSMC를 아예 못 본다(비중으로 27.7%가 사각지대).
+ * 그 넷이 바뀌어도 알람은 울리지 않으므로, 주기적으로 사람이 증권사 앱을 봐야 한다.
+ */
+export const WEIGHTS_RECHECK_DAYS = 2
+
+export interface WeightsRecheck {
+  /** 실측 비중을 확인한 날로부터 며칠 지났나 */
+  daysSince: number
+  /** 다시 확인할 때가 됐나 */
+  due: boolean
+  /**
+   * 팝업이 "이 알림을 이미 봤나"를 가리는 데 쓰는 칸 번호.
+   *
+   * 날짜로 서명하면 한 번 닫아도 **다음 날 또** 뜨고, 고정 문자열로 서명하면 한 번
+   * 닫은 뒤 **영영 안 뜬다**. 둘 다 "2일에 한 번"이 아니다. 지난 일수를
+   * WEIGHTS_RECHECK_DAYS로 나눈 몫을 쓰면 닫아도 딱 그 주기마다 다시 뜬다.
+   */
+  bucket: number
+}
+
+/**
+ * 실측 비중이 얼마나 묵었는지. 날짜는 둘 다 `YYYY-MM-DD`.
+ *
+ * 시차로 하루가 밀리지 않게 UTC 자정으로 고정해 뺀다(현지 시간으로 파싱하면
+ * 서머타임·시간대에 따라 경계에서 하루가 어긋난다). 형식이 아니면 null을 돌려
+ * **알림을 띄우지 않는다** — 날짜를 못 읽는 것을 "확인할 때가 됐다"로 읽으면
+ * 근거 없이 매번 조르게 된다.
+ */
+/**
+ * 오늘 날짜(한국)를 `YYYY-MM-DD`로. 서버에서 부르므로 표준시를 고정해야 한다 —
+ * Vercel은 UTC로 도니까 그냥 쓰면 한국 기준 하루가 밀린다.
+ * `en-CA` 로캘이 곧 `YYYY-MM-DD` 형식이다.
+ */
+export function todayInSeoul(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+export function weightsRecheck(asOf: string, today: string): WeightsRecheck | null {
+  const parse = (v: string): number | null => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+    const ms = Date.parse(`${v}T00:00:00Z`)
+    return Number.isNaN(ms) ? null : ms
+  }
+  const from = parse(asOf)
+  const to = parse(today)
+  if (from === null || to === null) return null
+
+  const daysSince = Math.floor((to - from) / 86_400_000)
+  // 기준일이 미래면(시계가 어긋났거나 손으로 잘못 적었으면) 조르지 않는다.
+  if (daysSince < 0) return null
+  return {
+    daysSince,
+    due: daysSince >= WEIGHTS_RECHECK_DAYS,
+    bucket: Math.floor(daysSince / WEIGHTS_RECHECK_DAYS),
+  }
+}
+
+/**
  * 판정 대상 = 비중 상위 `JUDGED_HOLDINGS_COUNT`개.
  *
  * 원본 배열을 건드리지 않고(readonly 입력) 비중 내림차순으로 정렬해 자른다. 목록이

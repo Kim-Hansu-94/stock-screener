@@ -11,6 +11,9 @@ import {
   MANUAL_STOP_CHECKS,
   FALLBACK_PROXY_HOLDINGS,
   JUDGED_HOLDINGS_COUNT,
+  WEIGHTS_RECHECK_DAYS,
+  weightsRecheck,
+  todayInSeoul,
   judgedHoldings,
   type ProxyTicker,
   type StopSignal,
@@ -421,5 +424,49 @@ describe('judgedHoldings', () => {
     expect(judgedHoldings(tied).map((h) => h.ticker)).toEqual([
       'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7',
     ])
+  })
+})
+
+describe('weightsRecheck', () => {
+  it('2일이 지나면 다시 확인할 때가 된다', () => {
+    expect(weightsRecheck('2026-09-25', '2026-09-26')?.due).toBe(false)
+    expect(weightsRecheck('2026-09-25', '2026-09-27')?.due).toBe(true)
+    expect(weightsRecheck('2026-09-25', '2026-09-29')?.daysSince).toBe(4)
+  })
+
+  it('칸 번호가 2일마다 하나씩 올라간다', () => {
+    // 팝업이 이걸로 "이미 본 알림"을 가린다 — 같은 칸이면 안 뜨고, 칸이 바뀌면 다시 뜬다.
+    // 그래서 이 값이 곧 "2일에 한 번"이라는 주기 그 자체다.
+    const buckets = ['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01']
+      .map((d) => weightsRecheck('2026-09-25', d)?.bucket)
+
+    expect(buckets).toEqual([1, 1, 2, 2, 3])
+    expect(WEIGHTS_RECHECK_DAYS).toBe(2)
+  })
+
+  it('달과 해를 넘어가도 일수를 맞게 센다', () => {
+    expect(weightsRecheck('2026-09-29', '2026-10-01')?.daysSince).toBe(2)
+    expect(weightsRecheck('2026-12-31', '2027-01-02')?.daysSince).toBe(2)
+  })
+
+  it('날짜를 못 읽으면 조르지 않는다', () => {
+    // 못 읽은 것을 "확인할 때가 됐다"로 읽으면 근거 없이 매번 알림이 뜬다.
+    expect(weightsRecheck('', '2026-09-29')).toBeNull()
+    expect(weightsRecheck('2026-09-25', 'oops')).toBeNull()
+    expect(weightsRecheck('2026/09/25', '2026-09-29')).toBeNull()
+  })
+
+  it('기준일이 미래면 조르지 않는다', () => {
+    expect(weightsRecheck('2026-10-05', '2026-09-29')).toBeNull()
+  })
+})
+
+describe('todayInSeoul', () => {
+  it('UTC 자정 직후에도 한국 날짜를 준다', () => {
+    // Vercel은 UTC로 도니까 표준시를 안 고정하면 한국 기준 하루가 밀린다.
+    // 9/29 00:30 UTC = 9/29 09:30 KST (같은 날), 9/28 16:00 UTC = 9/29 01:00 KST (다음 날).
+    expect(todayInSeoul(new Date('2026-09-29T00:30:00Z'))).toBe('2026-09-29')
+    expect(todayInSeoul(new Date('2026-09-28T16:00:00Z'))).toBe('2026-09-29')
+    expect(todayInSeoul(new Date('2026-09-28T14:59:00Z'))).toBe('2026-09-28')
   })
 })
