@@ -1,0 +1,27 @@
+name: MOLIT Connectivity Probe
+
+# 부동산 수집이 국토부 서버 연결 시간 초과로 격주에 한 번꼴로 실패하는 원인을 가리는 진단.
+# 작업용 컨테이너는 apis.data.go.kr로 나가는 길이 실제 실행 환경과 달라서 거기서는 재볼 수 없다.
+# (kr_index_probe.yml과 같은 이유·같은 방식.) API 키를 쓰지 않는다.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'pipeline/src/molit_probe.py'
+      - '.github/workflows/molit_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Probe apis.data.go.kr connectivity
+        working-directory: pipeline
+        run: python -m src.molit_probe
