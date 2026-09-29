@@ -3,7 +3,13 @@ name: MOLIT Connectivity Probe
 # 부동산 수집이 국토부 서버 연결 시간 초과로 격주에 한 번꼴로 실패하는 원인을 가리는 진단.
 # 작업용 컨테이너는 apis.data.go.kr로 나가는 길이 실제 실행 환경과 달라서 거기서는 재볼 수 없다.
 # (kr_index_probe.yml과 같은 이유·같은 방식.) API 키를 쓰지 않는다.
+#
+# 임시 표본 수집: 30분마다 돌려 '실패했을 때 실행 서버 IP와 시각'을 잡는다. 실패가 격주에
+# 한 번꼴이라 한 번 재서는 원인을 가릴 수 없다. 원인이 가려지면 아래 schedule 블록을 지울 것.
+# (schedule은 기본 브랜치의 워크플로만 돈다.) 국토부 연결 실패 시에만 빨간 X가 된다.
 on:
+  schedule:
+    - cron: '7,37 * * * *'
   workflow_dispatch:
   push:
     paths:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import socket
 import ssl
+import sys
 import time
 import urllib.request
 
@@ -55,14 +56,16 @@ def _try_connect(ip: str, host: str) -> tuple[bool, float, str]:
         return False, time.monotonic() - start, f"{type(e).__name__}: {e}"
 
 
-def _probe_host(host: str) -> None:
+def _probe_host(host: str) -> bool:
+    """모든 주소에서 모든 시도가 붙었으면 True."""
     print(f"\n=== {host} ===", flush=True)
     try:
         ips = _resolve(host)
     except Exception as e:  # noqa: BLE001
         print(f"  DNS 조회 실패: {type(e).__name__}: {e}", flush=True)
-        return
+        return False
     print(f"  DNS가 돌려준 주소 {len(ips)}개: {ips}", flush=True)
+    all_ok = True
     for ip in ips:
         results = [_try_connect(ip, host) for _ in range(_TRIES)]
         ok = [r for r in results if r[0]]
@@ -72,14 +75,21 @@ def _probe_host(host: str) -> None:
         print(line, flush=True)
         fails = [r for r in results if not r[0]]
         if fails:
+            all_ok = False
             print(f"    실패 사유 예: {fails[0][2]}", flush=True)
+    return all_ok
 
 
 def main() -> None:
     print(f"이 실행 서버의 공인 IP: {_public_ip()}", flush=True)
-    _probe_host(_TARGET)
+    target_ok = _probe_host(_TARGET)
     for host in _CONTROLS:
         _probe_host(host)
+    if not target_ok:
+        # 실패를 놓치지 않게 빨간 X로 남긴다 — 목적이 '언제, 어떤 IP에서 실패하나'를 잡는 것이다.
+        # 대조 사이트(DART·네이버)의 성패는 종료 코드에 반영하지 않는다(참고용).
+        print("::error::국토부(apis.data.go.kr) 연결 실패 — 위 공인 IP와 시각을 기록할 것")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
