@@ -1,0 +1,34 @@
+name: MOLIT Probe via Vercel (Seoul)
+
+# 임시 진단. Vercel 서울(icn1) 미리보기 배포의 /api/molit-probe를 불러 그 결과를 로그에 남긴다.
+# 작업용 컨테이너는 vercel.app으로 나가는 길이 막혀 있어(CONNECT 403) 결과를 직접 읽을 수 없다.
+# 목적: 국토부(apis.data.go.kr)가 GitHub 실행 서버 일부에서만 안 열리는 문제(2026-09-29)를
+# 고정된 다른 곳(Vercel 서울)에서는 피할 수 있는지 본다. 원인이 가려지면 이 파일도 지울 것.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/molit_vercel_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Call the Seoul preview probe
+        env:
+          URL: https://stock-screener-git-claude-friendly-hamilton-svqsjj-kimhansu.vercel.app/api/molit-probe
+        run: |
+          # 배포가 끝나기 전에는 404가 오므로 JSON이 올 때까지 기다린다(최대 약 10분).
+          for i in $(seq 1 40); do
+            code=$(curl -sS -m 60 -o body.txt -w '%{http_code}' "$URL" || echo 000)
+            if grep -q '"vercelRegion"' body.txt 2>/dev/null; then
+              echo "시도 $i: HTTP $code — 응답 받음"
+              python3 -m json.tool body.txt
+              exit 0
+            fi
+            echo "시도 $i: HTTP $code — $(head -c 200 body.txt | tr '\n' ' ')"
+            sleep 15
+          done
+          echo "::error::10분 안에 진단 응답을 받지 못함 (마지막 HTTP $code) — 위 본문을 확인할 것"
+          exit 1
