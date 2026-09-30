@@ -137,7 +137,8 @@ export interface HoldingsChangeAlert {
 
 /** 실측 비중을 다시 확인할 때가 됐다는 알림 (frontend/lib/etfEntryCheck.ts의
  *  weightsRecheck). 구성 변경과 달리 **아무 일도 안 일어났어도** 주기적으로 뜬다 —
- *  자동 수집이 판정 8개 중 4개(비중 27.7%)를 아예 못 보기 때문이다. */
+ *  자동 수집이 판정 종목 일부를 아예 못 보기 때문이다(어느 종목·몇 %인지는 그날
+ *  수집 결과에 달렸으므로 getEtfHoldings가 계산해 blindNames로 넘긴다). */
 export interface WeightsRecheckAlert {
   /** 실측 비중 기준일로부터 지난 일수 */
   daysSince: number
@@ -147,6 +148,10 @@ export interface WeightsRecheckAlert {
   everyDays: number
   /** 같은 알림을 반복해 띄우지 않게 팝업이 쓰는 칸 번호 */
   bucket: number
+  /** 판정 대상인데 자동 점검이 못 보는 종목 이름. 비어 있으면 화면이 그 줄을 숨긴다. */
+  blindNames: string[]
+  /** 위 종목들이 판정 비중에서 차지하는 몫(%) */
+  blindWeightPct: number
 }
 
 /** 실적 요약 — pipeline/src/fundamentals.py가 30일 주기로 갱신 */

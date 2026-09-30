@@ -39,6 +39,9 @@ const WEIGHTS_REMINDER_FIXTURE: WeightsRecheckAlert = {
   asOf: '2026-09-25',
   everyDays: WEIGHTS_RECHECK_DAYS,
   bucket: 2,
+  // 자동 점검이 못 보는 판정 종목 — 상수가 아니라 그날 수집 결과에서 나온다.
+  blindNames: ['AMD', '마이크론 테크놀로지', 'TSMC (ADR)'],
+  blindWeightPct: 21.2,
 }
 
 /** DailyAlertModal은 onClose 콜백을 받는 클라이언트 컴포넌트라, 서버 컴포넌트인

@@ -444,11 +444,15 @@ describe('거래량 조건은 방향을 본다', () => {
 
 describe('judgedHoldings', () => {
   it('비중 상위 8개만 남긴다', () => {
+    // **이 목록은 리밸런싱으로 바뀌는 게 정상이다.** 그래도 박아두는 이유는, 비중을
+    // 갱신할 때 "판정 대상이 달라졌다"는 사실을 사람이 반드시 한 번 보고 지나가게
+    // 하려는 것이다 — 실제로 2026-09-30 갱신에서 이 테스트가 META 탈락·PLTR 진입을
+    // 잡아냈다(8위·9위 차이가 0.08%p라 조용히 바뀐다).
     const picked = judgedHoldings(FALLBACK_PROXY_HOLDINGS)
 
     expect(picked).toHaveLength(JUDGED_HOLDINGS_COUNT)
     expect(picked.map((h) => h.ticker)).toEqual([
-      'MRVL', 'NVDA', 'GOOGL', 'INTC', 'AMD', 'MU', 'META', 'TSM',
+      'MRVL', 'NVDA', 'GOOGL', 'AMD', 'INTC', 'MU', 'TSM', 'PLTR',
     ])
   })
 
@@ -529,5 +533,24 @@ describe('todayInSeoul', () => {
     expect(todayInSeoul(new Date('2026-09-29T00:30:00Z'))).toBe('2026-09-29')
     expect(todayInSeoul(new Date('2026-09-28T16:00:00Z'))).toBe('2026-09-29')
     expect(todayInSeoul(new Date('2026-09-28T14:59:00Z'))).toBe('2026-09-28')
+  })
+})
+
+describe('구성종목 실측값 (2026-09-30 기준)', () => {
+  it('15종목이고 합이 90.12%다', () => {
+    // 증권사 앱 캡처에서 읽은 값. 합이 100%가 아닌 것은 나머지가 원화현금(5.32%)·
+    // NASDAQ100 선물(5.28%)·RISE TOP3Plus(4.48%)·매도 콜옵션이기 때문이다.
+    const sum = FALLBACK_PROXY_HOLDINGS.reduce((acc, h) => acc + h.weight, 0)
+
+    expect(FALLBACK_PROXY_HOLDINGS).toHaveLength(15)
+    expect(sum).toBeCloseTo(90.12, 2)
+  })
+
+  it('비중 내림차순으로 적혀 있다', () => {
+    // judgedHoldings()가 알아서 정렬하지만, 목록 자체가 순서대로여야 사람이 캡처와
+    // 한 줄씩 맞대어 볼 수 있다 — 갱신은 눈으로 대조하는 작업이라 그게 중요하다.
+    const weights = FALLBACK_PROXY_HOLDINGS.map((h) => h.weight)
+
+    expect(weights).toEqual([...weights].sort((a, b) => b - a))
   })
 })
