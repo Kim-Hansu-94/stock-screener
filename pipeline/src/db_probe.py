@@ -331,6 +331,112 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     # 않는다 — 다시 필요하면 그때 되살릴 것.
 
 
+def _read_distributions() -> list[tuple[str, int]]:
+    """화면이 쓰는 분배금 목록(frontend/lib/etfDistribution.ts)에서 (배당락일, 금액)을 읽는다.
+
+    목록을 파이썬에 또 적으면 어긋나므로 TS 파일을 그대로 읽는다(`etf_holdings`의
+    `test_known_tickers_matches_the_frontend_list`와 같은 원칙). 워크플로가 `pipeline/`에서
+    돌므로 저장소 루트는 한 칸 위다.
+    """
+    import re
+    from pathlib import Path
+
+    ts = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "etfDistribution.ts"
+    text = ts.read_text(encoding="utf-8")
+    body = text[text.index("export const DISTRIBUTIONS"):]
+    body = body[: body.index("\n]\n")]
+    return [
+        (m.group(1), int(m.group(2)))
+        for m in re.finditer(r"exDate:\s*'(\d{4}-\d{2}-\d{2})'[^}]*?amount:\s*(\d+)", body)
+    ]
+
+
+def _probe_etf_distribution_bars(db: ScreenerDB) -> None:
+    """490590 일봉이 분배금 배당락일을 덮는지, 화면과 같은 계산이 DB 값으로 되는지 (2026-09-30 추가).
+
+    화면의 '분배금 · 배당락 실질 등락'은 배당락일과 **그 전날**의 종가가 둘 다 있어야 계산된다.
+    하나라도 없으면 그 행은 '일봉 없음'이고, 시작점 뒤에 하나라도 못 구하면 누적 총수익 합계가
+    통째로 숨겨진다. 작업 컨테이너에는 DB 접속이 없어 이걸 여기서만 확인할 수 있다.
+    화면(`analyzeExDates`)과 같은 식을 쓴다: 화면 등락 = 종가 - 전날 종가,
+    실제 등락 = 종가 + 분배금 - 전날 종가.
+    """
+    print("\n=== 490590 일봉과 분배금 배당락일 ===", flush=True)
+    dists = _attempt("분배금 목록(etfDistribution.ts)", _read_distributions)
+    if not dists:
+        print("  분배금 목록을 못 읽었다", flush=True)
+        return
+    print(f"  화면 목록: {len(dists)}건 ({dists[0][0]} ~ {dists[-1][0]})", flush=True)
+
+    oldest = dists[0][0]
+    rows = _attempt(
+        "490590 일봉",
+        lambda: (
+            db.client.table("stock_price_history")
+            .select("date, close", count="exact")
+            .eq("market", "KR")
+            .eq("ticker", "490590")
+            .gte("date", oldest[:4] + "-01-01")
+            .order("date", desc=False)
+            .limit(2000)
+            .execute()
+        ),
+    )
+    if rows is None:
+        return
+    bars = rows.data or []
+    total = _attempt(
+        "490590 전체 봉 수",
+        lambda: (
+            db.client.table("stock_price_history")
+            .select("date", count="exact")
+            .eq("market", "KR")
+            .eq("ticker", "490590")
+            .order("date", desc=False)
+            .limit(1)
+            .execute()
+        ),
+    )
+    first = total.data[0]["date"] if total is not None and total.data else "?"
+    print(
+        f"  490590 일봉: 전체 {total.count if total is not None else '?'}봉 · 가장 오래된 {first}"
+        f" · 최근 {bars[-1]['date'] if bars else '없음'}",
+        flush=True,
+    )
+    if not bars:
+        print("  ⚠️ 일봉이 한 봉도 없다 — 화면은 '일봉 데이터 없음'이 뜬다", flush=True)
+        return
+
+    by_date = {b["date"]: float(b["close"]) for b in bars}
+    dates = [b["date"] for b in bars]
+    missing = 0
+    total_amount = 0
+    for ex, amount in dists:
+        if ex not in by_date:
+            print(f"  {ex} {amount:>4}원 → ⚠️ 배당락일 일봉 없음", flush=True)
+            missing += 1
+            continue
+        idx = dates.index(ex)
+        if idx == 0:
+            print(f"  {ex} {amount:>4}원 → ⚠️ 전날 일봉 없음(첫 봉)", flush=True)
+            missing += 1
+            continue
+        prev_date, prev, close = dates[idx - 1], by_date[dates[idx - 1]], by_date[ex]
+        screen, real = close - prev, close + amount - prev
+        total_amount += amount
+        print(
+            f"  {ex} {amount:>4}원 → 전날({prev_date}) {prev:,.0f} → {close:,.0f}"
+            f" · 화면 {screen:+,.0f}원({screen / prev * 100:+.2f}%)"
+            f" · 실제 {real:+,.0f}원({real / prev * 100:+.2f}%)",
+            flush=True,
+        )
+    ok = len(dists) - missing
+    print(
+        f"  ▷ 계산된 분배금 {ok}/{len(dists)}건 · 합계 {total_amount:,}원"
+        + ("" if not missing else "  ⚠️ 못 구한 게 있어 화면의 누적 총수익 합계는 숨겨진다"),
+        flush=True,
+    )
+
+
 def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
@@ -384,6 +490,7 @@ def main() -> None:
     _probe_recommendation_features(db)
     _probe_market_indices(db)
     _probe_etf_proxy_bars(db)
+    _probe_etf_distribution_bars(db)
     # 감시 종목은 **맨 마지막에** 찍는다 — 로그를 꼬리부터 읽는 일이 많아서,
     # 앞에 두면 긴 목록에 밀려 정작 확인하려던 줄이 잘려 나간다.
     _probe_watchlist_tickers(db)

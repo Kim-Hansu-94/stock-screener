@@ -1,0 +1,32 @@
+name: ETF Distribution Probe 5
+
+# 490590 분배금 이력 5차 탐색 — KRX KIND ETF 공시 화면에서 490590을 실제로 검색한다.
+# 4차 프로브(삭제됨, 결과는 CLAUDE.md에 있다)에서 RISE 상품 코드 13개는 490590이 아님이 확인됐고,
+# KIND ETF 공시 화면의 검색 조건 이름(etfIsuSrtCd, fromDate, toDate ...)이 확인됐다.
+# 작업 컨테이너는 이 사이트가 막혀 있어 여기서만 확인된다.
+on:
+  push:
+    paths:
+      - 'pipeline/src/etf_distribution_probe5.py'
+      - '.github/workflows/etf_distribution_probe5.yml'
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe KIND ETF disclosure search
+        working-directory: pipeline
+        run: python -m src.etf_distribution_probe5

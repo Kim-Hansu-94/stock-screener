@@ -5,6 +5,12 @@ import { LazyStockChart } from '@/components/LazyStockChart'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import type { EtfHoldingsResult } from '@/lib/queries/etfHoldings'
 import {
+  DISTRIBUTION_TAX_RATE,
+  describeExDate,
+  type DistributionSummary,
+  type ExDateResult,
+} from '@/lib/etfDistribution'
+import {
   ETF_MARKET,
   ETF_NAME,
   ETF_TICKER,
@@ -73,6 +79,203 @@ function ConditionChip({ met, label }: { met: boolean; label: string }) {
   )
 }
 
+const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`
+
+/** 부호를 붙인 원 단위 — 0은 부호 없이 */
+const signedWon = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${Math.abs(Math.round(n)).toLocaleString('ko-KR')}원`
+
+const signedPct = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${Math.abs(n).toFixed(2)}%`
+
+/** 등락 색은 한국 관례(상승=빨강 text-up, 하락=파랑 text-down) */
+const changeColor = (n: number) => (n > 0 ? 'text-up' : n < 0 ? 'text-down' : 'text-foreground')
+
+/** 2026-09-29 → 9/29 */
+const monthDay = (iso: string) => {
+  const [, m, d] = iso.split('-')
+  return `${Number(m)}/${Number(d)}`
+}
+
+function Stat({ label, value, sub, valueClass }: { label: string; value: string; sub?: string; valueClass?: string }) {
+  return (
+    <div className="rounded-lg bg-muted/50 p-3">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={`mt-0.5 text-base font-bold ${valueClass ?? 'text-foreground'}`}>{value}</dd>
+      {sub && <dd className="text-xs text-muted-foreground">{sub}</dd>}
+    </div>
+  )
+}
+
+function DistributionRow({ r }: { r: ExDateResult }) {
+  const d = r.distribution
+  return (
+    <div className="space-y-2.5 border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">배당락 {monthDay(d.exDate)}</span>
+        {/* 지급일을 모르는 분배금은 지급 정보를 아예 안 보여준다 — 모르는 것을 '완료'라고 단정하지 않는다 */}
+        {d.payDate && <span className="text-xs text-muted-foreground">지급 {monthDay(d.payDate)}</span>}
+        {r.payStatus !== null && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              r.payStatus === 'paid' ? 'bg-accent font-semibold text-accent-foreground' : 'bg-muted text-muted-foreground'
+            }`}
+          >
+            {r.payStatus === 'paid' ? '지급 완료' : '지급 예정'}
+          </span>
+        )}
+      </div>
+
+      {r.status === 'ok' && r.screenChange !== null && r.realChange !== null ? (
+        <dl className="grid grid-cols-2 gap-2">
+          <Stat
+            label="분배금 (세전)"
+            value={won(d.amount)}
+            sub={r.yieldPct !== null ? `전날 종가의 ${r.yieldPct.toFixed(2)}%` : undefined}
+          />
+          <Stat
+            label="화면에 보인 등락"
+            value={signedWon(r.screenChange)}
+            sub={r.screenChangePct !== null ? signedPct(r.screenChangePct) : undefined}
+            valueClass={changeColor(r.screenChange)}
+          />
+          <Stat
+            label="분배금 더한 실제 등락"
+            value={signedWon(r.realChange)}
+            sub={r.realChangePct !== null ? signedPct(r.realChangePct) : undefined}
+            valueClass={changeColor(r.realChange)}
+          />
+          <Stat label="세후 분배금 (약)" value={won(r.afterTaxAmount)} sub={`세율 ${(DISTRIBUTION_TAX_RATE * 100).toFixed(1)}% 가정`} />
+        </dl>
+      ) : null}
+
+      <p className="text-sm font-medium text-secondary-foreground">{describeExDate(r)}</p>
+
+      {r.status === 'ok' && r.prevClose !== null && r.close !== null && (
+        <p className="text-xs text-muted-foreground/80">
+          전날 종가 {won(r.prevClose)} → 배당락일 종가 {won(r.close)}
+          {r.refPrice !== null && ` (배당락 기준가 ${won(r.refPrice)})`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** 이전 분배금 한 줄 요약 — 9건을 전부 카드로 펼치면 화면이 너무 길어진다 */
+const COMPACT_GRID = 'grid grid-cols-[2.6rem_1fr_1fr_1fr] items-baseline gap-x-2'
+
+function CompactDistributionRow({ r }: { r: ExDateResult }) {
+  const { screenChange, screenChangePct, realChange, realChangePct } = r
+  return (
+    <div className={`${COMPACT_GRID} border-t border-border py-2 text-xs`}>
+      <span className="font-semibold">{monthDay(r.distribution.exDate)}</span>
+      <span className="text-right">{won(r.distribution.amount)}</span>
+      {r.status === 'ok' && screenChange !== null && screenChangePct !== null && realChange !== null && realChangePct !== null ? (
+        <>
+          <span className={`text-right ${changeColor(screenChange)}`}>
+            {signedPct(screenChangePct)}
+            <span className="block text-[11px] opacity-80">{signedWon(screenChange)}</span>
+          </span>
+          <span className={`text-right font-semibold ${changeColor(realChange)}`}>
+            {signedPct(realChangePct)}
+            <span className="block text-[11px] font-normal opacity-80">{signedWon(realChange)}</span>
+          </span>
+        </>
+      ) : (
+        <span className="col-span-2 text-right text-muted-foreground">
+          {r.status === 'no-bar' ? '일봉 없음' : '비교 불가'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function DistributionSection({
+  results,
+  summary,
+}: {
+  results: ExDateResult[]
+  summary: DistributionSummary | null
+}) {
+  const [showOlder, setShowOlder] = useState(false)
+  // 최근 것은 카드로 크게, 이전 것은 접이식 요약 표로
+  const newestFirst = [...results].reverse()
+  const latest = newestFirst[0] ?? null
+  const older = newestFirst.slice(1)
+  return (
+    <Section
+      title="분배금 · 배당락 실질 등락"
+      subtitle="배당락일에는 가격에서 분배금이 빠집니다. 화면 등락만 보면 손해 같아도, 분배금을 더하면 실제로 어땠는지 계산합니다."
+    >
+      <div className="space-y-3">
+        {results.length === 0 && <p className="text-sm text-muted-foreground">기록된 분배금이 없습니다.</p>}
+        {latest && <DistributionRow r={latest} />}
+
+        {older.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowOlder((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-primary"
+            >
+              {showOlder ? `이전 분배금 ${older.length}건 접기 ▴` : `이전 분배금 ${older.length}건 보기 ▾`}
+            </button>
+            {showOlder && (
+              <div className="mt-2">
+                <div className={`${COMPACT_GRID} pb-1 text-[11px] text-muted-foreground`}>
+                  <span>배당락</span>
+                  <span className="text-right">분배금</span>
+                  <span className="text-right">화면 등락</span>
+                  <span className="text-right">실제 등락</span>
+                </div>
+                {older.map((r) => (
+                  <CompactDistributionRow key={r.distribution.exDate} r={r} />
+                ))}
+                <p className="pt-1 text-[11px] text-muted-foreground/70">
+                  등락은 전날 종가 대비이고, 실제 등락은 분배금을 더한 값입니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {summary && (
+          <div className="rounded-lg border border-border p-3">
+            <p className="text-xs text-muted-foreground">
+              {monthDay(summary.baseDate)} 종가 {won(summary.baseClose)}에 샀다면 ({monthDay(summary.latestDate)} 종가{' '}
+              {won(summary.latestClose)} 기준, 분배금 {summary.count}회)
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div>
+                <dt className="text-xs text-muted-foreground">가격 변화</dt>
+                <dd className={`text-sm font-bold ${changeColor(summary.priceChange)}`}>{signedWon(summary.priceChange)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">분배금 합계</dt>
+                <dd className="text-sm font-bold">+{won(summary.totalAmount)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">총수익 (세전)</dt>
+                <dd className={`text-sm font-bold ${changeColor(summary.totalReturn)}`}>
+                  {signedWon(summary.totalReturn)}
+                  <span className="block text-xs font-normal">{signedPct(summary.totalReturnPct)}</span>
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-xs text-muted-foreground">
+              세금까지 떼면 총수익은 약 {signedWon(summary.totalReturnAfterTax)} ({signedPct(summary.totalReturnAfterTaxPct)})입니다.
+            </p>
+          </div>
+        )}
+
+        <p className="text-xs leading-relaxed text-muted-foreground/70">
+          분배금 내역은 자동으로 받아오지 못해 직접 적어 둔 값입니다(증권사 앱 기준). 새 분배금이 나오면 알려
+          주셔야 추가됩니다. 세율은 배당소득세 15.4%를 가정한 값이라 실제 입금액은 지급일에 증권사 앱에서
+          확인하세요. 분배금은 받을 권리가 생긴 배당락일 기준으로 더했고, 지급 예정인 것도 포함합니다.
+        </p>
+      </div>
+    </Section>
+  )
+}
+
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <section className="space-y-1 rounded-xl bg-card p-5 shadow-[0_1px_2px_rgba(25,31,40,0.04),0_4px_16px_rgba(25,31,40,0.04)]">
@@ -92,6 +295,8 @@ export function EtfWatchCard({
   stopSignals,
   tenYearYield,
   nasdaq,
+  distributions,
+  distributionSummary,
 }: {
   holdings: EtfHoldingsResult
   proxyAssessment: ProxyBasketAssessment
@@ -101,6 +306,8 @@ export function EtfWatchCard({
   stopSignals: StopSignal[]
   tenYearYield: MarketIndexSnapshotRow | null
   nasdaq: MarketIndexSnapshotRow | null
+  distributions: ExDateResult[]
+  distributionSummary: DistributionSummary | null
 }) {
   // 판정에 쓰는 건 비중 상위 8개뿐이다(JUDGED_HOLDINGS_COUNT). holdings.holdings는
   // ETF가 실제로 담고 있는 15개 전부라, 둘을 섞어 쓰면 "일봉 부족 7개"처럼 거짓말을 한다.
@@ -230,6 +437,8 @@ export function EtfWatchCard({
           하세요.
         </p>
       </Section>
+
+      <DistributionSection results={distributions} summary={distributionSummary} />
 
       <Section
         title="구성종목 신호등"

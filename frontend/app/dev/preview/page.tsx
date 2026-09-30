@@ -17,6 +17,7 @@ import { RealestateMap } from '@/components/RealestateMap'
 import { RealestateMediaSection } from '@/components/RealestateMediaSection'
 import { MarketOverviewWidget } from '@/components/MarketOverviewWidget'
 import { EtfWatchCard } from '@/components/EtfWatchCard'
+import { analyzeExDates, summarizeDistributions, type CloseBar, type Distribution } from '@/lib/etfDistribution'
 import {
   FALLBACK_PROXY_HOLDINGS,
   FALLBACK_PROXY_WEIGHTS_AS_OF,
@@ -432,6 +433,37 @@ function etfStage(stage: 'A' | 'B' | 'C', reasons: string[], over: Partial<Stage
 
 // 미리보기는 자동 수집이 실패했을 때의 폴백 목록으로 그린다 — 화면 배치를 보는 것이
 // 목적이라 실제 구성과 같을 필요는 없다(아래에 '자동 수집 중' 케이스를 따로 둔다).
+// 490590 분배금·배당락 실질 등락 픽스처 — 카드는 lib/etfDistribution.ts의 계산 결과를 받는다.
+// (1) 실제 사례(2026-09-29): 화면은 -125원인데 분배금을 더하면 +63원. 부호가 갈리는 경우.
+const DIST_REAL_CASE: Distribution[] = [{ exDate: '2026-09-29', payDate: '2026-10-02', amount: 188 }]
+const DIST_REAL_BARS: CloseBar[] = [
+  { date: '2026-09-28', close: 14245 },
+  { date: '2026-09-29', close: 14120 },
+]
+const DIST_REAL_RESULTS = analyzeExDates(DIST_REAL_BARS, DIST_REAL_CASE)
+const DIST_REAL_SUMMARY = summarizeDistributions(DIST_REAL_RESULTS, DIST_REAL_BARS)
+
+// (2) 분배금 세 번(가장 오래된 것은 지급일 미기록, 이전 분배금 접이식 표가 뜬다) — 8/28분은 분배금을 더해도 내렸고(기초자산 하락), 뒤의 것은 오른 경우. 지급 완료·예정 혼합.
+const DIST_TWO_CASE: Distribution[] = [
+  { exDate: '2026-07-30', amount: 218 }, // 지급일을 모르는 분배금 — 지급 배지가 없어야 한다
+  { exDate: '2026-08-28', payDate: '2026-09-02', amount: 200 },
+  { exDate: '2026-09-29', payDate: '2026-10-05', amount: 188 },
+]
+const DIST_TWO_BARS: CloseBar[] = [
+  { date: '2026-07-29', close: 14100 },
+  { date: '2026-07-30', close: 13950 },
+  { date: '2026-08-27', close: 14000 },
+  { date: '2026-08-28', close: 13700 },
+  { date: '2026-09-28', close: 14245 },
+  { date: '2026-09-29', close: 14120 },
+  { date: '2026-10-02', close: 14400 },
+]
+const DIST_TWO_RESULTS = analyzeExDates(DIST_TWO_BARS, DIST_TWO_CASE)
+const DIST_TWO_SUMMARY = summarizeDistributions(DIST_TWO_RESULTS, DIST_TWO_BARS)
+
+// (3) 일봉이 아직 없는 경우 — "계산할 수 없다"만 뜨고 합계는 숨겨져야 한다.
+const DIST_NO_BARS_RESULTS = analyzeExDates([], DIST_REAL_CASE)
+
 const PREVIEW_HOLDINGS: EtfHoldingsResult = {
   holdings: FALLBACK_PROXY_HOLDINGS,
   asOf: FALLBACK_PROXY_WEIGHTS_AS_OF,
@@ -869,6 +901,8 @@ export default function PreviewPage() {
           stopSignals={STOP_SIGNALS_CALM}
           tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.52, prev_close: 4.505, updated_at: '2026-09-12T21:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
+          distributions={DIST_REAL_RESULTS}
+          distributionSummary={DIST_REAL_SUMMARY}
         />
       </section>
 
@@ -886,6 +920,8 @@ export default function PreviewPage() {
           stopSignals={STOP_SIGNALS_CALM}
           tenYearYield={{ index_name: '미국10년물', date: '2026-09-22', close: 4.52, prev_close: 4.505, updated_at: '2026-09-22T21:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-22', close: 17890.44, prev_close: 18010.9, updated_at: '2026-09-22T21:30:00Z' }}
+          distributions={DIST_REAL_RESULTS}
+          distributionSummary={DIST_REAL_SUMMARY}
         />
       </section>
 
@@ -902,6 +938,8 @@ export default function PreviewPage() {
           stopSignals={STOP_SIGNALS_TRIGGERED}
           tenYearYield={{ index_name: '미국10년물', date: '2026-09-12', close: 4.96, prev_close: 4.78, updated_at: '2026-09-12T17:30:00Z' }}
           nasdaq={{ index_name: '나스닥', date: '2026-09-12', close: 17200.1, prev_close: 18010.9, updated_at: '2026-09-12T21:30:00Z' }}
+          distributions={DIST_TWO_RESULTS}
+          distributionSummary={DIST_TWO_SUMMARY}
         />
       </section>
 
@@ -918,6 +956,8 @@ export default function PreviewPage() {
           stopSignals={STOP_SIGNALS_CALM}
           tenYearYield={null}
           nasdaq={null}
+          distributions={DIST_NO_BARS_RESULTS}
+          distributionSummary={null}
         />
       </section>
 
