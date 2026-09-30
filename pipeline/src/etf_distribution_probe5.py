@@ -1,6 +1,6 @@
 """490590 분배금 이력 소스 탐색 프로브 5차 (2026-09-30).
 
-4차(`etf_distribution_probe4.py`) 로그에서 확인된 것:
+4차 프로브(정리 단계에서 삭제 — 결과는 CLAUDE.md의 `etf_distribution_probe*` 항목에 남아 있다) 로그에서 확인된 것:
   · RISE 상품 코드 13개는 전부 다른 상품이었다(490590 없음). RISE 방향은 접는다.
   · KIND ETF 공시 화면 `/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf`는
     status=200 · 74,157자로 열렸고 검색 조건 이름이 나왔다:

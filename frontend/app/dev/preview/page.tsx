@@ -443,12 +443,15 @@ const DIST_REAL_BARS: CloseBar[] = [
 const DIST_REAL_RESULTS = analyzeExDates(DIST_REAL_BARS, DIST_REAL_CASE)
 const DIST_REAL_SUMMARY = summarizeDistributions(DIST_REAL_RESULTS, DIST_REAL_BARS)
 
-// (2) 분배금 두 번 — 앞의 것은 분배금을 더해도 내렸고(기초자산 하락), 뒤의 것은 오른 경우. 지급 완료·예정 혼합.
+// (2) 분배금 세 번(가장 오래된 것은 지급일 미기록, 이전 분배금 접이식 표가 뜬다) — 8/28분은 분배금을 더해도 내렸고(기초자산 하락), 뒤의 것은 오른 경우. 지급 완료·예정 혼합.
 const DIST_TWO_CASE: Distribution[] = [
+  { exDate: '2026-07-30', amount: 218 }, // 지급일을 모르는 분배금 — 지급 배지가 없어야 한다
   { exDate: '2026-08-28', payDate: '2026-09-02', amount: 200 },
   { exDate: '2026-09-29', payDate: '2026-10-05', amount: 188 },
 ]
 const DIST_TWO_BARS: CloseBar[] = [
+  { date: '2026-07-29', close: 14100 },
+  { date: '2026-07-30', close: 13950 },
   { date: '2026-08-27', close: 14000 },
   { date: '2026-08-28', close: 13700 },
   { date: '2026-09-28', close: 14245 },

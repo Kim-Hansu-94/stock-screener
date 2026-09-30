@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DISTRIBUTIONS,
   DISTRIBUTION_TAX_RATE,
   analyzeExDates,
   describeExDate,
@@ -57,6 +58,44 @@ describe('지급 상태', () => {
 
   it('기준일을 알 수 없으면 지급 완료로 단정하지 않는다', () => {
     expect(analyzeExDates([], [SEP])[0].payStatus).toBe('pending')
+  })
+
+  it('지급일을 모르면 지급 완료로 단정하지 않고 배지 자체를 없앤다', () => {
+    const unknown: Distribution = { exDate: '2026-09-29', amount: 188 }
+    expect(analyzeExDates(bars, [unknown])[0].payStatus).toBeNull()
+  })
+})
+
+describe('DISTRIBUTIONS (손으로 적은 목록)', () => {
+  it('배당락일 오름차순이고 중복이 없으며 금액이 양수다', () => {
+    const days = DISTRIBUTIONS.map((d) => d.exDate)
+    expect(days).toEqual([...days].sort())
+    expect(new Set(days).size).toBe(days.length)
+    for (const d of DISTRIBUTIONS) expect(d.amount).toBeGreaterThan(0)
+  })
+
+  it('최근 12개월 합계가 네이버 요약(dividendPerShareTtm=2905)과 정확히 같다', () => {
+    // 2026-09-30에 프로브로 받은 값. 기간을 날짜로 묶어 두어 새 분배금을 더해도 이 검산은 유효하다.
+    const ttm = DISTRIBUTIONS.filter((d) => d.exDate > '2025-09-30' && d.exDate <= '2026-09-29')
+    expect(ttm).toHaveLength(12)
+    expect(ttm.reduce((sum, d) => sum + d.amount, 0)).toBe(2905)
+  })
+
+  it('올해 횟수는 9회다 (네이버 dividendCountThisYear=9, 1~9월 매달)', () => {
+    const thisYear = DISTRIBUTIONS.filter((d) => d.exDate.startsWith('2026-') && d.exDate <= '2026-09-29')
+    expect(thisYear.map((d) => Number(d.exDate.slice(5, 7)))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+  })
+
+  it('지급일이 있으면 배당락일보다 뒤다', () => {
+    for (const d of DISTRIBUTIONS) if (d.payDate) expect(d.payDate > d.exDate).toBe(true)
+  })
+
+  it('실측 사례(2026-09-29, 188원)가 들어 있다', () => {
+    expect(DISTRIBUTIONS.find((d) => d.exDate === '2026-09-29')).toEqual({
+      exDate: '2026-09-29',
+      payDate: '2026-10-02',
+      amount: 188,
+    })
   })
 })
 

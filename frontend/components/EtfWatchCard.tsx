@@ -111,14 +111,17 @@ function DistributionRow({ r }: { r: ExDateResult }) {
     <div className="space-y-2.5 border-t border-border pt-3 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-semibold">배당락 {monthDay(d.exDate)}</span>
-        <span className="text-xs text-muted-foreground">지급 {monthDay(d.payDate)}</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs ${
-            r.payStatus === 'paid' ? 'bg-accent font-semibold text-accent-foreground' : 'bg-muted text-muted-foreground'
-          }`}
-        >
-          {r.payStatus === 'paid' ? '지급 완료' : '지급 예정'}
-        </span>
+        {/* 지급일을 모르는 분배금은 지급 정보를 아예 안 보여준다 — 모르는 것을 '완료'라고 단정하지 않는다 */}
+        {d.payDate && <span className="text-xs text-muted-foreground">지급 {monthDay(d.payDate)}</span>}
+        {r.payStatus !== null && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              r.payStatus === 'paid' ? 'bg-accent font-semibold text-accent-foreground' : 'bg-muted text-muted-foreground'
+            }`}
+          >
+            {r.payStatus === 'paid' ? '지급 완료' : '지급 예정'}
+          </span>
+        )}
       </div>
 
       {r.status === 'ok' && r.screenChange !== null && r.realChange !== null ? (
@@ -156,6 +159,35 @@ function DistributionRow({ r }: { r: ExDateResult }) {
   )
 }
 
+/** 이전 분배금 한 줄 요약 — 9건을 전부 카드로 펼치면 화면이 너무 길어진다 */
+const COMPACT_GRID = 'grid grid-cols-[2.6rem_1fr_1fr_1fr] items-baseline gap-x-2'
+
+function CompactDistributionRow({ r }: { r: ExDateResult }) {
+  const { screenChange, screenChangePct, realChange, realChangePct } = r
+  return (
+    <div className={`${COMPACT_GRID} border-t border-border py-2 text-xs`}>
+      <span className="font-semibold">{monthDay(r.distribution.exDate)}</span>
+      <span className="text-right">{won(r.distribution.amount)}</span>
+      {r.status === 'ok' && screenChange !== null && screenChangePct !== null && realChange !== null && realChangePct !== null ? (
+        <>
+          <span className={`text-right ${changeColor(screenChange)}`}>
+            {signedPct(screenChangePct)}
+            <span className="block text-[11px] opacity-80">{signedWon(screenChange)}</span>
+          </span>
+          <span className={`text-right font-semibold ${changeColor(realChange)}`}>
+            {signedPct(realChangePct)}
+            <span className="block text-[11px] font-normal opacity-80">{signedWon(realChange)}</span>
+          </span>
+        </>
+      ) : (
+        <span className="col-span-2 text-right text-muted-foreground">
+          {r.status === 'no-bar' ? '일봉 없음' : '비교 불가'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function DistributionSection({
   results,
   summary,
@@ -163,6 +195,11 @@ function DistributionSection({
   results: ExDateResult[]
   summary: DistributionSummary | null
 }) {
+  const [showOlder, setShowOlder] = useState(false)
+  // 최근 것은 카드로 크게, 이전 것은 접이식 요약 표로
+  const newestFirst = [...results].reverse()
+  const latest = newestFirst[0] ?? null
+  const older = newestFirst.slice(1)
   return (
     <Section
       title="분배금 · 배당락 실질 등락"
@@ -170,9 +207,35 @@ function DistributionSection({
     >
       <div className="space-y-3">
         {results.length === 0 && <p className="text-sm text-muted-foreground">기록된 분배금이 없습니다.</p>}
-        {[...results].reverse().map((r) => (
-          <DistributionRow key={r.distribution.exDate} r={r} />
-        ))}
+        {latest && <DistributionRow r={latest} />}
+
+        {older.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowOlder((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-primary"
+            >
+              {showOlder ? `이전 분배금 ${older.length}건 접기 ▴` : `이전 분배금 ${older.length}건 보기 ▾`}
+            </button>
+            {showOlder && (
+              <div className="mt-2">
+                <div className={`${COMPACT_GRID} pb-1 text-[11px] text-muted-foreground`}>
+                  <span>배당락</span>
+                  <span className="text-right">분배금</span>
+                  <span className="text-right">화면 등락</span>
+                  <span className="text-right">실제 등락</span>
+                </div>
+                {older.map((r) => (
+                  <CompactDistributionRow key={r.distribution.exDate} r={r} />
+                ))}
+                <p className="pt-1 text-[11px] text-muted-foreground/70">
+                  등락은 전날 종가 대비이고, 실제 등락은 분배금을 더한 값입니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {summary && (
           <div className="rounded-lg border border-border p-3">

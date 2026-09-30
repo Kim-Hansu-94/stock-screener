@@ -21,14 +21,37 @@
 export interface Distribution {
   /** 배당락일(분배락일) — 이날부터 사면 이번 분배금을 못 받는다. 이날 가격에서 분배금이 빠진다. */
   exDate: string
-  /** 지급일 — 계좌에 현금이 들어오는 날. 가격에는 영향이 없다. */
-  payDate: string
+  /**
+   * 지급일 — 계좌에 현금이 들어오는 날. 가격에는 영향이 없다.
+   * **모르면 비워 둔다** — 지어내면 '지급 완료/예정' 배지가 거짓말을 한다. 비어 있으면 배지를
+   * 아예 안 단다(계산에는 안 쓰인다 — 분배금은 배당락일 기준으로 센다).
+   */
+  payDate?: string
   /** 주당 분배금(세전, 원) */
   amount: number
 }
 
-/** 사용자가 증권사 앱에서 확인해 알려 준 값. 최근 것이 아래로 간다. */
+/**
+ * 사용자가 증권사 앱에서 확인해 알려 준 값. **배당락일 오름차순**이다(최근 것이 아래).
+ *
+ * **네이버 요약과 맞춰 봤다 (2026-09-30)**: 최근 12개월(2025-10-30 ~ 2026-09-29) 12건 합계가
+ * 2,905원으로, 네이버 `dividendPerShareTtm=2905`와 정확히 같고 올해 횟수(`dividendCountThisYear=9`,
+ * 1~9월 매달)도 맞는다. 연 분배율 `dividendYieldTtm=20.57`도 2,905 ÷ 종가 14,120 = 20.57%와 같다.
+ * 그래서 이 목록은 손으로 적었어도 네이버 요약으로 검산된 값이다 — 새 분배금을 더한 뒤에도
+ * 이 합계가 네이버 값과 계속 맞는지 볼 수 있다. 지급일은 9/29분만 알고 있어 나머지는 비웠다.
+ */
 export const DISTRIBUTIONS: Distribution[] = [
+  { exDate: '2025-10-30', amount: 258 },
+  { exDate: '2025-11-27', amount: 227 },
+  { exDate: '2025-12-29', amount: 186 },
+  { exDate: '2026-01-29', amount: 168 },
+  { exDate: '2026-02-26', amount: 152 },
+  { exDate: '2026-03-30', amount: 199 },
+  { exDate: '2026-04-29', amount: 374 },
+  { exDate: '2026-05-28', amount: 323 },
+  { exDate: '2026-06-29', amount: 377 },
+  { exDate: '2026-07-30', amount: 218 },
+  { exDate: '2026-08-28', amount: 235 },
   { exDate: '2026-09-29', payDate: '2026-10-02', amount: 188 },
 ]
 
@@ -65,8 +88,11 @@ export interface ExDateResult {
   yieldPct: number | null
   /** 세금을 뗀 분배금(가정 세율) */
   afterTaxAmount: number
-  /** 지급일이 기준일(최신 일봉 날짜) 이전이면 paid. 기준일을 모르면 pending으로 둔다. */
-  payStatus: 'paid' | 'pending'
+  /**
+   * 지급일이 기준일(최신 일봉 날짜) 이전이면 paid, 아니면 pending(기준일을 모를 때도 pending).
+   * 지급일을 모르면 null — 모르는 것을 '지급 완료'라고 단정하지 않는다.
+   */
+  payStatus: 'paid' | 'pending' | null
 }
 
 function pct(part: number, base: number): number {
@@ -91,7 +117,11 @@ export function analyzeExDates(
   return distributions.map((distribution) => {
     const afterTaxAmount = distribution.amount * (1 - DISTRIBUTION_TAX_RATE)
     const payStatus: ExDateResult['payStatus'] =
-      asOf !== null && distribution.payDate <= asOf ? 'paid' : 'pending'
+      distribution.payDate === undefined
+        ? null
+        : asOf !== null && distribution.payDate <= asOf
+          ? 'paid'
+          : 'pending'
     const empty = {
       distribution,
       prevClose: null,
