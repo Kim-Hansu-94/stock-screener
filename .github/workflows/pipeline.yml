@@ -67,6 +67,10 @@ jobs:
     needs: precheck
     if: needs.precheck.outputs.should_run == 'true'
     runs-on: ubuntu-latest
+    # 실패/복구 알림(GitHub 이슈)을 열고 닫는 데 issues 쓰기가 필요하다. 나머지는 읽기만.
+    permissions:
+      contents: read
+      issues: write
     timeout-minutes: 240
 
     steps:
@@ -176,3 +180,21 @@ jobs:
             -H "Authorization: Bearer $REVALIDATE_TOKEN" \
             && echo "프론트 캐시 무효화 완료" \
             || echo "::warning::캐시 무효화 호출 실패 → cacheLife에 따라 최대 1시간 내 자동 갱신"
+
+      # 실패는 Actions 탭의 빨간 X로만 남아서 직접 들어가 보지 않으면 모른다. 이슈를 열어 저장소 주인에게
+      # 지정하면 GitHub이 메일·앱 알림을 보낸다. 아침 전체 실행과 저녁 KR 전용 실행은 제목을 갈라,
+      # 한쪽이 성공해도 다른 쪽의 실패 이슈가 닫히지 않게 한다.
+      - name: Notify failure
+        if: failure()
+        uses: ./.github/actions/notify-failure
+        with:
+          title: ${{ github.event.inputs.mode == 'kr_only' && '주식 파이프라인 실패 (저녁 KR)' || '주식 파이프라인 실패 (아침 전체)' }}
+          mode: failure
+          hint: '"Run pipeline" 단계가 빨간색이면 그 로그 맨 아래 에러를 먼저 본다. 데이터 소스(KRX·KIS·yfinance) 차단이나 시크릿 만료가 흔한 원인이다'
+
+      - name: Close failure issue on recovery
+        if: success()
+        uses: ./.github/actions/notify-failure
+        with:
+          title: ${{ github.event.inputs.mode == 'kr_only' && '주식 파이프라인 실패 (저녁 KR)' || '주식 파이프라인 실패 (아침 전체)' }}
+          mode: recovered
