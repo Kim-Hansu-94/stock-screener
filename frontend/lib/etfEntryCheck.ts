@@ -21,9 +21,9 @@ import type { PriceHistoryRow } from './types'
  * 상위 8개뿐이다**(`JUDGED_HOLDINGS_COUNT`, 2026-09-25 사용자 결정) — 목록은 15개를
  * 그대로 두고 판정 대상만 좁힌다. 이유는 그 상수의 주석에 있다.
  *
- * **구성은 2026-09-25에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
- * ETF의 **89.13%**를 차지하고, 나머지는 NASDAQ100 선물(6.36%)·원화현금(6.34%)·
- * RISE 미국AI밸류체인TOP3Plus(4.45%)와 매도한 콜옵션(음수)이다. TOP3Plus는 국내 상장
+ * **구성은 2026-09-30에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
+ * ETF의 **90.12%**를 차지하고, 나머지는 원화현금(5.32%)·NASDAQ100 선물(5.28%)·
+ * RISE 미국AI밸류체인TOP3Plus(4.48%)와 매도한 콜옵션이다. TOP3Plus는 국내 상장
  * ETF인 데다 이름 그대로 AI 상위 3개를 담아 MRVL·NVDA·GOOGL을 두 번 세게 되므로 뺐다.
  *
  * **네이버 자동 수집만 믿으면 안 되는 이유가 여기서 드러났다 (2026-09-25).**
@@ -47,42 +47,44 @@ export interface ProxyHolding {
 export type ProxyTicker = string
 
 export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
-  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.39 },
-  { ticker: 'NVDA', name: '엔비디아', weight: 13.11 },
-  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.38 },
-  { ticker: 'INTC', name: '인텔', weight: 4.73 },
-  { ticker: 'AMD', name: 'AMD', weight: 4.59 },
-  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.39 },
-  { ticker: 'META', name: '메타 플랫폼스', weight: 4.08 },
+  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.34 },
+  { ticker: 'NVDA', name: '엔비디아', weight: 13.61 },
+  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.54 },
+  { ticker: 'AMD', name: 'AMD', weight: 4.65 },
+  { ticker: 'INTC', name: '인텔', weight: 4.60 },
+  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.38 },
   // TSM은 ADR이라 S&P500·NASDAQ100 어디에도 없어 2026-09-25까지 일봉이 0봉이었다.
-  // 그래도 목록에는 뒀다 — 빼면 분모에서 조용히 사라져 "ETF의 89%를 보고 있다"는 말이
-  // 거짓이 되므로. 지금은 pipeline/src/main.py의 us_price_tickers()가 이 목록(파이프라인
-  // 쪽 사본 etf_holdings.KNOWN_TICKERS)을 읽어 지수 밖 종목의 일봉도 같이 받는다.
-  // 그래도 '일봉 없음' 경로는 남겨둔다 — 새 종목이 들어온 날부터 3년치가 쌓이기까지는
-  // 비어 있고, 그때 조용히 분모에서 빠지면 "데이터가 없다"와 "안 올랐다"가 구분되지 않는다.
-  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.05 },
+  // 지금은 pipeline/src/main.py의 us_price_tickers()가 이 목록(파이프라인 쪽 사본
+  // etf_holdings.KNOWN_TICKERS)을 읽어 지수 밖 종목의 일봉도 같이 받는다.
+  // 그래도 화면의 '일봉 없음' 경로는 남겨둔다 — 새 종목이 들어온 날부터 일봉이
+  // 쌓이기까지는 비어 있고, 그때 조용히 분모에서 빠지면 "데이터가 없다"와
+  // "안 올랐다"가 구분되지 않는다.
+  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.22 },
+  { ticker: 'PLTR', name: '팔란티어 테크', weight: 4.19 },
+  { ticker: 'META', name: '메타 플랫폼스', weight: 4.11 },
+  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 4.09 },
   { ticker: 'VRT', name: '버티브 홀딩스', weight: 4.01 },
-  { ticker: 'AVGO', name: '브로드컴', weight: 3.99 },
-  { ticker: 'PLTR', name: '팔란티어 테크', weight: 3.98 },
-  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 3.95 },
-  { ticker: 'ORCL', name: '오라클', weight: 3.95 },
-  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.81 },
-  { ticker: 'MSFT', name: '마이크로소프트', weight: 3.72 },
+  { ticker: 'AVGO', name: '브로드컴', weight: 3.97 },
+  { ticker: 'MSFT', name: '마이크로소프트', weight: 3.95 },
+  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.82 },
+  { ticker: 'ORCL', name: '오라클', weight: 3.64 },
 ] as const
 
 /** 위 폴백 비중을 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
-export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
+export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-30'
 
 /**
  * A/B/C 판정에 실제로 쓰는 종목 수 (비중 상위 N개). **2026-09-25, 사용자 결정.**
  *
  * 왜 전부 안 쓰는가 — "너무 많아봐야 하위 종목들은 혼선만 준다"는 것이 이유다.
- * 상위 8개면 ETF의 61.72%이고, 상위 3개(MRVL·NVDA·GOOGL)만으로도 39.88%다.
+ * 상위 8개면 ETF의 62.53%이고, 상위 3개(MRVL·NVDA·GOOGL)만으로도 40.49%다.
  *
- * **경계는 깔끔하지 않다는 것을 알고 정했다.** 4위부터 15위까지가 4.73%~3.72% 사이에
- * 몰려 있어 사실상 동률이고, 8위 TSM(4.05)과 9위 VRT(4.01)의 차이는 0.04%p다. 즉
+ * **경계는 깔끔하지 않다는 것을 알고 정했다.** 4위부터 15위까지가 4.65%~3.64% 사이에
+ * 몰려 있어 사실상 동률이고, 8위 PLTR(4.19)과 9위 META(4.11)의 차이는 0.08%p다. 즉
  * "8개"는 자연스러운 절벽이 아니라 **사람이 고른 개수**다 — 비중이 조금만 흔들려도
- * 9위와 8위가 자리를 바꾼다. 백테스트로 검증한 값이 아니므로 바꿀 때 근거를 남길 것.
+ * 9위와 8위가 자리를 바꾼다. **실제로 닷새 만에 바뀌었다 (2026-09-30)**: 9/25 기준
+ * 8위였던 META(4.05→4.11)가 밀려나고 PLTR(3.98→4.19)이 들어왔다.
+ * 백테스트로 검증한 값이 아니므로 바꿀 때 근거를 남길 것.
  *
  * **목록 자체(FALLBACK_PROXY_HOLDINGS)는 15개를 그대로 둔다.** 두 가지 이유다.
  * (1) 리밸런싱 알람이 이 목록을 기준으로 "자동 수집엔 있는데 우리 목록엔 없는 종목"을
@@ -96,7 +98,8 @@ export const JUDGED_HOLDINGS_COUNT = 8
  * 실측 비중을 며칠마다 다시 확인할지 (2026-09-29, 사용자 요청: "2일에 한번씩").
  *
  * 왜 사람한테 물어야 하는가 — 자동 수집(네이버)은 **주식 수 순 상위 10개**만 줘서
- * 판정 8개 중 AMD·마이크론·메타·TSMC를 아예 못 본다(비중으로 27.7%가 사각지대).
+ * 판정 8개 중 몇 개를 아예 못 본다(어느 종목인지는 그날 수집 결과에 달렸으므로
+ * `getEtfHoldings`가 계산한다 — 여기에 이름을 박아두면 구성이 바뀐 날 조용히 거짓말이 된다).
  * 그 넷이 바뀌어도 알람은 울리지 않으므로, 주기적으로 사람이 증권사 앱을 봐야 한다.
  */
 export const WEIGHTS_RECHECK_DAYS = 2

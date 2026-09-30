@@ -81,7 +81,8 @@ export function DailyAlertModal({
 
           {/* 구성 변경 알림과 달리 **아무 일도 안 일어났어도** 주기적으로 뜬다.
               자동 점검이 판정 8개 중 4개(비중 27.7%)를 아예 못 보기 때문에, 그쪽은
-              사람이 직접 확인하는 수밖에 없다.
+              사람이 직접 확인하는 수밖에 없다. **못 보는 종목 이름을 여기 박아두지 않는다** —
+              구성이 바뀌면 조용히 거짓말이 된다(2026-09-30에 실제로 그랬다).
               위 '구성종목이 바뀐 것 같습니다'와 **띠 색을 달리한다** — 둘 다 파란 띠면
               긴급도가 같아 보인다. 저건 지금 화면이 틀렸다는 경고고, 이건 주기적으로
               돌아오는 할 일이다(--accent와 --down이 비슷해 색만으로는 안 갈린다는
@@ -95,8 +96,13 @@ export function DailyAlertModal({
                 <strong>구성종목</strong> 화면을 캡처해서 알려주시면 갱신합니다.
               </p>
               <p className="mt-1.5 text-xs text-muted-foreground/70">
-                자동 점검은 AMD·마이크론·메타·TSMC를 못 봅니다(판정 비중의 27.7%). 그래서{' '}
-                {weightsReminder.everyDays}일에 한 번 직접 확인을 부탁드립니다.
+                {weightsReminder.blindNames.length > 0 && (
+                  <>
+                    자동 점검은 {weightsReminder.blindNames.join('·')}를 못 봅니다(판정 비중의{' '}
+                    {weightsReminder.blindWeightPct.toFixed(1)}%).{' '}
+                  </>
+                )}
+                그래서 {weightsReminder.everyDays}일에 한 번 직접 확인을 부탁드립니다.
               </p>
             </div>
           )}

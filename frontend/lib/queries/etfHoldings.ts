@@ -5,6 +5,7 @@ import {
   ETF_TICKER,
   FALLBACK_PROXY_HOLDINGS,
   FALLBACK_PROXY_WEIGHTS_AS_OF,
+  judgedHoldings,
   type ProxyHolding,
 } from '@/lib/etfEntryCheck'
 
@@ -27,6 +28,19 @@ export interface EtfHoldingsResult {
   droppedNames: string[]
   /** 자동 수집이 마지막으로 구성을 확인한 날짜. null이면 아직 한 번도 안 돌았다. */
   autoCheckedAt: string | null
+  /**
+   * **판정 대상인데 자동 수집이 못 보는 종목**의 한글 이름.
+   * 네이버는 주식 수 순 상위 10개만 줘서 주가가 비싼 종목이 통째로 빠지는데, 그 종목이
+   * 바뀌어도 알람은 영영 안 울린다 — 사람이 직접 확인해야 하는 이유가 이것이다.
+   *
+   * **이름을 화면에 박아두면 안 된다** — 구성이 바뀌면 조용히 거짓말이 된다(2026-09-30에
+   * 실제로 그랬다: 메타가 판정에서 빠지고 팔란티어가 들어오면서 문구의 종목도 비율도
+   * 틀렸다). 그래서 그날 수집 결과로 매번 새로 낸다. 수집 전이면 빈 목록이다 —
+   * "아무것도 못 본다"와 "아직 안 돌았다"는 다르므로 화면은 그 줄을 통째로 숨긴다.
+   */
+  blindNames: string[]
+  /** 위 종목들이 판정 비중에서 차지하는 몫(%). 판정 대상이 없으면 0. */
+  blindWeightPct: number
 }
 
 /**
@@ -62,6 +76,8 @@ export async function getEtfHoldings(): Promise<EtfHoldingsResult> {
     staleNames: [],
     droppedNames: [],
     autoCheckedAt: null,
+    blindNames: [],
+    blindWeightPct: 0,
   }
 
   try {
@@ -99,11 +115,21 @@ export async function getEtfHoldings(): Promise<EtfHoldingsResult> {
       .filter((row) => row.ticker && !known.has(row.ticker as string))
       .map((row) => `${row.name as string} (${row.ticker as string})`)
 
+    // 판정 대상 중 자동 수집이 **오늘 실제로 못 본** 종목. 네이버 목록은 주식 수 순이라
+    // 날마다 달라질 수 있어, 상수로 적어두지 않고 그날 결과로 낸다.
+    const seen = new Set(held.map((row) => row.ticker).filter(Boolean) as string[])
+    const judged = judgedHoldings(base.holdings)
+    const judgedWeight = judged.reduce((sum, h) => sum + h.weight, 0)
+    const blind = judged.filter((h) => !seen.has(h.ticker))
+
     return {
       ...base,
       staleNames,
       droppedNames,
       autoCheckedAt: (held[0]?.as_of as string) ?? (data[0].as_of as string) ?? null,
+      blindNames: blind.map((h) => h.name),
+      blindWeightPct:
+        judgedWeight > 0 ? (blind.reduce((sum, h) => sum + h.weight, 0) / judgedWeight) * 100 : 0,
     }
   } catch {
     return base

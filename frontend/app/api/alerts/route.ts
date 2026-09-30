@@ -138,8 +138,9 @@ export async function GET() {
       : null
 
   // 아무 일도 안 일어났어도 주기적으로 실측 비중을 다시 받아야 한다 — 자동 수집은
-  // 판정 8개 중 AMD·마이크론·메타·TSMC(비중 27.7%)를 아예 못 보므로, 그 넷이
-  // 바뀌면 위 알람으로는 영영 알 수 없다. 사람이 증권사 앱을 보는 수밖에 없다.
+  // 판정 종목 일부(주가가 비싸 네이버 상위 10에 안 드는 것들)를 아예 못 보므로,
+  // 그것들이 바뀌면 위 알람으로는 영영 알 수 없다. 어느 종목인지는 그날 수집
+  // 결과에 달렸으므로 getEtfHoldings가 계산해 준다.
   const recheck = weightsRecheck(etfHoldings.asOf, todayInSeoul())
   const weightsReminder: WeightsRecheckAlert | null =
     recheck?.due
@@ -148,6 +149,8 @@ export async function GET() {
           asOf: etfHoldings.asOf,
           everyDays: WEIGHTS_RECHECK_DAYS,
           bucket: recheck.bucket,
+          blindNames: etfHoldings.blindNames,
+          blindWeightPct: etfHoldings.blindWeightPct,
         }
       : null
 
