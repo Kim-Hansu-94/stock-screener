@@ -1,0 +1,31 @@
+name: ETF Distribution Probe 3
+
+# 490590 분배금 이력 3차 탐색 — RISE 스크립트 안의 데이터 주소 찾기 + KRX KIND 입구 다시 열기.
+# 2차(etf_distribution_probe2)에서 RISE는 화면을 브라우저에서 그리는 사이트로 확인됐다.
+# 작업 컨테이너는 이 사이트들이 막혀 있어 여기서만 확인된다.
+on:
+  push:
+    paths:
+      - 'pipeline/src/etf_distribution_probe3.py'
+      - '.github/workflows/etf_distribution_probe3.yml'
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe RISE scripts / KIND entry
+        working-directory: pipeline
+        run: python -m src.etf_distribution_probe3
