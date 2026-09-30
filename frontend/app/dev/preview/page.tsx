@@ -513,7 +513,7 @@ function trancheSteps(readyUpTo: 0 | 1 | 2 | 3 | 4): TrancheStep[] {
       { text: 'AI 구성종목 대부분 상승 (비중 70% 이상, 🟢)', met: readyUpTo >= 3 },
     ], manualConditions: ['나스닥 추세가 안정적인지 (아래 뉴스 참고)'] },
     { order: 4, amountManwon: 2000, cumulativeManwon: 5000, label: '4차 — 무조건 넣을 필요 없음', autoConditions: [
-      { text: '3차 조건이 흔들림 없이 계속 유지', met: readyUpTo >= 4 },
+      { text: '3차 조건이 최근 3거래일 연속 유지', met: readyUpTo >= 4 },
     ], manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다'] },
   ]
   return base.map((s) => ({ ...s, autoReady: s.autoConditions.every((c) => c.met) }))

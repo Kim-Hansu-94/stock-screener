@@ -11,6 +11,7 @@ import {
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
+  checkSustainedGreen,
   judgedHoldings,
   type ProxyTicker,
 } from '@/lib/etfEntryCheck'
@@ -48,7 +49,8 @@ async function EtfWatchContent() {
   const etfBars = etfRows.filter((r) => r.ticker === ETF_TICKER).sort((a, b) => a.date.localeCompare(b.date))
 
   const proxyAssessment = assessProxyBasket(proxyBars, judged)
-  const tranches = buildTrancheGuide(proxyAssessment)
+  const sustainedGreen = checkSustainedGreen(proxyBars, judged)
+  const tranches = buildTrancheGuide(proxyAssessment, sustainedGreen)
 
   const tenYearYield = indexSnapshots.find((s) => s.index_name === '미국10년물') ?? null
   const nasdaq = indexSnapshots.find((s) => s.index_name === '나스닥') ?? null
