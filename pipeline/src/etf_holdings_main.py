@@ -64,6 +64,20 @@ def main() -> None:
 
     unknown, dropped = diff_holdings(previous, rows, KNOWN_TICKERS)
 
+    # `status` 열이 실제로 있는지 **매 실행 한 줄로 남긴다.**
+    # 없으면 '빠짐' 팝업이 조용히 안 뜨는데(supabase/etf_holdings_status.sql),
+    # 저장 경로로는 확인이 안 된다 — 빠진 종목이 없는 날은 status가 붙은 행을 아예
+    # 안 만들어서 열이 있든 없든 저장이 성공하기 때문이다. 그래서 따로 물어본다.
+    try:
+        db.client.table("etf_holdings").select("status").limit(1).execute()
+        print("  status 열 확인됨 — '빠짐' 팝업 경로 살아 있음", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"  ::warning::status 열이 없다({exc}) — supabase/etf_holdings_status.sql을 "
+            "실행할 것. 메일 알림은 정상이고 '빠짐' 팝업만 안 뜬다",
+            flush=True,
+        )
+
     now = datetime.now(_KST).isoformat(timespec="seconds")
     db.save_etf_holdings(rows + dropped_rows(dropped, ETF_CODE, rows[0]["as_of"], now))
 
