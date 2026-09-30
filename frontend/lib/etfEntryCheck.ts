@@ -595,7 +595,51 @@ export interface TrancheStep {
  * 결과적으로 4개 차수 전부가 **구성종목 비중 하나만** 본다 — 신호등과 완전히 같은 근거를
  * 쓰므로, "신호등이 🟡면 2차, 🟢면 3~4차"라고 그대로 읽어도 된다.
  */
-export function buildTrancheGuide(proxy: ProxyBasketAssessment): TrancheStep[] {
+/**
+ * 4차 조건 — 3차 조건(비중 `green` 이상)이 최근 이 거래일수만큼 **연속으로** 유지됐는가.
+ *
+ * 원래는 "흔들림 없이 계속 유지"라고 문구만 그렇고, 실제 판정식은 3차와 완전히 같은
+ * **오늘 하루짜리 스냅샷**이었다(2026-09-30 지적 — 오늘 비중이 70%를 넘는 순간 3차와
+ * 4차가 동시에 열렸다). 이 파일에 이미 있는 확인 구간들(3일: 구성종목 동시 저점 이탈,
+ * 5일: 거래량 방향, 20일: A/B/C 단계를 가르는 구조적 창)중, 4차가 필요한 건 "구조가
+ * 바뀌었나"(20일 몫)가 아니라 "하루짜리 반짝 신호는 아닌가"라서 가장 짧은 3일 쪽과
+ * 성격이 같다 — 그래서 3거래일로 정했다.
+ */
+const TRANCHE4_SUSTAIN_DAYS = 3
+
+/**
+ * 종목마다 거래일이 하루씩 어긋날 수 있어(휴장 등) 달력 날짜로 맞추지 않고,
+ * `madeFreshLowRecently`와 같은 방식으로 각 종목 자기 배열의 **최근 N개 봉**을 하나씩
+ * 잘라내며 그 시점 기준 신호등을 다시 계산한다 — 오늘(cut=0)부터 거슬러 올라가며
+ * `days`일 전까지 전부 green 이상이어야 true다.
+ *
+ * `holdings`는 `assessProxyBasket`과 똑같이 **판정 대상 목록을 그대로 받는다** — 여기서
+ * 새로 고르지 않는다(코드 상수를 쓰면 리밸런싱된 실제 화면 판정과 갈라진다).
+ *
+ * 판정에 필요한 일봉이 모자라(막 데이터가 쌓이기 시작한 초기 등) 그날의 신호등 자체를
+ * 못 매기면 보수적으로 false로 본다 — `cStageWeightShare`가 판정 불가일 때 0으로
+ * 떨어지는 것과 같은 원칙("아직 확인 안 됨"을 "확인됐다"로 잘못 세면 안 된다).
+ */
+export function checkSustainedGreen(
+  barsByTicker: Record<ProxyTicker, PriceHistoryRow[] | undefined>,
+  holdings: readonly ProxyHolding[],
+  days: number = TRANCHE4_SUSTAIN_DAYS,
+): boolean {
+  const tickers = holdings.map((h) => h.ticker)
+  for (let cut = 0; cut < days; cut++) {
+    const trimmed = {} as Record<ProxyTicker, PriceHistoryRow[] | undefined>
+    for (const t of tickers) {
+      const tBars = barsByTicker[t] ?? []
+      trimmed[t] = tBars.slice(0, Math.max(0, tBars.length - cut))
+    }
+    const assessment = assessProxyBasket(trimmed, holdings)
+    if (assessment.evaluatedCount === 0) return false
+    if (assessment.cStageWeightShare < TRAFFIC_THRESHOLDS.green) return false
+  }
+  return true
+}
+
+export function buildTrancheGuide(proxy: ProxyBasketAssessment, sustainedGreen: boolean): TrancheStep[] {
   return [
     {
       order: 1,
@@ -639,11 +683,11 @@ export function buildTrancheGuide(proxy: ProxyBasketAssessment): TrancheStep[] {
       cumulativeManwon: 5000,
       label: '4차 — 무조건 넣을 필요 없음',
       autoConditions: [
-        { text: '3차 조건이 흔들림 없이 계속 유지',
-          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green },
+        { text: `3차 조건이 최근 ${TRANCHE4_SUSTAIN_DAYS}거래일 연속 유지`,
+          met: sustainedGreen },
       ],
       manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다 — "많이 떨어졌으니 오르겠지"는 금지'],
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green,
+      autoReady: sustainedGreen,
     },
   ]
 }

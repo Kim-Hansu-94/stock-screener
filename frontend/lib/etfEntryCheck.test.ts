@@ -4,6 +4,7 @@ import {
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
+  checkSustainedGreen,
   classifyStage,
   describeTenYearYield,
   summarizeStopSignals,
@@ -89,26 +90,27 @@ describe('classifyStage', () => {
   })
 })
 
+/** 종목별로 지정한 단계(A/B/C)에 맞는 일봉을 만든다 — assessProxyBasket·checkSustainedGreen 공용. */
+function basket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
+  const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: uptrendReversalCloses() }
+  const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
+  const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
+  for (const t of Object.keys(stages)) {
+    const stage = stages[t]
+    barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
+  }
+  return barsByTicker
+}
+
+/** 전 종목을 같은 단계로 */
+function allStages(stage: 'A' | 'B' | 'C') {
+  return Object.fromEntries(FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
+    ProxyTicker,
+    'A' | 'B' | 'C'
+  >
+}
+
 describe('assessProxyBasket', () => {
-  function basket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
-    const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: uptrendReversalCloses() }
-    const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
-    const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
-    for (const t of Object.keys(stages)) {
-      const stage = stages[t]
-      barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
-    }
-    return barsByTicker
-  }
-
-  /** 전 종목을 같은 단계로 */
-  function allStages(stage: 'A' | 'B' | 'C') {
-    return Object.fromEntries(FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
-      ProxyTicker,
-      'A' | 'B' | 'C'
-    >
-  }
-
   it('전부 상승 전환이면 강한 상승 확인(🟢🟢)이다', () => {
     const assessment = assessProxyBasket(basket(allStages('C')), FALLBACK_PROXY_HOLDINGS)
     expect(assessment.cStageCount).toBe(FALLBACK_PROXY_HOLDINGS.length)
@@ -180,17 +182,17 @@ describe('buildTrancheGuide', () => {
   it('구성종목 비중이 1차 임계값만 넘으면 1차만 자동 조건 충족', () => {
     // 490590 자체 조건은 전부 뺐다(2026-09-17) — 이 결과는 구성종목 비중 하나로만 갈린다.
     const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, false)
     expect(steps[0].autoReady).toBe(true)
     expect(steps[1].autoReady).toBe(false)
   })
 
-  it('4개 차수 전부 자동 조건이 구성종목 비중 단 하나뿐이다', () => {
+  it('4개 차수 전부 자동 조건이 하나뿐이고, 490590 자체 기술적 언급이 없다', () => {
     // 490590 자체를 20일선·구조적 추세 같은 기준으로 판단하는 게 의미 없다는 사용자
     // 판단으로, 1차의 "저점 방어"까지 마저 뺐다(2026-09-17). classifyStage는 이제
     // 구성종목에만 쓰인다 — 이 테스트가 그 불변식을 못 박는다.
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, true)
     for (const step of steps) {
       expect(step.autoConditions).toHaveLength(1)
       // 20일선·고점 돌파·신고가 같은 490590 자체 기술적 언급이 조건 문구에 남아있지 않아야 한다.
@@ -198,10 +200,69 @@ describe('buildTrancheGuide', () => {
     }
   })
 
+  it('4차는 오늘 하루짜리 비중이 아니라 sustainedGreen 인자를 그대로 따른다 (2026-09-30)', () => {
+    // 회귀 방지: 예전엔 4차도 3차와 똑같이 "오늘 비중 >= 70%"만 봐서, "유지"라는 문구가
+    // 실제 동작과 안 맞았다. cStageWeightShare를 일부러 70% 밑으로 두고(옛 판정식이면
+    // met=false여야 함) sustainedGreen=true를 주면, 지금 판정식은 그것과 무관하게
+    // sustainedGreen만 따라야 한다.
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
+    const readySteps = buildTrancheGuide(proxy, true)
+    expect(readySteps[3].autoConditions[0].met).toBe(true)
+    expect(readySteps[3].autoReady).toBe(true)
+
+    const notReadySteps = buildTrancheGuide(proxy, false)
+    expect(notReadySteps[3].autoConditions[0].met).toBe(false)
+    expect(notReadySteps[3].autoReady).toBe(false)
+  })
+
   it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, false)
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
+  })
+})
+
+describe('checkSustainedGreen', () => {
+  /**
+   * `uptrendReversalCloses()`는 정확히 66봉(판정 최소치)이라, 마지막 1~2봉을 잘라내면
+   * 곧바로 66봉 밑으로 떨어져 판정 불가가 된다. 3거래일 연속 확인 테스트에는 여유가
+   * 필요해 상승 전환 상태를 유지한 채로 며칠을 더 붙인다.
+   */
+  function sustainedUptrendCloses(): number[] {
+    return [...uptrendReversalCloses(), 137, 138, 139, 140, 141]
+  }
+
+  function sustainedBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
+    const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: sustainedUptrendCloses() }
+    const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
+    const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
+    for (const t of Object.keys(stages)) {
+      const stage = stages[t]
+      barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
+    }
+    return barsByTicker
+  }
+
+  it('최근 3거래일 내내 비중 70% 이상이었으면 true', () => {
+    expect(checkSustainedGreen(sustainedBasket(allStages('C')), FALLBACK_PROXY_HOLDINGS)).toBe(true)
+  })
+
+  it('오늘 비중부터 70% 미달이면 즉시 false', () => {
+    expect(checkSustainedGreen(sustainedBasket(allStages('B')), FALLBACK_PROXY_HOLDINGS)).toBe(false)
+  })
+
+  it('오늘은 막 66봉을 채워 판정됐어도, 그저께는 판정 불가(65봉)였다면 보수적으로 false', () => {
+    // 정확히 66봉짜리 시리즈 — 하루만 더 거슬러 가도(65봉) MIN_BARS_FOR_STAGE 미만이라
+    // "그저께"를 판정할 수 없다. "확인 안 됨"을 "확인됐다"로 셀 수는 없으니 false다.
+    expect(checkSustainedGreen(basket(allStages('C')), FALLBACK_PROXY_HOLDINGS)).toBe(false)
+  })
+
+  it('넘겨받은 판정 목록(judgedHoldings 등)을 그대로 쓴다 — 코드 상수를 새로 고르지 않는다', () => {
+    const rebalanced = [
+      { ticker: 'AAPL', name: '애플', weight: 70 },
+      { ticker: 'CRM', name: '세일즈포스', weight: 30 },
+    ]
+    expect(checkSustainedGreen(sustainedBasket({ AAPL: 'C', CRM: 'C' }), rebalanced)).toBe(true)
   })
 })
 
