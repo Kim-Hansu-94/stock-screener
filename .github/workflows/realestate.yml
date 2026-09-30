@@ -21,6 +21,10 @@ on:
         description: '프로브 대상 월(YYYYMM, 예: 202507). 생략하면 두 달 전을 쓴다 — 신설 지역을 찾을 땐 시행일 이후 달을 직접 지정할 것'
         type: string
         default: ''
+      proxy_url:
+        description: '국토부 중계 주소를 직접 지정(예: 미리보기 배포의 /api/molit-proxy). 비우면 운영 사이트의 중계를 쓴다'
+        type: string
+        default: ''
 
 jobs:
   collect:
@@ -70,7 +74,28 @@ jobs:
 
       - name: Collect
         working-directory: pipeline
+        env:
+          # 국토부(apis.data.go.kr)가 GitHub 실행 서버 IP 일부를 받아주지 않아 수집이 격주에 한 번꼴로
+          # 통째로 실패했다(2026-09-14, 09-29 — 같은 순간 DART·네이버는 전부 정상). 실행 서버의 IP는
+          # 고를 수 없으니, 국토부가 받아주는 서울 Vercel 중계(/api/molit-proxy)를 거친다.
+          # 새 시크릿은 없다 — 이미 있는 REVALIDATE_URL(사이트 주소)·REVALIDATE_TOKEN(중계 잠금)을 쓴다.
+          REVALIDATE_URL: ${{ secrets.REVALIDATE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+          PROXY_URL_INPUT: ${{ github.event.inputs.proxy_url }}
+          # 미리보기 배포는 로그인 보호가 걸려 있어 이 값이 있어야 시험할 수 있다. 운영 중계에는 보내지 않는다.
+          PREVIEW_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
+          if [ -n "$PROXY_URL_INPUT" ]; then
+            export MOLIT_PROXY_URL="$PROXY_URL_INPUT"
+            export VERCEL_AUTOMATION_BYPASS_SECRET="$PREVIEW_BYPASS"
+            echo "국토부 중계: 사용 (직접 지정한 주소)"
+          elif [[ "$REVALIDATE_URL" == */api/revalidate ]]; then
+            export MOLIT_PROXY_URL="${REVALIDATE_URL%/api/revalidate}/api/molit-proxy"
+            echo "국토부 중계: 사용 (운영 사이트)"
+          else
+            # 조용히 직접 호출로 가면 예전처럼 IP 운에 맡기게 된다 — 그렇다고 알린다.
+            echo "::warning::REVALIDATE_URL이 없거나 형식이 다르다 → 국토부를 직접 호출한다 (GitHub 서버 IP에 따라 막힐 수 있음)"
+          fi
           if [ -n "${{ github.event.inputs.probe }}" ]; then
             python -m src.realestate_main --probe "${{ github.event.inputs.probe }}" --probe-month "${{ github.event.inputs.probe_month }}"
           else

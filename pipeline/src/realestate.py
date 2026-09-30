@@ -197,21 +197,59 @@ def _fetch_one(url: str, service_key: str, region_code: str, ym: str) -> list[ET
         return _fetch_once(url, service_key, region_code, ym)
 
 
+def _request(
+    url: str, service_key: str, region_code: str, ym: str, timeout: int
+) -> requests.Response:
+    """국토부 API를 직접 부르거나, `MOLIT_PROXY_URL`이 있으면 그 중계를 거쳐 부른다.
+
+    중계를 두는 이유: GitHub 실행 서버는 실행마다 IP가 바뀌는데 그중 일부는 국토부가 연결 자체를
+    받아주지 않는다(2026-09-29 실측: 같은 순간 12개 중 2개가 connect timeout, DART·네이버는 전부
+    정상). 이 프로그램이 IP를 고를 수는 없으니, 국토부가 받아주는 서울 서버(Vercel `/api/molit-proxy`)를
+    거치게 한다. 환경변수가 없으면 종전대로 직접 부른다.
+    """
+    proxy = os.getenv("MOLIT_PROXY_URL")
+    key = normalize_service_key(service_key)
+    common = {
+        "LAWD_CD": region_code,
+        "DEAL_YMD": ym,
+        "numOfRows": _NUM_OF_ROWS,
+        "pageNo": 1,
+    }
+    if not proxy:
+        return requests.get(
+            url, params={"serviceKey": key, **common}, headers=_HEADERS, timeout=timeout
+        )
+
+    token = os.getenv("REVALIDATE_TOKEN")
+    if not token:
+        # 조용히 직접 호출로 떨어지면 "중계를 쓰고 있다"고 믿는 채 예전처럼 실패한다.
+        raise RuntimeError(
+            "MOLIT_PROXY_URL이 설정됐는데 REVALIDATE_TOKEN이 없다 — 중계는 이 토큰으로 잠겨 있다"
+        )
+    # 키는 주소가 아니라 헤더로 보낸다 — 주소의 쿼리는 서버 요청 로그에 남는다.
+    headers = {**_HEADERS, "Authorization": f"Bearer {token}", "x-molit-service-key": key}
+    bypass = os.getenv("VERCEL_AUTOMATION_BYPASS_SECRET")
+    if bypass:
+        # 미리보기 배포는 로그인 보호가 걸려 있어 이 헤더가 있어야 통과한다. 운영에는 없어도 된다.
+        headers["x-vercel-protection-bypass"] = bypass
+    resp = requests.get(
+        proxy,
+        params={"path": url[len(_BASE):], **common},
+        headers=headers,
+        # 중계가 국토부를 기다리는 시간(15초)보다 길어야 중계가 먼저 504로 알려줄 수 있다.
+        timeout=timeout + 10,
+    )
+    if resp.status_code == 504:
+        # 국토부가 시간 안에 답하지 않은 것 — 직접 호출의 Timeout과 같은 취급이어야
+        # _fetch_one의 한 번 재시도가 그대로 작동한다.
+        raise requests.Timeout(f"중계가 국토부 응답 시간 초과를 알려옴: {resp.text[:100]}")
+    return resp
+
+
 def _fetch_once(
     url: str, service_key: str, region_code: str, ym: str, timeout: int = _TIMEOUT
 ) -> list[ET.Element]:
-    resp = requests.get(
-        url,
-        params={
-            "serviceKey": normalize_service_key(service_key),
-            "LAWD_CD": region_code,
-            "DEAL_YMD": ym,
-            "numOfRows": _NUM_OF_ROWS,
-            "pageNo": 1,
-        },
-        headers=_HEADERS,
-        timeout=timeout,
-    )
+    resp = _request(url, service_key, region_code, ym, timeout)
     if not resp.ok:
         # raise_for_status()는 상태 코드만 알려준다. 403 본문에 "요청하신 서비스는
         # 이용할 수 없습니다" 같은 실제 사유가 들어 있어, 그걸 봐야 신청 문제인지
