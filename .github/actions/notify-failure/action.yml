@@ -1,0 +1,75 @@
+name: Notify failure via GitHub issue
+description: >
+  워크플로가 실패하면 GitHub 이슈를 열어 저장소 주인에게 알리고, 복구되면 그 이슈를 닫는다.
+  실패는 Actions 탭의 빨간 X로만 남아서, 직접 들어가 보지 않으면 모른다(2026-09-29 부동산 수집이
+  격주로 실패하는데도 우연히 발견했다). 이슈에 담당자로 지정하면 GitHub이 메일·앱 알림을 보낸다 —
+  새 시크릿이 필요 없다.
+
+inputs:
+  title:
+    description: 이슈 제목. 같은 제목의 열린 이슈가 있으면 새로 열지 않고 댓글만 단다(실패가 반복돼도 이슈가 쌓이지 않는다)
+    required: true
+  mode:
+    description: "failure(이슈 열기/댓글) 또는 recovered(이슈 닫기)"
+    required: true
+  hint:
+    description: 실패했을 때 이슈 본문에 붙일 한두 줄 안내(어디를 보면 되는지)
+    required: false
+    default: ''
+  assignee:
+    description: 담당자(알림을 받을 사람). 기본은 저장소 주인
+    required: false
+    default: ${{ github.repository_owner }}
+  token:
+    description: "issues: write 권한이 있는 토큰. 호출하는 워크플로에 permissions.issues=write가 있어야 한다"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Open, update, or close the issue
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        TITLE: ${{ inputs.title }}
+        MODE: ${{ inputs.mode }}
+        HINT: ${{ inputs.hint }}
+        ASSIGNEE: ${{ inputs.assignee }}
+        REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        WORKFLOW: ${{ github.workflow }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        set -euo pipefail
+        # 알림 자체가 조용히 실패하면 이 장치의 존재 이유가 없어진다 — 실패하면 이유를 크게 남긴다.
+        trap 'echo "::error::실패 알림 이슈를 처리하지 못했다. 호출한 워크플로에 permissions.issues=write가 있는지, 담당자(${ASSIGNEE})가 유효한지 확인할 것"' ERR
+
+        NOW_KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')
+        # 제목이 같은 열린 이슈만 대상으로 한다(검색은 부분 일치라 정확 일치를 다시 거른다).
+        existing=$(gh issue list --repo "$REPO" --state open --search "\"$TITLE\" in:title" \
+          --json number,title --jq '.[] | select(.title == env.TITLE) | .number' | sed -n 1p)
+
+        if [ "$MODE" = "failure" ]; then
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" \
+              --body "또 실패했다 (${NOW_KST} KST, 실행 방식: ${EVENT}) — [실행 보기](${RUN_URL})"
+            echo "열려 있는 이슈 #${existing}에 댓글을 달았다"
+          else
+            body="**${WORKFLOW}** 워크플로가 실패했다 (${NOW_KST} KST, 실행 방식: ${EVENT}).
+
+        - [실패한 실행 보기](${RUN_URL}) — 빨간 X가 붙은 단계를 열면 사유가 나온다
+        ${HINT:+- ${HINT}}
+
+        다음 실행이 성공하면 이 이슈는 저절로 닫힌다. 그때까지 같은 실패가 반복되면 이 이슈에 댓글이 달린다."
+            gh issue create --repo "$REPO" --title "$TITLE" --assignee "$ASSIGNEE" --body "$body"
+          fi
+        else
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$REPO" --reason completed \
+              --comment "복구됐다 (${NOW_KST} KST) — [성공한 실행](${RUN_URL})"
+            echo "이슈 #${existing}을 닫았다"
+          else
+            echo "열려 있는 실패 이슈가 없다 — 할 일 없음"
+          fi
+        fi
