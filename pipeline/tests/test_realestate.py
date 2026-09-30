@@ -174,6 +174,103 @@ def test_both_key_forms_reach_the_api_identically(monkeypatch):
     assert set(sent) == {"abc+def"}
 
 
+# ── 중계(MOLIT_PROXY_URL) ────────────────────────────────────────────────
+# GitHub 실행 서버 일부가 국토부에 연결이 안 돼서(2026-09-29), 국토부가 받아주는 서울 서버를
+# 거치게 했다. 환경변수가 없으면 종전 동작 그대로여야 하고, 있으면 키가 주소에 남지 않아야 한다.
+
+class _OkResp:
+    ok = True
+    status_code = 200
+    text = TRADE
+
+
+def test_without_proxy_env_it_calls_the_api_directly(monkeypatch):
+    monkeypatch.delenv("MOLIT_PROXY_URL", raising=False)
+    calls = []
+
+    def capture(url, params=None, headers=None, timeout=None):
+        calls.append((url, params))
+        return _OkResp()
+
+    monkeypatch.setattr(realestate.requests, "get", capture)
+    realestate._fetch_once(realestate._TRADE_URLS[-1], "k", "11680", "202608")
+
+    url, params = calls[0]
+    assert url == realestate._TRADE_URLS[-1]
+    assert params["serviceKey"] == "k"
+
+
+def test_with_proxy_env_the_key_travels_in_a_header_not_the_url(monkeypatch):
+    monkeypatch.setenv("MOLIT_PROXY_URL", "https://site.example/api/molit-proxy")
+    monkeypatch.setenv("REVALIDATE_TOKEN", "tok")
+    monkeypatch.delenv("VERCEL_AUTOMATION_BYPASS_SECRET", raising=False)
+    calls = []
+
+    def capture(url, params=None, headers=None, timeout=None):
+        calls.append((url, params, headers))
+        return _OkResp()
+
+    monkeypatch.setattr(realestate.requests, "get", capture)
+    # 인코딩된 키를 넣어도 디코딩된 원본이 헤더로 가야 한다(직접 호출과 같은 규칙)
+    realestate._fetch_once(realestate._TRADE_URLS[-1], "abc%2Bdef", "11680", "202608")
+
+    url, params, headers = calls[0]
+    assert url == "https://site.example/api/molit-proxy"
+    assert params["path"] == "/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
+    assert "serviceKey" not in params  # 주소의 쿼리는 서버 로그에 남는다
+    assert headers["x-molit-service-key"] == "abc+def"
+    assert headers["Authorization"] == "Bearer tok"
+    assert "x-vercel-protection-bypass" not in headers
+
+
+def test_proxy_sends_the_preview_bypass_header_only_when_configured(monkeypatch):
+    monkeypatch.setenv("MOLIT_PROXY_URL", "https://site.example/api/molit-proxy")
+    monkeypatch.setenv("REVALIDATE_TOKEN", "tok")
+    monkeypatch.setenv("VERCEL_AUTOMATION_BYPASS_SECRET", "bypass")
+    seen = []
+
+    def capture(url, params=None, headers=None, timeout=None):
+        seen.append(headers)
+        return _OkResp()
+
+    monkeypatch.setattr(realestate.requests, "get", capture)
+    realestate._fetch_once(realestate._TRADE_URLS[-1], "k", "11680", "202608")
+
+    assert seen[0]["x-vercel-protection-bypass"] == "bypass"
+
+
+def test_proxy_without_token_fails_loudly_instead_of_calling_directly(monkeypatch):
+    monkeypatch.setenv("MOLIT_PROXY_URL", "https://site.example/api/molit-proxy")
+    monkeypatch.delenv("REVALIDATE_TOKEN", raising=False)
+    monkeypatch.setattr(
+        realestate.requests, "get", lambda *a, **k: pytest.fail("직접 호출로 떨어지면 안 된다")
+    )
+
+    with pytest.raises(RuntimeError, match="REVALIDATE_TOKEN"):
+        realestate._fetch_once(realestate._TRADE_URLS[-1], "k", "11680", "202608")
+
+
+def test_proxy_504_is_treated_as_a_timeout_so_the_retry_still_applies(monkeypatch):
+    monkeypatch.setenv("MOLIT_PROXY_URL", "https://site.example/api/molit-proxy")
+    monkeypatch.setenv("REVALIDATE_TOKEN", "tok")
+    attempts = []
+
+    class Gateway504:
+        ok = False
+        status_code = 504
+        text = '{"error":"국토부 응답 시간 초과"}'
+
+    def get(url, params=None, headers=None, timeout=None):
+        attempts.append(1)
+        return Gateway504() if len(attempts) == 1 else _OkResp()
+
+    monkeypatch.setattr(realestate.requests, "get", get)
+    items = realestate._fetch_one(realestate._TRADE_URLS[-1], "k", "11680", "202608")
+
+    assert len(attempts) == 2  # 504가 Timeout으로 취급돼 _fetch_one이 한 번 다시 시도했다
+    assert items
+
+
 # ── 엔트리포인트 ─────────────────────────────────────────────────────────
 # 첫 두 실행이 "키 미설정"으로 조용히 건너뛰고 초록불로 끝났다. 원인은
 # realestate_main이 load_dotenv()를 안 불러 pipeline/.env를 못 읽은 것이었다.
