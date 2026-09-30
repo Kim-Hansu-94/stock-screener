@@ -1,0 +1,31 @@
+name: ETF Distribution Probe 2
+
+# 490590 분배금 이력 2차 탐색 — 운용사(RISE) 사이트와 KRX KIND.
+# 1차(etf_distribution_probe)에서 네이버는 요약값만 주는 것으로 확인됐다.
+# 작업 컨테이너는 이 사이트들이 막혀 있어 여기서만 확인된다.
+on:
+  push:
+    paths:
+      - 'pipeline/src/etf_distribution_probe2.py'
+      - '.github/workflows/etf_distribution_probe2.yml'
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe RISE / KIND distribution sources
+        working-directory: pipeline
+        run: python -m src.etf_distribution_probe2
