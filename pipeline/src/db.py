@@ -486,7 +486,26 @@ class ScreenerDB:
             return
         etf_ticker = rows[0]["etf_ticker"]
         self.client.table("etf_holdings").delete().eq("etf_ticker", etf_ticker).execute()
-        _batch_upsert(self.client, "etf_holdings", rows)
+        try:
+            _batch_upsert(self.client, "etf_holdings", rows)
+        except Exception as exc:  # noqa: BLE001
+            # `status` 열은 나중에 더한 것이라(supabase/etf_holdings_status.sql) 아직
+            # 안 돌린 DB가 있을 수 있다. 그때는 **보유 행만** 다시 저장한다 —
+            # status 없이 넣으면 '빠짐' 행이 보유 종목으로 섞여 화면이 없는 종목을
+            # 세게 되므로, 통째로 빼는 쪽이 안전하다(경고는 남긴다).
+            held = [{k: v for k, v in r.items() if k != "status"}
+                    for r in rows if r.get("status") != "dropped"]
+            if len(held) == len(rows):
+                raise
+            print(
+                "  ::warning::status 열이 없어 '빠짐' 행을 저장하지 못했다 "
+                f"({exc}) — supabase/etf_holdings_status.sql을 실행할 것. "
+                "메일 알림은 정상 동작하고 팝업만 안 뜬다",
+                flush=True,
+            )
+            _batch_upsert(self.client, "etf_holdings", held)
+            print(f"  → {len(held)}개 저장", flush=True)
+            return
         print(f"  → {len(rows)}개 저장", flush=True)
 
     def count_price_bars(self, ticker: str, market: str) -> int:

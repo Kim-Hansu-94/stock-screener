@@ -4,6 +4,7 @@ import {
   assessProxyBasket,
   assessStopSignals,
   buildTrancheGuide,
+  checkSustainedGreen,
   classifyStage,
   describeTenYearYield,
   summarizeStopSignals,
@@ -11,6 +12,9 @@ import {
   MANUAL_STOP_CHECKS,
   FALLBACK_PROXY_HOLDINGS,
   JUDGED_HOLDINGS_COUNT,
+  WEIGHTS_RECHECK_DAYS,
+  weightsRecheck,
+  todayInSeoul,
   judgedHoldings,
   type ProxyTicker,
   type StopSignal,
@@ -86,26 +90,27 @@ describe('classifyStage', () => {
   })
 })
 
+/** 종목별로 지정한 단계(A/B/C)에 맞는 일봉을 만든다 — assessProxyBasket·checkSustainedGreen 공용. */
+function basket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
+  const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: uptrendReversalCloses() }
+  const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
+  const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
+  for (const t of Object.keys(stages)) {
+    const stage = stages[t]
+    barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
+  }
+  return barsByTicker
+}
+
+/** 전 종목을 같은 단계로 */
+function allStages(stage: 'A' | 'B' | 'C') {
+  return Object.fromEntries(FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
+    ProxyTicker,
+    'A' | 'B' | 'C'
+  >
+}
+
 describe('assessProxyBasket', () => {
-  function basket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
-    const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: uptrendReversalCloses() }
-    const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
-    const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
-    for (const t of Object.keys(stages)) {
-      const stage = stages[t]
-      barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
-    }
-    return barsByTicker
-  }
-
-  /** 전 종목을 같은 단계로 */
-  function allStages(stage: 'A' | 'B' | 'C') {
-    return Object.fromEntries(FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, stage])) as Record<
-      ProxyTicker,
-      'A' | 'B' | 'C'
-    >
-  }
-
   it('전부 상승 전환이면 강한 상승 확인(🟢🟢)이다', () => {
     const assessment = assessProxyBasket(basket(allStages('C')), FALLBACK_PROXY_HOLDINGS)
     expect(assessment.cStageCount).toBe(FALLBACK_PROXY_HOLDINGS.length)
@@ -177,17 +182,17 @@ describe('buildTrancheGuide', () => {
   it('구성종목 비중이 1차 임계값만 넘으면 1차만 자동 조건 충족', () => {
     // 490590 자체 조건은 전부 뺐다(2026-09-17) — 이 결과는 구성종목 비중 하나로만 갈린다.
     const proxy = { perTicker: {} as never, cStageCount: 2, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.35, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟠', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, false)
     expect(steps[0].autoReady).toBe(true)
     expect(steps[1].autoReady).toBe(false)
   })
 
-  it('4개 차수 전부 자동 조건이 구성종목 비중 단 하나뿐이다', () => {
+  it('4개 차수 전부 자동 조건이 하나뿐이고, 490590 자체 기술적 언급이 없다', () => {
     // 490590 자체를 20일선·구조적 추세 같은 기준으로 판단하는 게 의미 없다는 사용자
     // 판단으로, 1차의 "저점 방어"까지 마저 뺐다(2026-09-17). classifyStage는 이제
     // 구성종목에만 쓰인다 — 이 테스트가 그 불변식을 못 박는다.
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, true)
     for (const step of steps) {
       expect(step.autoConditions).toHaveLength(1)
       // 20일선·고점 돌파·신고가 같은 490590 자체 기술적 언급이 조건 문구에 남아있지 않아야 한다.
@@ -195,10 +200,69 @@ describe('buildTrancheGuide', () => {
     }
   })
 
+  it('4차는 오늘 하루짜리 비중이 아니라 sustainedGreen 인자를 그대로 따른다 (2026-09-30)', () => {
+    // 회귀 방지: 예전엔 4차도 3차와 똑같이 "오늘 비중 >= 70%"만 봐서, "유지"라는 문구가
+    // 실제 동작과 안 맞았다. cStageWeightShare를 일부러 70% 밑으로 두고(옛 판정식이면
+    // met=false여야 함) sustainedGreen=true를 주면, 지금 판정식은 그것과 무관하게
+    // sustainedGreen만 따라야 한다.
+    const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0.5, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🟡', trafficLabel: '' }
+    const readySteps = buildTrancheGuide(proxy, true)
+    expect(readySteps[3].autoConditions[0].met).toBe(true)
+    expect(readySteps[3].autoReady).toBe(true)
+
+    const notReadySteps = buildTrancheGuide(proxy, false)
+    expect(notReadySteps[3].autoConditions[0].met).toBe(false)
+    expect(notReadySteps[3].autoReady).toBe(false)
+  })
+
   it('누적 매수 금액이 500 → 1500 → 3000 → 5000만원으로 쌓인다', () => {
     const proxy = { perTicker: {} as never, cStageCount: 0, evaluatedCount: FALLBACK_PROXY_HOLDINGS.length, cStageWeightShare: 0, cStageWeight: 0, evaluatedWeight: 100, trafficLight: '🔴', trafficLabel: '' }
-    const steps = buildTrancheGuide(proxy)
+    const steps = buildTrancheGuide(proxy, false)
     expect(steps.map((s) => s.cumulativeManwon)).toEqual([500, 1500, 3000, 5000])
+  })
+})
+
+describe('checkSustainedGreen', () => {
+  /**
+   * `uptrendReversalCloses()`는 정확히 66봉(판정 최소치)이라, 마지막 1~2봉을 잘라내면
+   * 곧바로 66봉 밑으로 떨어져 판정 불가가 된다. 3거래일 연속 확인 테스트에는 여유가
+   * 필요해 상승 전환 상태를 유지한 채로 며칠을 더 붙인다.
+   */
+  function sustainedUptrendCloses(): number[] {
+    return [...uptrendReversalCloses(), 137, 138, 139, 140, 141]
+  }
+
+  function sustainedBasket(stages: Record<ProxyTicker, 'A' | 'B' | 'C'>) {
+    const closesFor = { A: downtrendCloses(), B: sidewaysCloses(), C: sustainedUptrendCloses() }
+    const volsFor = (stage: 'A' | 'B' | 'C', n: number) => (stage === 'C' ? boostedRecentVolume(n) : undefined)
+    const barsByTicker = {} as Record<ProxyTicker, PriceHistoryRow[]>
+    for (const t of Object.keys(stages)) {
+      const stage = stages[t]
+      barsByTicker[t] = bars(closesFor[stage], volsFor(stage, closesFor[stage].length))
+    }
+    return barsByTicker
+  }
+
+  it('최근 3거래일 내내 비중 70% 이상이었으면 true', () => {
+    expect(checkSustainedGreen(sustainedBasket(allStages('C')), FALLBACK_PROXY_HOLDINGS)).toBe(true)
+  })
+
+  it('오늘 비중부터 70% 미달이면 즉시 false', () => {
+    expect(checkSustainedGreen(sustainedBasket(allStages('B')), FALLBACK_PROXY_HOLDINGS)).toBe(false)
+  })
+
+  it('오늘은 막 66봉을 채워 판정됐어도, 그저께는 판정 불가(65봉)였다면 보수적으로 false', () => {
+    // 정확히 66봉짜리 시리즈 — 하루만 더 거슬러 가도(65봉) MIN_BARS_FOR_STAGE 미만이라
+    // "그저께"를 판정할 수 없다. "확인 안 됨"을 "확인됐다"로 셀 수는 없으니 false다.
+    expect(checkSustainedGreen(basket(allStages('C')), FALLBACK_PROXY_HOLDINGS)).toBe(false)
+  })
+
+  it('넘겨받은 판정 목록(judgedHoldings 등)을 그대로 쓴다 — 코드 상수를 새로 고르지 않는다', () => {
+    const rebalanced = [
+      { ticker: 'AAPL', name: '애플', weight: 70 },
+      { ticker: 'CRM', name: '세일즈포스', weight: 30 },
+    ]
+    expect(checkSustainedGreen(sustainedBasket({ AAPL: 'C', CRM: 'C' }), rebalanced)).toBe(true)
   })
 })
 
@@ -421,5 +485,49 @@ describe('judgedHoldings', () => {
     expect(judgedHoldings(tied).map((h) => h.ticker)).toEqual([
       'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7',
     ])
+  })
+})
+
+describe('weightsRecheck', () => {
+  it('2일이 지나면 다시 확인할 때가 된다', () => {
+    expect(weightsRecheck('2026-09-25', '2026-09-26')?.due).toBe(false)
+    expect(weightsRecheck('2026-09-25', '2026-09-27')?.due).toBe(true)
+    expect(weightsRecheck('2026-09-25', '2026-09-29')?.daysSince).toBe(4)
+  })
+
+  it('칸 번호가 2일마다 하나씩 올라간다', () => {
+    // 팝업이 이걸로 "이미 본 알림"을 가린다 — 같은 칸이면 안 뜨고, 칸이 바뀌면 다시 뜬다.
+    // 그래서 이 값이 곧 "2일에 한 번"이라는 주기 그 자체다.
+    const buckets = ['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01']
+      .map((d) => weightsRecheck('2026-09-25', d)?.bucket)
+
+    expect(buckets).toEqual([1, 1, 2, 2, 3])
+    expect(WEIGHTS_RECHECK_DAYS).toBe(2)
+  })
+
+  it('달과 해를 넘어가도 일수를 맞게 센다', () => {
+    expect(weightsRecheck('2026-09-29', '2026-10-01')?.daysSince).toBe(2)
+    expect(weightsRecheck('2026-12-31', '2027-01-02')?.daysSince).toBe(2)
+  })
+
+  it('날짜를 못 읽으면 조르지 않는다', () => {
+    // 못 읽은 것을 "확인할 때가 됐다"로 읽으면 근거 없이 매번 알림이 뜬다.
+    expect(weightsRecheck('', '2026-09-29')).toBeNull()
+    expect(weightsRecheck('2026-09-25', 'oops')).toBeNull()
+    expect(weightsRecheck('2026/09/25', '2026-09-29')).toBeNull()
+  })
+
+  it('기준일이 미래면 조르지 않는다', () => {
+    expect(weightsRecheck('2026-10-05', '2026-09-29')).toBeNull()
+  })
+})
+
+describe('todayInSeoul', () => {
+  it('UTC 자정 직후에도 한국 날짜를 준다', () => {
+    // Vercel은 UTC로 도니까 표준시를 안 고정하면 한국 기준 하루가 밀린다.
+    // 9/29 00:30 UTC = 9/29 09:30 KST (같은 날), 9/28 16:00 UTC = 9/29 01:00 KST (다음 날).
+    expect(todayInSeoul(new Date('2026-09-29T00:30:00Z'))).toBe('2026-09-29')
+    expect(todayInSeoul(new Date('2026-09-28T16:00:00Z'))).toBe('2026-09-29')
+    expect(todayInSeoul(new Date('2026-09-28T14:59:00Z'))).toBe('2026-09-28')
   })
 })

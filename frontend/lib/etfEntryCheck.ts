@@ -93,6 +93,72 @@ export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-25'
 export const JUDGED_HOLDINGS_COUNT = 8
 
 /**
+ * 실측 비중을 며칠마다 다시 확인할지 (2026-09-29, 사용자 요청: "2일에 한번씩").
+ *
+ * 왜 사람한테 물어야 하는가 — 자동 수집(네이버)은 **주식 수 순 상위 10개**만 줘서
+ * 판정 8개 중 AMD·마이크론·메타·TSMC를 아예 못 본다(비중으로 27.7%가 사각지대).
+ * 그 넷이 바뀌어도 알람은 울리지 않으므로, 주기적으로 사람이 증권사 앱을 봐야 한다.
+ */
+export const WEIGHTS_RECHECK_DAYS = 2
+
+export interface WeightsRecheck {
+  /** 실측 비중을 확인한 날로부터 며칠 지났나 */
+  daysSince: number
+  /** 다시 확인할 때가 됐나 */
+  due: boolean
+  /**
+   * 팝업이 "이 알림을 이미 봤나"를 가리는 데 쓰는 칸 번호.
+   *
+   * 날짜로 서명하면 한 번 닫아도 **다음 날 또** 뜨고, 고정 문자열로 서명하면 한 번
+   * 닫은 뒤 **영영 안 뜬다**. 둘 다 "2일에 한 번"이 아니다. 지난 일수를
+   * WEIGHTS_RECHECK_DAYS로 나눈 몫을 쓰면 닫아도 딱 그 주기마다 다시 뜬다.
+   */
+  bucket: number
+}
+
+/**
+ * 실측 비중이 얼마나 묵었는지. 날짜는 둘 다 `YYYY-MM-DD`.
+ *
+ * 시차로 하루가 밀리지 않게 UTC 자정으로 고정해 뺀다(현지 시간으로 파싱하면
+ * 서머타임·시간대에 따라 경계에서 하루가 어긋난다). 형식이 아니면 null을 돌려
+ * **알림을 띄우지 않는다** — 날짜를 못 읽는 것을 "확인할 때가 됐다"로 읽으면
+ * 근거 없이 매번 조르게 된다.
+ */
+/**
+ * 오늘 날짜(한국)를 `YYYY-MM-DD`로. 서버에서 부르므로 표준시를 고정해야 한다 —
+ * Vercel은 UTC로 도니까 그냥 쓰면 한국 기준 하루가 밀린다.
+ * `en-CA` 로캘이 곧 `YYYY-MM-DD` 형식이다.
+ */
+export function todayInSeoul(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+}
+
+export function weightsRecheck(asOf: string, today: string): WeightsRecheck | null {
+  const parse = (v: string): number | null => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+    const ms = Date.parse(`${v}T00:00:00Z`)
+    return Number.isNaN(ms) ? null : ms
+  }
+  const from = parse(asOf)
+  const to = parse(today)
+  if (from === null || to === null) return null
+
+  const daysSince = Math.floor((to - from) / 86_400_000)
+  // 기준일이 미래면(시계가 어긋났거나 손으로 잘못 적었으면) 조르지 않는다.
+  if (daysSince < 0) return null
+  return {
+    daysSince,
+    due: daysSince >= WEIGHTS_RECHECK_DAYS,
+    bucket: Math.floor(daysSince / WEIGHTS_RECHECK_DAYS),
+  }
+}
+
+/**
  * 판정 대상 = 비중 상위 `JUDGED_HOLDINGS_COUNT`개.
  *
  * 원본 배열을 건드리지 않고(readonly 입력) 비중 내림차순으로 정렬해 자른다. 목록이
@@ -529,7 +595,51 @@ export interface TrancheStep {
  * 결과적으로 4개 차수 전부가 **구성종목 비중 하나만** 본다 — 신호등과 완전히 같은 근거를
  * 쓰므로, "신호등이 🟡면 2차, 🟢면 3~4차"라고 그대로 읽어도 된다.
  */
-export function buildTrancheGuide(proxy: ProxyBasketAssessment): TrancheStep[] {
+/**
+ * 4차 조건 — 3차 조건(비중 `green` 이상)이 최근 이 거래일수만큼 **연속으로** 유지됐는가.
+ *
+ * 원래는 "흔들림 없이 계속 유지"라고 문구만 그렇고, 실제 판정식은 3차와 완전히 같은
+ * **오늘 하루짜리 스냅샷**이었다(2026-09-30 지적 — 오늘 비중이 70%를 넘는 순간 3차와
+ * 4차가 동시에 열렸다). 이 파일에 이미 있는 확인 구간들(3일: 구성종목 동시 저점 이탈,
+ * 5일: 거래량 방향, 20일: A/B/C 단계를 가르는 구조적 창)중, 4차가 필요한 건 "구조가
+ * 바뀌었나"(20일 몫)가 아니라 "하루짜리 반짝 신호는 아닌가"라서 가장 짧은 3일 쪽과
+ * 성격이 같다 — 그래서 3거래일로 정했다.
+ */
+const TRANCHE4_SUSTAIN_DAYS = 3
+
+/**
+ * 종목마다 거래일이 하루씩 어긋날 수 있어(휴장 등) 달력 날짜로 맞추지 않고,
+ * `madeFreshLowRecently`와 같은 방식으로 각 종목 자기 배열의 **최근 N개 봉**을 하나씩
+ * 잘라내며 그 시점 기준 신호등을 다시 계산한다 — 오늘(cut=0)부터 거슬러 올라가며
+ * `days`일 전까지 전부 green 이상이어야 true다.
+ *
+ * `holdings`는 `assessProxyBasket`과 똑같이 **판정 대상 목록을 그대로 받는다** — 여기서
+ * 새로 고르지 않는다(코드 상수를 쓰면 리밸런싱된 실제 화면 판정과 갈라진다).
+ *
+ * 판정에 필요한 일봉이 모자라(막 데이터가 쌓이기 시작한 초기 등) 그날의 신호등 자체를
+ * 못 매기면 보수적으로 false로 본다 — `cStageWeightShare`가 판정 불가일 때 0으로
+ * 떨어지는 것과 같은 원칙("아직 확인 안 됨"을 "확인됐다"로 잘못 세면 안 된다).
+ */
+export function checkSustainedGreen(
+  barsByTicker: Record<ProxyTicker, PriceHistoryRow[] | undefined>,
+  holdings: readonly ProxyHolding[],
+  days: number = TRANCHE4_SUSTAIN_DAYS,
+): boolean {
+  const tickers = holdings.map((h) => h.ticker)
+  for (let cut = 0; cut < days; cut++) {
+    const trimmed = {} as Record<ProxyTicker, PriceHistoryRow[] | undefined>
+    for (const t of tickers) {
+      const tBars = barsByTicker[t] ?? []
+      trimmed[t] = tBars.slice(0, Math.max(0, tBars.length - cut))
+    }
+    const assessment = assessProxyBasket(trimmed, holdings)
+    if (assessment.evaluatedCount === 0) return false
+    if (assessment.cStageWeightShare < TRAFFIC_THRESHOLDS.green) return false
+  }
+  return true
+}
+
+export function buildTrancheGuide(proxy: ProxyBasketAssessment, sustainedGreen: boolean): TrancheStep[] {
   return [
     {
       order: 1,
@@ -573,11 +683,11 @@ export function buildTrancheGuide(proxy: ProxyBasketAssessment): TrancheStep[] {
       cumulativeManwon: 5000,
       label: '4차 — 무조건 넣을 필요 없음',
       autoConditions: [
-        { text: '3차 조건이 흔들림 없이 계속 유지',
-          met: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green },
+        { text: `3차 조건이 최근 ${TRANCHE4_SUSTAIN_DAYS}거래일 연속 유지`,
+          met: sustainedGreen },
       ],
       manualConditions: ['조건이 확실하지 않으면 남은 돈은 투자하지 않는다 — "많이 떨어졌으니 오르겠지"는 금지'],
-      autoReady: proxy.cStageWeightShare >= TRAFFIC_THRESHOLDS.green,
+      autoReady: sustainedGreen,
     },
   ]
 }

@@ -12,12 +12,19 @@
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
 from .db import ScreenerDB
-from .etf_holdings import ETF_CODE, KNOWN_TICKERS, collect_etf_holdings, describe
+from .etf_holdings import (
+    ETF_CODE,
+    KNOWN_TICKERS,
+    collect_etf_holdings,
+    describe,
+    diff_holdings,
+    dropped_rows,
+)
 
 _KST = timezone(timedelta(hours=9))
 
@@ -40,25 +47,39 @@ def main() -> None:
 
     print(describe(rows), flush=True)
 
-    # 어제와 뭐가 달라졌는지 (부가 정보)
+    # 어제 수집 결과와 비교해 "안 보이게 된 종목"을 찾는다. 표는 매 실행 통째로
+    # 갈아끼우므로 **저장하기 전에** 읽어야 한다.
+    previous: list[dict] = []
     try:
-        before = (
+        previous = (
             db.client.table("etf_holdings")
             .select("ticker, name")
             .eq("etf_ticker", ETF_CODE)
             .execute()
         ).data or []
-        prev_names = {r["name"] for r in before}
-        now_names = {r["name"] for r in rows}
-        if before and prev_names != now_names:
-            if added := sorted(now_names - prev_names):
-                print(f"  어제 대비 새로 들어옴: {', '.join(added)}", flush=True)
-            if removed := sorted(prev_names - now_names):
-                print(f"  어제 대비 빠짐: {', '.join(removed)}", flush=True)
     except Exception as exc:  # noqa: BLE001
+        # 못 읽으면 '안 보임' 판정만 건너뛴다 — 비교 대상이 없는 것을 사라진 것으로
+        # 읽으면 거짓 경보가 난다. '새로 보임'은 비교가 필요 없어 그대로 동작한다.
         print(f"  (이전 구성과 비교 실패: {exc})", flush=True)
 
-    db.save_etf_holdings(rows)
+    unknown, dropped = diff_holdings(previous, rows, KNOWN_TICKERS)
+
+    # `status` 열이 실제로 있는지 **매 실행 한 줄로 남긴다.**
+    # 없으면 '빠짐' 팝업이 조용히 안 뜨는데(supabase/etf_holdings_status.sql),
+    # 저장 경로로는 확인이 안 된다 — 빠진 종목이 없는 날은 status가 붙은 행을 아예
+    # 안 만들어서 열이 있든 없든 저장이 성공하기 때문이다. 그래서 따로 물어본다.
+    try:
+        db.client.table("etf_holdings").select("status").limit(1).execute()
+        print("  status 열 확인됨 — '빠짐' 팝업 경로 살아 있음", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"  ::warning::status 열이 없다({exc}) — supabase/etf_holdings_status.sql을 "
+            "실행할 것. 메일 알림은 정상이고 '빠짐' 팝업만 안 뜬다",
+            flush=True,
+        )
+
+    now = datetime.now(_KST).isoformat(timespec="seconds")
+    db.save_etf_holdings(rows + dropped_rows(dropped, ETF_CODE, rows[0]["as_of"], now))
 
     # ── 화면이 쓰는 목록과 어긋나면 **사람을 부른다** ──────────────────────
     # 화면의 비중은 사용자가 증권사 앱에서 확인해 코드(FALLBACK_PROXY_HOLDINGS)에
@@ -71,14 +92,21 @@ def main() -> None:
     # 10개 중 5개가 어긋난 채로 며칠을 갔다(2026-09-25). 워크플로가 빨간불이면
     # GitHub이 저장소 주인에게 메일을 보내므로, 새 시크릿 없이 알림이 닿는다.
     # 사이트에 들어오면 같은 내용이 팝업으로도 뜬다(`/api/alerts`의 holdingsChange).
-    unknown = sorted(
-        f"{r['name']} ({r['ticker']})" for r in rows
-        if r["ticker"] and r["ticker"] not in KNOWN_TICKERS
-    )
+    problems: list[str] = []
     if unknown:
+        problems.append(f"목록에 없는 종목이 보입니다: {', '.join(unknown)}")
+    if dropped:
+        # **"빠졌다"고 단정하지 않는다** — 네이버는 주식 수 순 상위 10개만 주므로,
+        # 그대로 담고 있어도 11위로 밀리면 똑같이 사라진다. 어느 쪽인지는 사람이
+        # 증권사 앱에서 봐야 알 수 있고, 확인이 필요한 건 어느 쪽이든 같다.
+        problems.append(
+            f"어제까지 보이던 종목이 안 보입니다(빠졌거나 순위가 밀렸습니다): {', '.join(dropped)}"
+        )
+    if problems:
         print(
-            "::error::490590 구성종목이 바뀐 것 같습니다 — 화면이 쓰는 목록에 없는 종목: "
-            f"{', '.join(unknown)} / 증권사 앱의 구성종목 화면을 캡처해 비중을 갱신해 주세요"
+            "::error::490590 구성종목이 바뀐 것 같습니다 — "
+            + " / ".join(problems)
+            + " / 증권사 앱의 구성종목 화면을 캡처해 비중을 갱신해 주세요"
             " (frontend/lib/etfEntryCheck.ts의 FALLBACK_PROXY_HOLDINGS)",
             flush=True,
         )

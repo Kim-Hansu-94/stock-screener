@@ -18,6 +18,13 @@ export interface EtfHoldingsResult {
   unresolved: string[]
   /** 자동 수집엔 있는데 실측 목록엔 없는 종목 = 리밸런싱 신호. 화면이 알린다. */
   staleNames: string[]
+  /**
+   * 어제까지 수집에 잡히던 종목이 오늘 안 잡힌 것 (파이프라인이 status='dropped'로
+   * 남긴 행). **"ETF에서 빠졌다"고 단정하지 않는다** — 네이버는 주식 수 순 상위
+   * 10개만 주므로 그대로 담고 있어도 11위로 밀리면 사라진다.
+   * supabase/etf_holdings_status.sql을 안 돌렸으면 항상 빈 목록이다(메일 알림은 정상).
+   */
+  droppedNames: string[]
   /** 자동 수집이 마지막으로 구성을 확인한 날짜. null이면 아직 한 번도 안 돌았다. */
   autoCheckedAt: string | null
 }
@@ -53,30 +60,50 @@ export async function getEtfHoldings(): Promise<EtfHoldingsResult> {
     fromDb: false,
     unresolved: [],
     staleNames: [],
+    droppedNames: [],
     autoCheckedAt: null,
   }
 
   try {
     const supabase = createServerSupabaseClient()
-    const { data, error } = await supabase
-      .from('etf_holdings')
-      .select('ticker, name, as_of')
-      .eq('etf_ticker', ETF_TICKER)
-      .order('seq', { ascending: true })
+    // status는 나중에 더한 열이라(supabase/etf_holdings_status.sql) 아직 없을 수 있다.
+    // 없으면 select가 통째로 실패하므로 한 번 더 시도한다 — 그래야 SQL을 안 돌린
+    // 상태에서도 기존 리밸런싱 알람이 계속 돈다('빠짐' 알림만 빠진다).
+    type HoldingRow = { ticker: string | null; name: string; as_of: string; status?: string }
+    const query = (columns: string) =>
+      supabase
+        .from('etf_holdings')
+        .select(columns)
+        .eq('etf_ticker', ETF_TICKER)
+        .order('seq', { ascending: true })
+
+    let result = await query('ticker, name, as_of, status')
+    if (result.error) result = await query('ticker, name, as_of')
+    const { data, error } = result as { data: HoldingRow[] | null; error: unknown }
+
     // 표가 아직 없거나 비어 있는 것은 **정상 상태**다(첫 수집 전까지) — 예외로 화면을
     // 죽이지 않고, 알람만 없는 채로 실측 목록을 그대로 쓴다.
     if (error || !data || data.length === 0) return base
 
+    // status='dropped'는 구성이 아니라 **경고**를 담은 행이다 — 보유 종목을 세는
+    // 쪽에 섞이면 없는 종목을 세게 되므로 먼저 갈라낸다.
+    const isDropped = (row: { status?: unknown }) => row.status === 'dropped'
+    const held = data.filter((row) => !isDropped(row))
+    const droppedNames = data
+      .filter(isDropped)
+      .map((row) => `${row.name as string} (${row.ticker as string})`)
+
     // 자동 수집이 본 종목 중 실측 목록에 없는 것 = 그 사이 리밸런싱됐다는 신호.
     const known = new Set(FALLBACK_PROXY_HOLDINGS.map((h) => h.ticker))
-    const staleNames = data
+    const staleNames = held
       .filter((row) => row.ticker && !known.has(row.ticker as string))
       .map((row) => `${row.name as string} (${row.ticker as string})`)
 
     return {
       ...base,
       staleNames,
-      autoCheckedAt: (data[0].as_of as string) ?? null,
+      droppedNames,
+      autoCheckedAt: (held[0]?.as_of as string) ?? (data[0].as_of as string) ?? null,
     }
   } catch {
     return base

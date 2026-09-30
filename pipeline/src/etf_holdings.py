@@ -249,3 +249,69 @@ def describe(rows: list[dict]) -> str:
             f" {row['stock_count']:>7,}주 {weight:>8}"
         )
     return "\n".join(lines)
+
+
+def diff_holdings(
+    previous: list[dict], current: list[dict], known: frozenset[str]
+) -> tuple[list[str], list[str]]:
+    """자동 수집 결과가 어제와 뭐가 달라졌는지 → (새로 보임, 안 보임).
+
+    **둘 다 "사람을 불러야 하는" 신호지만 뜻이 다르다.**
+
+    · 새로 보임(`unknown`) = 화면 목록(`known`)에 없는 종목이 수집에 잡혔다.
+      새 종목이 들어왔다는 뜻이고, 첫 실행에도 판정할 수 있다(비교 대상이 필요 없다).
+
+    · 안 보임(`dropped`) = 어제까지 잡히던 화면 목록의 종목이 오늘 안 잡힌다.
+      **"ETF에서 빠졌다"고 단정하면 안 된다** — 네이버가 주는 건 주식 수 순 상위
+      10개뿐이라, 그대로 담고 있는데 11위로 밀려도 똑같이 사라진다. 그래서 호출부는
+      문구를 "빠졌거나 순위가 밀렸다"로 쓴다. 어느 쪽이든 사람이 확인해야 하는 건 같다.
+
+    비교는 **티커**로 한다(이름은 소스 표기가 흔들린다). 티커를 못 이은 행은 양쪽에서
+    빼는데, 그건 이미 별도 경고(`unresolved`)가 다루는 다른 문제이기 때문이다.
+
+    `previous`가 비면(첫 실행·표가 빈 경우) `dropped`는 빈 목록이다 — 비교 대상이
+    없는 것을 "사라졌다"로 읽으면 첫 실행부터 거짓 경보가 난다.
+    """
+    def tickers(rows: list[dict]) -> set[str]:
+        return {r["ticker"] for r in rows if r.get("ticker")}
+
+    now = tickers(current)
+    unknown = sorted(
+        f"{r['name']} ({r['ticker']})"
+        for r in current
+        if r.get("ticker") and r["ticker"] not in known
+    )
+    dropped: list[str] = []
+    if previous:
+        by_ticker = {r["ticker"]: r for r in previous if r.get("ticker")}
+        dropped = sorted(
+            f"{by_ticker[t]['name']} ({t})"
+            for t in tickers(previous) - now
+            if t in known
+        )
+    return unknown, dropped
+
+
+def dropped_rows(names: list[str], etf_ticker: str, as_of: str, updated_at: str) -> list[dict]:
+    """안 보이게 된 종목을 `etf_holdings`에 남길 행으로. 화면 팝업이 이걸 읽는다.
+
+    보유 행과 `seq`가 겹치지 않게 1000번대를 쓴다(네이버는 10개까지만 준다).
+    `status='dropped'`가 보유 행과 가르는 유일한 표시이므로, 이 열이 없는 DB에서는
+    **아예 저장하지 않는다**(db.save_etf_holdings 참고) — 보유 종목으로 섞여 들어가면
+    화면이 없는 종목을 세게 된다.
+    """
+    return [
+        {
+            "etf_ticker": etf_ticker,
+            "seq": 1000 + i,
+            # "ORACLE CORP (ORCL)" → 이름과 티커로 되돌린다(화면이 둘 다 쓴다).
+            "ticker": name.rsplit(" (", 1)[1].rstrip(")") if " (" in name else None,
+            "name": name.rsplit(" (", 1)[0],
+            "stock_count": 0,
+            "weight_pct": None,
+            "as_of": as_of,
+            "updated_at": updated_at,
+            "status": "dropped",
+        }
+        for i, name in enumerate(names)
+    ]

@@ -2,6 +2,7 @@ import { Dialog } from '@base-ui/react/dialog'
 import Link from 'next/link'
 import type {
   AlertStock, HoldingsChangeAlert, NewEntryAlertStock, OpportunityAlertStock, TurnSignalAlertStock,
+  WeightsRecheckAlert,
 } from '@/lib/types'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   newEntries: NewEntryAlertStock[]
   turnSignals: TurnSignalAlertStock[]
   holdingsChange: HoldingsChangeAlert | null
+  weightsReminder: WeightsRecheckAlert | null
   open: boolean
   onClose: () => void
 }
@@ -29,7 +31,8 @@ function StockName({ stock }: { stock: AlertStock }) {
 /** 사이트 진입 알림 팝업 — 실제 표시는 DailyAlertPopup(fetch 담당)이 호출하고,
  * /dev/preview에서는 이 컴포넌트에 픽스처를 직접 넘겨 렌더 확인한다. */
 export function DailyAlertModal({
-  pullback, opportunity, newEntries, turnSignals, holdingsChange, open, onClose,
+  pullback, opportunity, newEntries, turnSignals, holdingsChange, weightsReminder,
+  open, onClose,
 }: Props) {
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose() }}>
@@ -53,9 +56,47 @@ export function DailyAlertModal({
                   <li key={name}>· {name}</li>
                 ))}
               </ul>
+              {/* '빠짐'은 새 종목과 **성격이 다르다** — 네이버가 주식 수 순 상위
+                  10개만 줘서, 그대로 담고 있어도 순위가 밀리면 똑같이 사라진다.
+                  그래서 "빠졌다"고 단정하지 않고 두 가능성을 다 적는다. */}
+              {holdingsChange.droppedNames.length > 0 && (
+                <>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    어제까지 보이던 종목이 오늘은 안 보입니다 (구성에서 빠졌거나, 담고 있지만
+                    보유 순위가 밀렸을 수 있습니다):
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5 text-xs font-medium">
+                    {holdingsChange.droppedNames.map((name) => (
+                      <li key={name}>· {name}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <p className="mt-1.5 text-xs text-muted-foreground">
                 증권사 앱 → 490590 → <strong>구성종목</strong> 화면을 캡처해서 알려주시면 비중을
                 갱신합니다. 그때까지는 {holdingsChange.currentAsOf} 비중으로 계산됩니다.
+              </p>
+            </div>
+          )}
+
+          {/* 구성 변경 알림과 달리 **아무 일도 안 일어났어도** 주기적으로 뜬다.
+              자동 점검이 판정 8개 중 4개(비중 27.7%)를 아예 못 보기 때문에, 그쪽은
+              사람이 직접 확인하는 수밖에 없다.
+              위 '구성종목이 바뀐 것 같습니다'와 **띠 색을 달리한다** — 둘 다 파란 띠면
+              긴급도가 같아 보인다. 저건 지금 화면이 틀렸다는 경고고, 이건 주기적으로
+              돌아오는 할 일이다(--accent와 --down이 비슷해 색만으로는 안 갈린다는
+              기존 교훈과 같은 이유). */}
+          {weightsReminder && (
+            <div className="mt-3 rounded-lg border-l-4 border-border bg-muted/50 p-3">
+              <p className="text-sm font-semibold">490590 구성종목 확인할 때가 됐습니다</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                지금 쓰는 비중은 <strong>{weightsReminder.asOf}</strong> 기준으로{' '}
+                <strong>{weightsReminder.daysSince}일</strong> 됐습니다. 증권사 앱 → 490590 →{' '}
+                <strong>구성종목</strong> 화면을 캡처해서 알려주시면 갱신합니다.
+              </p>
+              <p className="mt-1.5 text-xs text-muted-foreground/70">
+                자동 점검은 AMD·마이크론·메타·TSMC를 못 봅니다(판정 비중의 27.7%). 그래서{' '}
+                {weightsReminder.everyDays}일에 한 번 직접 확인을 부탁드립니다.
               </p>
             </div>
           )}

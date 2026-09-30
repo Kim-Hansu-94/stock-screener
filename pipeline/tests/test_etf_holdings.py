@@ -87,3 +87,55 @@ def test_us_price_tickers_adds_screen_tickers_missing_from_the_universe():
     # 화면이 쓰는 종목은 전부 들어 있다
     assert KNOWN_TICKERS <= set(result)
     assert "TSM" in result
+
+
+def _row(ticker, name):
+    return {"ticker": ticker, "name": name}
+
+
+def test_diff_holdings_finds_new_and_missing():
+    from pipeline.src.etf_holdings import diff_holdings
+
+    known = frozenset({"MRVL", "NVDA", "ORCL"})
+    previous = [_row("MRVL", "MARVELL TECHNOLOGY INC"), _row("ORCL", "ORACLE CORP")]
+    current = [_row("MRVL", "MARVELL TECHNOLOGY INC"), _row("XYZ", "SOME NEW HOLDING")]
+
+    unknown, dropped = diff_holdings(previous, current, known)
+
+    assert unknown == ["SOME NEW HOLDING (XYZ)"]
+    assert dropped == ["ORACLE CORP (ORCL)"]
+
+
+def test_diff_holdings_does_not_cry_on_the_first_run():
+    """비교 대상이 없는 것을 '사라졌다'로 읽으면 첫 실행부터 거짓 경보가 난다."""
+    from pipeline.src.etf_holdings import diff_holdings
+
+    unknown, dropped = diff_holdings([], [_row("MRVL", "MARVELL")], frozenset({"MRVL"}))
+
+    assert dropped == []
+    assert unknown == []
+
+
+def test_diff_holdings_ignores_tickers_outside_the_screen_list():
+    """화면이 안 쓰는 종목이 사라지는 건 알릴 일이 아니다 (경보 피로만 준다)."""
+    from pipeline.src.etf_holdings import diff_holdings
+
+    previous = [_row("PLTR", "PALANTIR"), _row(None, "이름 못 이은 것")]
+    unknown, dropped = diff_holdings(previous, [], frozenset({"MRVL"}))
+
+    assert dropped == []
+    assert unknown == []
+
+
+def test_dropped_rows_are_marked_and_do_not_collide_with_holdings():
+    """seq가 겹치면 보유 행을 덮어써 구성이 조용히 사라진다."""
+    from pipeline.src.etf_holdings import dropped_rows
+
+    rows = dropped_rows(["ORACLE CORP (ORCL)"], "490590", "2026-09-28", "2026-09-29T14:00:00+09:00")
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "dropped"
+    assert rows[0]["ticker"] == "ORCL"
+    assert rows[0]["name"] == "ORACLE CORP"
+    assert rows[0]["seq"] >= 1000  # 네이버는 10개까지만 주므로 보유 행과 안 겹친다
+    assert rows[0]["weight_pct"] is None  # 비중이 0인 게 아니라 알 수 없는 것
