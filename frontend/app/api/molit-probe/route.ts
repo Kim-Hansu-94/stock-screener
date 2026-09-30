@@ -1,3 +1,4 @@
+import { connect as tcpConnect } from 'node:net'
 import { connect } from 'node:tls'
 import { connection } from 'next/server'
 
@@ -45,6 +46,46 @@ async function probeHost(host: string) {
   }
 }
 
+// 서울 서버에서 Supabase(DB)까지 얼마나 먼지 — TCP 연결 한 번이 왕복 1회라 그대로 거리가 된다.
+// (서울 DB면 한 자릿수 ms, 미국이면 100ms 이상.) 사이트 전체 함수를 서울로 옮겨도 되는지 가르는 근거다.
+// 주소(프로젝트 식별자)는 결과에 싣지 않는다 — 이 라우트는 임시지만 응답이 로그에 남는다.
+function tcpOnce(host: string): Promise<number | null> {
+  const start = Date.now()
+  return new Promise((resolve) => {
+    const socket = tcpConnect({ host, port: 443, timeout: TIMEOUT_MS })
+    socket.once('connect', () => {
+      const ms = Date.now() - start
+      socket.destroy()
+      resolve(ms)
+    })
+    socket.once('timeout', () => { socket.destroy(); resolve(null) })
+    socket.once('error', () => { socket.destroy(); resolve(null) })
+  })
+}
+
+async function supabaseDistance() {
+  const url = process.env.SUPABASE_URL
+  if (!url) return { envPresent: false, tcpMs: null }
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return { envPresent: true, tcpMs: null, note: 'SUPABASE_URL 형식 오류' }
+  }
+  const times: number[] = []
+  for (let i = 0; i < TRIES; i++) {
+    const ms = await tcpOnce(host)
+    if (ms !== null) times.push(ms)
+  }
+  return {
+    envPresent: true,
+    tries: TRIES,
+    ok: times.length,
+    tcpMs: times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : null,
+    minMs: times.length ? Math.min(...times) : null,
+  }
+}
+
 async function egressIp(): Promise<string> {
   try {
     const res = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(5000) })
@@ -58,8 +99,9 @@ export async function GET() {
   // 요청 시점에 실행되게 강제한다 — 빌드 때 한 번 재고 굳으면 진단이 아니다.
   await connection()
 
-  const [ip, target, ...controls] = await Promise.all([
+  const [ip, supabase, target, ...controls] = await Promise.all([
     egressIp(),
+    supabaseDistance(),
     probeHost(TARGET),
     ...CONTROLS.map(probeHost),
   ])
@@ -70,6 +112,7 @@ export async function GET() {
       // Vercel이 이 함수를 실제로 돌린 지역 (예: icn1 = 서울, iad1 = 워싱턴)
       vercelRegion: process.env.VERCEL_REGION ?? null,
       egressIp: ip,
+      supabase,
       target,
       controls,
     },
