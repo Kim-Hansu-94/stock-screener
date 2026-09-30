@@ -177,7 +177,9 @@ def main() -> None:
     for m in candidates[:6]:
         print(f"\n  ── method={m}", flush=True)
         body_ok = _report("공시 전체", _post(session, PAGE, {**base_data, "method": m}, page_path))
-        if body_ok is not None and (_rows(body_ok) or ETF_CODE in body_ok):
+        # 화면 자체(검색창)가 그대로 돌아온 것은 검색 결과가 아니다 — 처음 실행에서 이걸 성공으로
+        # 세는 바람에 검색창 글자('종목명 찾기', '기간 ~')를 표로 오판했다(2026-09-30).
+        if body_ok is not None and len(body_ok) != len(body) and (_rows(body_ok) or ETF_CODE in body_ok):
             good = m
             break
 
