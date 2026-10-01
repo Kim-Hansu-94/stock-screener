@@ -3,7 +3,6 @@ import { Geist_Mono } from "next/font/google";
 import { NavLinks } from "./NavLinks";
 import { ScrollButtons } from "@/components/ScrollButtons";
 import { DailyAlertPopup } from "@/components/DailyAlertPopup";
-import { SwipeNavigation } from "@/components/SwipeNavigation";
 import "./globals.css";
 
 // 본문 폰트는 globals.css의 --font-sans(Pretendard self-host)가 담당한다.
@@ -45,7 +44,14 @@ export default function RootLayout({
             </div>
           </nav>
         </header>
-        <SwipeNavigation>{children}</SwipeNavigation>
+        {/* min-w-0은 지우지 말 것 — body가 flex-col이라 이 div가 flex item이 되는데,
+            기본값(min-width: auto)이면 안의 넓은 표(overflow-x-auto)가 이 박스를 옆으로
+            늘려 페이지 전체가 가로로 넘친다(실측 확인, frontend/AGENTS.md·docs/ui-guide.md).
+            w-full만으로는 부모가 이미 넓어진 뒤라 소용없어서 여기에 직접 건다.
+            **원래 SwipeNavigation 컴포넌트가 이 역할을 겸하고 있었다** — 좌우 스와이프로
+            탭을 넘기는 기능은 2026-10-01에 뺐지만(사용자: "은근 불편하네") 이 래퍼는
+            그 기능과 무관하므로 남긴다. */}
+        <div className="min-w-0">{children}</div>
         <ScrollButtons />
         <DailyAlertPopup />
       </body>
