@@ -21,9 +21,10 @@ import type { PriceHistoryRow } from './types'
  * 상위 8개뿐이다**(`JUDGED_HOLDINGS_COUNT`, 2026-09-25 사용자 결정) — 목록은 15개를
  * 그대로 두고 판정 대상만 좁힌다. 이유는 그 상수의 주석에 있다.
  *
- * **구성은 2026-09-30에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
- * ETF의 **90.12%**를 차지하고, 나머지는 원화현금(5.32%)·NASDAQ100 선물(5.28%)·
- * RISE 미국AI밸류체인TOP3Plus(4.48%)와 매도한 콜옵션이다. TOP3Plus는 국내 상장
+ * **구성은 2026-10-02에 사용자가 증권사 앱에서 직접 확인한 값이다** — 미국 개별주 15종목이
+ * ETF의 **90.70%**를 차지하고, 나머지는 RISE 미국AI밸류체인TOP3Plus(4.64%)·
+ * NASDAQ100 선물(4.47%)·원화현금(4.46%)과 매도한 콜옵션이다.
+ * (ORCL만 9/30 값 — 아래 그 줄의 주석 참고) TOP3Plus는 국내 상장
  * ETF인 데다 이름 그대로 AI 상위 3개를 담아 MRVL·NVDA·GOOGL을 두 번 세게 되므로 뺐다.
  *
  * **네이버 자동 수집만 믿으면 안 되는 이유가 여기서 드러났다 (2026-09-25).**
@@ -47,43 +48,55 @@ export interface ProxyHolding {
 export type ProxyTicker = string
 
 export const FALLBACK_PROXY_HOLDINGS: readonly ProxyHolding[] = [
-  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.34 },
-  { ticker: 'NVDA', name: '엔비디아', weight: 13.61 },
-  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.54 },
+  { ticker: 'MRVL', name: '마벨 테크놀로지', weight: 14.96 },
+  { ticker: 'NVDA', name: '엔비디아', weight: 13.51 },
+  { ticker: 'GOOGL', name: '알파벳 A', weight: 12.52 },
+  { ticker: 'INTC', name: '인텔', weight: 4.74 },
   { ticker: 'AMD', name: 'AMD', weight: 4.65 },
-  { ticker: 'INTC', name: '인텔', weight: 4.60 },
-  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.38 },
+  { ticker: 'MU', name: '마이크론 테크놀로지', weight: 4.40 },
   // TSM은 ADR이라 S&P500·NASDAQ100 어디에도 없어 2026-09-25까지 일봉이 0봉이었다.
   // 지금은 pipeline/src/main.py의 us_price_tickers()가 이 목록(파이프라인 쪽 사본
   // etf_holdings.KNOWN_TICKERS)을 읽어 지수 밖 종목의 일봉도 같이 받는다.
   // 그래도 화면의 '일봉 없음' 경로는 남겨둔다 — 새 종목이 들어온 날부터 일봉이
   // 쌓이기까지는 비어 있고, 그때 조용히 분모에서 빠지면 "데이터가 없다"와
   // "안 올랐다"가 구분되지 않는다.
-  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.22 },
-  { ticker: 'PLTR', name: '팔란티어 테크', weight: 4.19 },
-  { ticker: 'META', name: '메타 플랫폼스', weight: 4.11 },
-  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 4.09 },
-  { ticker: 'VRT', name: '버티브 홀딩스', weight: 4.01 },
+  { ticker: 'TSM', name: 'TSMC (ADR)', weight: 4.23 },
+  // ↓ **META와 PLTR은 2026-10-02 실측에서 소수점 둘째 자리까지 같다(4.15%).**
+  // judgedHoldings()가 동률일 때 이 배열 순서를 지키므로, 여기 적힌 순서가 곧
+  // "8위는 누구인가"를 정한다 — 증권사 앱 화면에 META가 위에 있어 그대로 옮겼다.
+  // **앱이 둘째 자리까지만 보여줘서 진짜 순서는 알 수 없다**(4.154 vs 4.146일 수도
+  // 있고 그 반대일 수도 있다). 둘의 자리가 며칠마다 바뀌는 것은 이 구간이 원래
+  // 동률에 가깝기 때문이지 계산이 흔들려서가 아니다 — 9/25엔 META가 8위,
+  // 9/30엔 PLTR이 8위, 10/02엔 동점이었다. 판정 개수를 바꾸거나 동률을 둘 다
+  // 넣는 안이 있으나 사용자 결정 사항이라 지금은 앱 순서를 그대로 따른다.
+  { ticker: 'META', name: '메타 플랫폼스', weight: 4.15 },
+  { ticker: 'PLTR', name: '팔란티어 테크', weight: 4.15 },
+  { ticker: 'ANET', name: '아리스타 네트웍스', weight: 4.05 },
   { ticker: 'AVGO', name: '브로드컴', weight: 3.97 },
   { ticker: 'MSFT', name: '마이크로소프트', weight: 3.95 },
-  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.82 },
+  { ticker: 'VRT', name: '버티브 홀딩스', weight: 3.94 },
+  { ticker: 'AMZN', name: '아마존닷컴', weight: 3.84 },
+  // **ORCL만 2026-09-30 값이다** — 10/02 캡처가 AMZN에서 잘려 오라클 줄을 못 봤다.
+  // 빼면 안 된다: 네이버 자동 수집이 ORCL을 매일 주므로 목록에서 없애면 '새 종목'
+  // 거짓 알람이 매일 뜬다. 15위라 판정 8개에는 영향이 없고, 틀릴 수 있는 건
+  // "ETF의 몇 %를 보고 있다"는 합계뿐이다(다음 갱신 때 같이 맞출 것).
   { ticker: 'ORCL', name: '오라클', weight: 3.64 },
 ] as const
 
 /** 위 폴백 비중을 확인한 날짜. DB 값을 쓸 때는 그쪽 기준일을 보여준다. */
-export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-09-30'
+export const FALLBACK_PROXY_WEIGHTS_AS_OF = '2026-10-02'
 
 /**
  * A/B/C 판정에 실제로 쓰는 종목 수 (비중 상위 N개). **2026-09-25, 사용자 결정.**
  *
  * 왜 전부 안 쓰는가 — "너무 많아봐야 하위 종목들은 혼선만 준다"는 것이 이유다.
- * 상위 8개면 ETF의 62.53%이고, 상위 3개(MRVL·NVDA·GOOGL)만으로도 40.49%다.
+ * 상위 8개면 ETF의 63.16%이고, 상위 3개(MRVL·NVDA·GOOGL)만으로도 40.99%다.
  *
- * **경계는 깔끔하지 않다는 것을 알고 정했다.** 4위부터 15위까지가 4.65%~3.64% 사이에
- * 몰려 있어 사실상 동률이고, 8위 PLTR(4.19)과 9위 META(4.11)의 차이는 0.08%p다. 즉
- * "8개"는 자연스러운 절벽이 아니라 **사람이 고른 개수**다 — 비중이 조금만 흔들려도
- * 9위와 8위가 자리를 바꾼다. **실제로 닷새 만에 바뀌었다 (2026-09-30)**: 9/25 기준
- * 8위였던 META(4.05→4.11)가 밀려나고 PLTR(3.98→4.19)이 들어왔다.
+ * **경계는 깔끔하지 않다는 것을 알고 정했고, 실제로 며칠마다 바뀐다.** 4~15위가
+ * 4.74%~3.64%에 몰려 사실상 동률이라 8번 자리 주인이 계속 바뀐다 —
+ * 9/25 META(8위) → 9/30 PLTR(8위, META 탈락) → **10/02 둘 다 4.15%로 동점**.
+ * 즉 "8개"는 자연스러운 절벽이 아니라 **사람이 고른 개수**다. 동률일 때는
+ * `judgedHoldings()`가 배열 순서를 지키므로 위 목록에 적힌 순서가 8위를 정한다.
  * 백테스트로 검증한 값이 아니므로 바꿀 때 근거를 남길 것.
  *
  * **목록 자체(FALLBACK_PROXY_HOLDINGS)는 15개를 그대로 둔다.** 두 가지 이유다.

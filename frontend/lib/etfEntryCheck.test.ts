@@ -452,7 +452,7 @@ describe('judgedHoldings', () => {
 
     expect(picked).toHaveLength(JUDGED_HOLDINGS_COUNT)
     expect(picked.map((h) => h.ticker)).toEqual([
-      'MRVL', 'NVDA', 'GOOGL', 'AMD', 'INTC', 'MU', 'TSM', 'PLTR',
+      'MRVL', 'NVDA', 'GOOGL', 'INTC', 'AMD', 'MU', 'TSM', 'META',
     ])
   })
 
@@ -536,14 +536,28 @@ describe('todayInSeoul', () => {
   })
 })
 
-describe('구성종목 실측값 (2026-09-30 기준)', () => {
-  it('15종목이고 합이 90.12%다', () => {
-    // 증권사 앱 캡처에서 읽은 값. 합이 100%가 아닌 것은 나머지가 원화현금(5.32%)·
-    // NASDAQ100 선물(5.28%)·RISE TOP3Plus(4.48%)·매도 콜옵션이기 때문이다.
+describe('구성종목 실측값 (2026-10-02 기준)', () => {
+  it('15종목이고 합이 90.70%다', () => {
+    // 증권사 앱 캡처에서 읽은 값. 합이 100%가 아닌 것은 나머지가 RISE TOP3Plus(4.64%)·
+    // NASDAQ100 선물(4.47%)·원화현금(4.46%)·매도 콜옵션이기 때문이다.
     const sum = FALLBACK_PROXY_HOLDINGS.reduce((acc, h) => acc + h.weight, 0)
 
     expect(FALLBACK_PROXY_HOLDINGS).toHaveLength(15)
-    expect(sum).toBeCloseTo(90.12, 2)
+    expect(sum).toBeCloseTo(90.70, 2)
+  })
+
+  it('8위와 9위가 동점일 때 목록에 먼저 적힌 쪽이 판정에 들어간다', () => {
+    // 2026-10-02 실측에서 META와 PLTR이 **둘 다 4.15%**였다. 증권사 앱 화면 순서를
+    // 그대로 옮겼으므로 META가 8위다 — judgedHoldings()가 동률에서 배열 순서를
+    // 지키기 때문이고, 그 규칙이 깨지면 같은 입력에 다른 바구니가 나와 신호등이
+    // 이유 없이 흔들린다. 이 테스트는 그 연결을 고정한다.
+    const meta = FALLBACK_PROXY_HOLDINGS.find((h) => h.ticker === 'META')
+    const pltr = FALLBACK_PROXY_HOLDINGS.find((h) => h.ticker === 'PLTR')
+    expect(meta?.weight).toBe(pltr?.weight)
+
+    const picked = judgedHoldings(FALLBACK_PROXY_HOLDINGS).map((h) => h.ticker)
+    expect(picked).toContain('META')
+    expect(picked).not.toContain('PLTR')
   })
 
   it('비중 내림차순으로 적혀 있다', () => {

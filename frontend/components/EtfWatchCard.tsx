@@ -533,9 +533,23 @@ export function EtfWatchCard({
           <p className="mt-2.5 text-xs text-muted-foreground/70">
             판정에서 뺀 {excluded.length}종목 (합 {excluded.reduce((sum, h) => sum + h.weight, 0).toFixed(2)}%):{' '}
             {excluded.map((h) => `${h.name} ${h.weight.toFixed(2)}%`).join(' · ')}.
-            비중이 서로 거의 같아 신호등을 흔들기만 하므로 제외했습니다 — 8위와 9위의
-            차이는 {Math.abs(judged[judged.length - 1].weight - excluded[0].weight).toFixed(2)}%p라
-            비중이 조금만 움직여도 자리가 바뀝니다.
+            비중이 서로 거의 같아 신호등을 흔들기만 하므로 제외했습니다 —{' '}
+            {/* 동점일 때 "차이는 0.00%p"라고 쓰면 반올림 오류처럼 읽힌다. 실제로
+                2026-10-02에 메타·팔란티어가 둘 다 4.15%로 붙었다 — 그때는 차이를
+                말하는 대신 **같다는 사실과 무엇으로 갈랐는지**를 밝히는 게 맞다. */}
+            {judged[judged.length - 1].weight === excluded[0].weight ? (
+              <>
+                8위와 9위가 <b>똑같이 {excluded[0].weight.toFixed(2)}%</b>라, 목록에 먼저 적힌
+                쪽({judged[judged.length - 1].name})이 판정에 들어갑니다. 증권사 앱이 소수점
+                둘째 자리까지만 보여줘서 진짜 순서는 알 수 없습니다.
+              </>
+            ) : (
+              <>
+                8위와 9위의 차이는{' '}
+                {Math.abs(judged[judged.length - 1].weight - excluded[0].weight).toFixed(2)}%p라
+                비중이 조금만 움직여도 자리가 바뀝니다.
+              </>
+            )}
           </p>
         )}
       </Section>
