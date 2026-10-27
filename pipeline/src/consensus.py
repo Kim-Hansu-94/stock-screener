@@ -233,6 +233,54 @@ def describe_sources(ticker: str) -> list[str]:
     return lines
 
 
+def broker_targets(ticker: str) -> list[float]:
+    """같은 페이지의 '제공처별 투자의견 및 목표주가' 목록에서 증권사별 목표가만 뽑는다.
+
+    **컨센서스 평균을 검산하는 가장 직접적인 방법**이다. 평균 목표가가 개별
+    증권사 목표가들의 최소~최대 범위 밖이면 그건 평균이 아니라 다른 칸을 읽은
+    것이다 — 셀을 잘못 집는 종류의 오류를 값 하나만 보고 잡으려던 옛 검사(현재가
+    대비 배수)보다 훨씬 정확하다.
+
+    옛 검사는 **멀쩡한 값에 계속 빨간불을 켰다**(2026-10-27): 삼성전자 목표가
+    492,500원이 현재가 213,500원의 2.31배라 "비상식적"으로 찍혔는데, 같은 페이지의
+    개별 목표가가 대신 500,000 · 미래에셋 400,000 · 유진 560,000 · NH 530,000으로
+    평균과 정확히 맞았다. 주가가 빠지면 배수는 커지는데 목표가는 천천히 따라오므로,
+    배수는 파싱이 맞았는지와 무관한 숫자다. 늘 빨간 프로브는 안 보게 되므로
+    **못 잡는 것보다 나쁘다.**
+
+    못 뽑으면 빈 목록을 돌려준다 — 호출부가 "검산 못 함"과 "검산 실패"를 구분해야 한다.
+    """
+    try:
+        html = _fetch_html(_WISE_COMPANY_URL, ticker)
+    except Exception:  # noqa: BLE001
+        return []
+    plain = re.sub(r"<[^>]+>", " ", html)
+    plain = html_mod.unescape(plain)
+    plain = re.sub(r"\s+", " ", plain)
+    return broker_targets_from_text(plain)
+
+
+def broker_targets_from_text(plain: str) -> list[float]:
+    """위 함수의 파싱 부분만 떼어낸 순수 함수 (테스트용).
+
+    목록은 `제공처 최종일자 목표가 직전목표가 변동률(%) 투자의견 직전투자의견` 순이고
+    `대신 26/10/26 500,000 560,000 -10.71 Buy Buy`처럼 한 줄씩 이어진다.
+    **날짜(`26/10/26`) 바로 뒤의 첫 숫자**가 그 증권사의 목표가다 — 컬럼 이름이
+    아니라 날짜를 닻으로 삼는 이유는, 태그를 벗긴 평문에는 컬럼 경계가 남지 않기
+    때문이다(직전목표가를 같이 긁으면 범위가 넓어져 검산이 헐거워진다).
+    """
+    head = plain.find("제공처별")
+    if head < 0:
+        return []
+    section = plain[head : head + 4000]
+    out: list[float] = []
+    for match in re.finditer(r"\d{2}/\d{2}/\d{2}\s+([\d,]+)", section):
+        value = to_number(match.group(1))
+        if _is_valid_target(value):
+            out.append(float(value))
+    return out
+
+
 def build_row(ticker: str, name: str, as_of: str, close: float | None) -> dict:
     """DB(`stock_consensus`)에 넣을 한 행."""
     data, source = fetch_consensus(ticker)

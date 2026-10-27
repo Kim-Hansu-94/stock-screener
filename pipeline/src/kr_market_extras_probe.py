@@ -51,12 +51,18 @@ def _probe_flow() -> tuple[bool, dict[str, float]]:
     return ok, closes
 
 
-# 컨센서스 목표가가 현재가의 이 배수를 벗어나면 엉뚱한 칸을 읽은 것으로 본다.
-# 증권사 목표가가 현재가의 2배를 넘는 경우는 사실상 없다 — 2026-09-10 2차
-# 프로브가 삼성전자 목표가를 488,409원(현재가의 1.8배)으로 읽고도 "정상"으로
-# 끝나서, 값 범위만 보는 검사로는 부족하다는 게 드러났다.
-_MAX_UPSIDE_RATIO = 2.0
-_MIN_UPSIDE_RATIO = 0.4
+# 현재가 대비 배수는 **참고로만 찍고 판정에는 안 쓴다**(2026-10-27 변경).
+#
+# 예전엔 2.0배를 넘으면 "엉뚱한 칸을 읽었다"로 보고 빨간불을 켰다. 그런데 배수는
+# 파싱이 맞았는지와 아무 상관이 없는 숫자다 — 주가가 빠지면 목표가가 그대로여도
+# 배수는 커진다. 실제로 삼성전자 492,500원(2.31배) · SK하이닉스 3,248,636원
+# (2.52배)이 **둘 다 맞는 값인데** 빨간불이 떴고, 그대로 두면 매번 빨간 프로브가
+# 돼서 아무도 안 보게 된다(못 잡는 것보다 나쁘다).
+#
+# 지금은 같은 페이지의 **개별 증권사 목표가**와 대조한다(`broker_targets`).
+# 평균이 그 최소~최대 범위 밖이면 그건 평균이 아니라 다른 칸이다 — 셀 오독을
+# 정확히 겨냥하면서 멀쩡한 값에는 절대 안 울린다.
+_RATIO_NOTE_HIGH = 2.0  # 이 위면 "많이 빠졌거나 확인해 볼 만하다"고 한 줄 덧붙인다
 
 
 def _probe_consensus(closes: dict[str, float]) -> bool:
@@ -81,7 +87,22 @@ def _probe_consensus(closes: dict[str, float]) -> bool:
         close = closes.get(ticker)
         target = data["target_price"]
         ratio = target / close if close else None
-        suspicious = ratio is not None and not (_MIN_UPSIDE_RATIO <= ratio <= _MAX_UPSIDE_RATIO)
+
+        # 검산: 같은 페이지의 증권사별 목표가 범위 안에 평균이 들어오는가.
+        brokers = consensus_mod.broker_targets(ticker)
+        if brokers:
+            low, high = min(brokers), max(brokers)
+            suspicious = not (low <= target <= high)
+            verdict = (
+                f"증권사 {len(brokers)}곳 {low:,.0f}~{high:,.0f} 범위 안"
+                if not suspicious
+                else f"증권사 {len(brokers)}곳 {low:,.0f}~{high:,.0f} 범위 **밖**"
+            )
+        else:
+            # 못 뽑았으면 "검산 실패"가 아니라 "검산 못 함"이다 — 빨간불을 켜지 않는다.
+            suspicious = False
+            verdict = "증권사별 목표가를 못 뽑아 검산 생략"
+
         mark = "!" if suspicious else "o"
         print(
             f"  {mark} {name}({ticker}): 소스={source}, 목표가={target}, "
@@ -89,9 +110,17 @@ def _probe_consensus(closes: dict[str, float]) -> bool:
             f"의견={data['opinion']}, 리포트수={data['report_count']}",
             flush=True,
         )
+        print(f"      검산: {verdict}", flush=True)
         if suspicious:
-            print("      → 목표가가 현재가 대비 비상식적이다(위 표 구조 확인).", flush=True)
+            print("      → 평균이 개별 목표가 범위를 벗어난다. 다른 칸을 읽고 있다.", flush=True)
             ok = False
+        elif ratio is not None and ratio > _RATIO_NOTE_HIGH:
+            # 판정은 안 하되 눈에는 띄게 — 주가가 많이 빠졌다는 신호일 수 있다.
+            print(
+                f"      (참고: 목표가가 현재가의 {ratio:.2f}배다. 값 자체는 검산을 통과했으니"
+                " 파싱 문제가 아니라 주가가 많이 빠졌다는 뜻이다.)",
+                flush=True,
+            )
         # 라벨 문자열이 그대로 값으로 들어왔다면 헤더 칸을 읽은 것이다 — 값의
         # 범위로는 절대 못 잡는 종류의 오류라 따로 본다.
         if data["opinion"] and any(bad in data["opinion"] for bad in ("목표주가", "투자의견", "추정기관")):

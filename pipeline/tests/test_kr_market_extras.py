@@ -164,3 +164,47 @@ class TestConsensus:
         row = consensus.build_row("005930", "삼성전자", "2026-09-10", None)
         assert row["upside_pct"] is None
         assert row["target_price"] == 110000.0
+
+
+class TestBrokerTargets:
+    """컨센서스 평균을 검산하는 '증권사별 목표가' 파싱.
+
+    프로브가 멀쩡한 값에 계속 빨간불을 켜던 것을 2026-10-27에 이걸로 바꿨다 —
+    현재가 대비 배수는 파싱이 맞았는지와 무관한 숫자라(주가가 빠지면 커진다)
+    늘 빨간 프로브가 됐고, 그러면 아무도 안 보게 된다.
+    """
+
+    # 2026-10-27 실측 원문(태그를 벗긴 평문)을 그대로 쓴다.
+    SAMPLE = (
+        "제공처별 투자의견 및 목표주가, 변동률 목록 제공처 최종일자 목표가 직전목표가 "
+        "변동률 (%) 투자의견 직전투자의견 "
+        "대신 26/10/26 500,000 560,000 -10.71 Buy Buy "
+        "미래에셋 26/10/19 400,000 400,000 0.00 매수 매수 "
+        "유진투자 26/10/12 560,000 560,000 0.00 STRONG BUY STRONG BUY "
+        "NH투자 26/10/12 530,000 530,000 0.00 Buy Buy"
+    )
+
+    def test_pulls_each_brokers_target(self):
+        assert consensus.broker_targets_from_text(self.SAMPLE) == [
+            500000.0,
+            400000.0,
+            560000.0,
+            530000.0,
+        ]
+
+    def test_the_real_consensus_average_falls_inside_that_range(self):
+        # 같은 날 삼성전자 평균 목표가가 492,500원이었다. 범위 안이므로 정상이다 —
+        # 이게 바로 옛 배수 검사가 "비상식적"이라며 빨간불을 켰던 값이다.
+        targets = consensus.broker_targets_from_text(self.SAMPLE)
+        assert min(targets) <= 492500 <= max(targets)
+
+    def test_reads_the_target_not_the_previous_target(self):
+        # 날짜를 닻으로 삼는 이유. 직전목표가(560,000)까지 같이 긁으면 범위가
+        # 넓어져 검산이 헐거워진다 — 대신증권 줄에서 500,000만 와야 한다.
+        targets = consensus.broker_targets_from_text(self.SAMPLE)
+        assert targets.count(560000.0) == 1  # 유진투자 것 하나뿐
+
+    def test_says_nothing_rather_than_guessing_when_the_section_is_missing(self):
+        # "검산 못 함"과 "검산 실패"는 다르다 — 호출부가 빈 목록을 보고 빨간불을
+        # 켜지 않도록 예외가 아니라 빈 목록을 돌려준다.
+        assert consensus.broker_targets_from_text("제공처 표가 없는 페이지") == []
