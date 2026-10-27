@@ -16,7 +16,12 @@
 --   github.com → Settings → Developer settings → Fine-grained tokens → Generate
 --   - Repository access: Only select repositories → stock-screener
 --   - Permissions: Actions → Read and write
---   - Expiration: 최대한 길게 (만료되면 트리거가 조용히 멈추므로 만료일을 캘린더에 기록)
+--   - Expiration: **지금 쓰는 토큰은 무기한으로 발급돼 있다 (2026-10-27 확인).**
+--     GitHub 설정 화면(Settings → Developer settings → Fine-grained tokens)의
+--     'Auto claude pipeline starter'가 그것이고 "This token has no expiration date"로
+--     표시된다. 그래서 만료로 트리거가 멈출 걱정은 없다 — 캘린더에 적어둘 것도 없다.
+--     (만료되는 토큰으로 바꾸게 되면, 만료일에 이 트리거가 **조용히** 멈추고
+--      워크플로는 빨간불도 안 뜬다는 점만 기억할 것. 증상은 "아침에 보면 어제 데이터".)
 -- 발급받은 토큰을 아래 1)의 <PAT> 자리에 붙여넣고 이 파일 전체를 실행한다.
 
 -- 0) 확장 활성화 (이미 켜져 있으면 no-op)
