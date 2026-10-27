@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from .db import ScreenerDB
 from .lawd_codes import CAPITAL_AREA
-from .realestate import collect, probe_prefix
+from .realestate import collect, probe_names, probe_prefix
 
 _DEFAULT_MONTHS = 3
 _KST = timezone(timedelta(hours=9))
@@ -46,6 +46,12 @@ def main() -> None:
         help="시도 코드 2자리(예: 28,41)를 주면 수집 대신 유효한 시군구 코드를 스캔한다",
     )
     parser.add_argument(
+        "--probe-names",
+        default="",
+        help="지역코드 쉼표 목록(예: 28125,28155). 그 코드의 법정동 이름을 찍는다 "
+             "— 어느 코드가 어느 구인지 알아내는 용도",
+    )
+    parser.add_argument(
         "--probe-month",
         default="",
         help=(
@@ -67,6 +73,9 @@ def main() -> None:
         print("MOLIT_API_KEY를 읽지 못했습니다 (pipeline/.env 또는 환경변수 확인)", flush=True)
         sys.exit(1)
 
+    if args.probe_names:
+        _probe_names(args.probe_names, args.probe_month)
+        return
     if args.probe:
         _probe(args.probe, args.probe_month)
         return
@@ -106,6 +115,19 @@ def _probe(prefixes: str, month: str = "") -> None:
         print(f"시도 코드 {prefix}xxx 스캔 ({ym} 기준)...", flush=True)
         found = probe_prefix(key, prefix, ym)
         print(f"  → {prefix}: 유효 코드 {len(found)}개", flush=True)
+
+
+def _probe_names(codes: str, month: str = "") -> None:
+    """지역코드별 법정동 이름을 찍는다 — 개편된 구의 정체를 확정하는 용도."""
+    key = os.environ["MOLIT_API_KEY"]
+    if month:
+        ym = month
+    else:
+        target = recent_months(datetime.now(_KST).date(), 3)[-1]
+        ym = f"{target[0]}{target[1]:02d}"
+    wanted = [c.strip() for c in codes.split(",") if c.strip()]
+    print(f"지역코드 {len(wanted)}개의 법정동 이름 확인 ({ym} 기준)...", flush=True)
+    probe_names(key, wanted, ym)
 
 
 def _report(diag: dict[str, list[str]]) -> None:

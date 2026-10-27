@@ -17,6 +17,7 @@ import os
 import statistics
 import urllib.parse
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -84,6 +85,10 @@ _TAGS = {
     # 해제된 거래. 'O'면 취소된 계약이라 집계에서 빼야 한다 — 안 빼면 없던 거래가
     # 시세로 잡힌다.
     "canceled": ("cdealType", "해제여부"),
+    # 아래 둘은 집계에 안 쓰고 probe_names()만 쓴다 — 어느 지역코드가 어느 구인지
+    # 알아내려면 응답 안의 법정동 이름을 봐야 한다(2026-10-27 인천 신설구 식별).
+    "dong": ("umdNm", "법정동"),
+    "apt": ("aptNm", "아파트"),
 }
 
 
@@ -393,6 +398,46 @@ def collect(
             empty.append(f"{name}({code})")
 
     return rows, {"empty": empty, "error": errors, "aborted": ["연속 실패로 중단"] if aborted else []}
+
+
+def probe_names(service_key: str, codes: list[str], ym: str) -> dict[str, list[tuple[str, int]]]:
+    """지역코드별로 응답에 실제로 찍힌 **법정동 이름**을 세어 돌려준다.
+
+    `probe_prefix`는 "데이터가 나오는 코드"까지만 알려준다. 행정구역이 개편되면
+    그걸로는 부족하다 — 코드가 유효한 건 알겠는데 **그게 어느 구인지**는 여전히
+    모르기 때문이다. 실제로 인천 신설구 4개(제물포·영종·서해·검단)가 2026-07
+    개편 이후 `인천 신설구A/B/C/D`라는 자리표시자 이름으로 화면에 떠 있었다.
+
+    국토부 응답의 `umdNm`(법정동명)은 그 답을 그대로 들고 있다 — 운서동이 나오면
+    영종구, 당하동이 나오면 검단구 식이다. 추측으로 코드를 찍어 맞히지 말고
+    (CLAUDE.md의 "코드를 기억으로 찍어 맞히지 말 것") 이 출력으로 확정할 것.
+    """
+    url = _WORKING.get("매매") or _TRADE_URLS[-1]
+    result: dict[str, list[tuple[str, int]]] = {}
+    for code in codes:
+        try:
+            items = _fetch_once(url, service_key, code, ym, timeout=_PROBE_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {code}: 호출 실패 — {exc}", flush=True)
+            result[code] = []
+            continue
+        counter: Counter[str] = Counter()
+        for item in items:
+            dong = _text(item, "dong")
+            if dong:
+                counter[dong] += 1
+        result[code] = counter.most_common()
+        # 아파트 이름도 몇 개 같이 찍는다 — 동 이름만으로 못 가르는 경우
+        # (같은 동이 두 구에 걸치는 등)에 사람이 판단할 근거가 된다.
+        apts = [a for a in (_text(i, "apt") for i in items) if a][:5]
+        print(
+            f"  {code}: 거래 {len(items)}건 · 법정동 {len(counter)}개"
+            + (f" · 예시 아파트 {', '.join(apts)}" if apts else ""),
+            flush=True,
+        )
+        for dong, n in counter.most_common():
+            print(f"      {dong} ({n}건)", flush=True)
+    return result
 
 
 def probe_prefix(service_key: str, prefix: str, ym: str) -> list[tuple[str, int]]:

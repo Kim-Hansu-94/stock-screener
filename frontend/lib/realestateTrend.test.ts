@@ -157,6 +157,24 @@ describe('mapPriceByCode', () => {
     expect(map.get('41591')).toBe(55000)
   })
 
+  it('merges 인천 서구 but leaves 중구·동구 grey (2026-07 개편)', () => {
+    // 서구만 합치는 것이 의도다. 옛 서구 = 서해구 + 검단구라 합집합이 딱 맞지만,
+    // 제물포구는 옛 중구와 옛 동구에 걸쳐 있어 어느 쪽에 칠해도 틀린다 —
+    // 그 둘을 나중에 "빠졌네" 하고 무심코 채우지 않도록 여기에 박아 둔다.
+    const rows = [
+      row({ region_code: '28275', region_name: '인천 서해구', price_avg: 60000, deal_count: 30 }),
+      row({ region_code: '28290', region_name: '인천 검단구', price_avg: 50000, deal_count: 10 }),
+      row({ region_code: '28125', region_name: '인천 제물포구', price_avg: 40000, deal_count: 10 }),
+      row({ region_code: '28155', region_name: '인천 영종구', price_avg: 45000, deal_count: 10 }),
+    ]
+    const map = mapPriceByCode(regionOverview(rows))
+
+    // (60000*30 + 50000*10) / 40
+    expect(map.get('28260')).toBeCloseTo(57500, 1)
+    expect(map.has('28110')).toBe(false) // 옛 중구
+    expect(map.has('28140')).toBe(false) // 옛 동구
+  })
+
   it('leaves the legacy code out when none of its children have a sale price yet', () => {
     const rows = [row({ region_code: '41591', region_name: '화성 만세구', price_avg: null, deal_count: 0 })]
     const map = mapPriceByCode(regionOverview(rows))
