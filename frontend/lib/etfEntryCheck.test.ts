@@ -320,7 +320,7 @@ describe('assessStopSignals', () => {
     const proxyBars = Object.fromEntries(
       FALLBACK_PROXY_HOLDINGS.map((h) => [h.ticker, okBars]),
     ) as Record<ProxyTicker, PriceHistoryRow[] | undefined>
-    // 비중 큰 셋(NVDA 14.67 + GOOGL 13.97 + MRVL 10.46 = 39.1 / 65.32 ≈ 60%)이 동시에 무너지는 경우
+    // 비중 큰 셋(MRVL 14.67 + NVDA 14.15 + GOOGL 13.21 = 42.03 / 92.42 ≈ 45%)이 동시에 무너지는 경우
     proxyBars.NVDA = freshLowBars
     proxyBars.GOOGL = freshLowBars
     proxyBars.MRVL = freshLowBars
@@ -447,12 +447,12 @@ describe('judgedHoldings', () => {
     // **이 목록은 리밸런싱으로 바뀌는 게 정상이다.** 그래도 박아두는 이유는, 비중을
     // 갱신할 때 "판정 대상이 달라졌다"는 사실을 사람이 반드시 한 번 보고 지나가게
     // 하려는 것이다 — 실제로 2026-09-30 갱신에서 이 테스트가 META 탈락·PLTR 진입을
-    // 잡아냈다(8위·9위 차이가 0.08%p라 조용히 바뀐다).
+    // 잡아냈고(8위·9위 차이가 0.08%p라 조용히 바뀐다), 10/02·10/27 갱신에서도 잡아냈다.
     const picked = judgedHoldings(FALLBACK_PROXY_HOLDINGS)
 
     expect(picked).toHaveLength(JUDGED_HOLDINGS_COUNT)
     expect(picked.map((h) => h.ticker)).toEqual([
-      'MRVL', 'NVDA', 'GOOGL', 'INTC', 'AMD', 'MU', 'TSM', 'META',
+      'MRVL', 'NVDA', 'GOOGL', 'PLTR', 'MSFT', 'AMD', 'TSM', 'AMZN',
     ])
   })
 
@@ -536,28 +536,44 @@ describe('todayInSeoul', () => {
   })
 })
 
-describe('구성종목 실측값 (2026-10-02 기준)', () => {
-  it('15종목이고 합이 90.70%다', () => {
-    // 증권사 앱 캡처에서 읽은 값. 합이 100%가 아닌 것은 나머지가 RISE TOP3Plus(4.64%)·
-    // NASDAQ100 선물(4.47%)·원화현금(4.46%)·매도 콜옵션이기 때문이다.
+describe('구성종목 실측값 (2026-10-27 기준)', () => {
+  it('15종목이고 합이 92.42%다', () => {
+    // 증권사 앱 캡처에서 읽은 값. 합이 100%가 아닌 것은 나머지가 RISE TOP3Plus(4.39%)·
+    // NASDAQ100 선물(3.11%)·원화현금(3.10%)·매도 콜옵션이기 때문이다.
     const sum = FALLBACK_PROXY_HOLDINGS.reduce((acc, h) => acc + h.weight, 0)
 
     expect(FALLBACK_PROXY_HOLDINGS).toHaveLength(15)
-    expect(sum).toBeCloseTo(90.70, 2)
+    expect(sum).toBeCloseTo(92.42, 2)
   })
 
-  it('8위와 9위가 동점일 때 목록에 먼저 적힌 쪽이 판정에 들어간다', () => {
-    // 2026-10-02 실측에서 META와 PLTR이 **둘 다 4.15%**였다. 증권사 앱 화면 순서를
-    // 그대로 옮겼으므로 META가 8위다 — judgedHoldings()가 동률에서 배열 순서를
-    // 지키기 때문이고, 그 규칙이 깨지면 같은 입력에 다른 바구니가 나와 신호등이
-    // 이유 없이 흔들린다. 이 테스트는 그 연결을 고정한다.
-    const meta = FALLBACK_PROXY_HOLDINGS.find((h) => h.ticker === 'META')
-    const pltr = FALLBACK_PROXY_HOLDINGS.find((h) => h.ticker === 'PLTR')
-    expect(meta?.weight).toBe(pltr?.weight)
+  it('8위와 9위가 동점이면 목록에 먼저 적힌 쪽이 판정에 들어간다', () => {
+    // **실측 목록에 동점이 있든 없든 이 규칙은 지켜져야 한다.** 그래서 실측이 아니라
+    // 지어낸 목록으로 고정한다 — 2026-10-02엔 META·PLTR이 둘 다 4.15%로 붙었고
+    // 10/27엔 안 붙었는데, 실측에 묶어두면 동점이 없는 날 이 보호장치가 통째로
+    // 사라진다. 규칙이 깨지면 같은 입력에 다른 바구니가 나와 신호등이 이유 없이 흔들린다.
+    const tied = [
+      ...Array.from({ length: JUDGED_HOLDINGS_COUNT - 1 }, (_, i) => ({
+        ticker: `BIG${i}`, name: `큰${i}`, weight: 10,
+      })),
+      { ticker: 'FIRST', name: '먼저 적힌 쪽', weight: 4.15 },
+      { ticker: 'SECOND', name: '나중에 적힌 쪽', weight: 4.15 },
+    ]
 
-    const picked = judgedHoldings(FALLBACK_PROXY_HOLDINGS).map((h) => h.ticker)
-    expect(picked).toContain('META')
-    expect(picked).not.toContain('PLTR')
+    const picked = judgedHoldings(tied).map((h) => h.ticker)
+    expect(picked).toContain('FIRST')
+    expect(picked).not.toContain('SECOND')
+  })
+
+  it('지금은 8위와 9위가 동점이 아니다', () => {
+    // 동점이면 화면 문구가 다른 가지를 타므로(EtfWatchCard), 어느 쪽인지 사람이
+    // 갱신할 때 보고 지나가게 한다. 10/27 기준 AMZN 4.34 vs META 4.17 = 0.17%p.
+    const sorted = [...FALLBACK_PROXY_HOLDINGS].sort((a, b) => b.weight - a.weight)
+    const eighth = sorted[JUDGED_HOLDINGS_COUNT - 1]
+    const ninth = sorted[JUDGED_HOLDINGS_COUNT]
+
+    expect(eighth.ticker).toBe('AMZN')
+    expect(ninth.ticker).toBe('META')
+    expect(eighth.weight - ninth.weight).toBeCloseTo(0.17, 2)
   })
 
   it('비중 내림차순으로 적혀 있다', () => {
