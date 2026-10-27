@@ -17,6 +17,10 @@ on:
         description: '지역코드 스캔 (예: 28 또는 28,41). 넣으면 수집 대신 스캔만 한다'
         type: string
         default: ''
+      probe_names:
+        description: '지역코드의 법정동 이름 확인 (예: 28125,28155,28275,28290). 개편된 구가 어느 구인지 확정할 때'
+        type: string
+        default: ''
       probe_month:
         description: '프로브 대상 월(YYYYMM, 예: 202507). 생략하면 두 달 전을 쓴다 — 신설 지역을 찾을 땐 시행일 이후 달을 직접 지정할 것'
         type: string
@@ -100,7 +104,9 @@ jobs:
             # 조용히 직접 호출로 가면 예전처럼 IP 운에 맡기게 된다 — 그렇다고 알린다.
             echo "::warning::REVALIDATE_URL이 없거나 형식이 다르다 → 국토부를 직접 호출한다 (GitHub 서버 IP에 따라 막힐 수 있음)"
           fi
-          if [ -n "${{ github.event.inputs.probe }}" ]; then
+          if [ -n "${{ github.event.inputs.probe_names }}" ]; then
+            python -m src.realestate_main --probe-names "${{ github.event.inputs.probe_names }}" --probe-month "${{ github.event.inputs.probe_month }}"
+          elif [ -n "${{ github.event.inputs.probe }}" ]; then
             python -m src.realestate_main --probe "${{ github.event.inputs.probe }}" --probe-month "${{ github.event.inputs.probe_month }}"
           else
             python -m src.realestate_main --months ${{ github.event.inputs.months || '3' }}

@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import html as html_mod
 import io
 import re
 
@@ -203,9 +204,32 @@ def describe_sources(ticker: str) -> list[str]:
         text = " ".join(str(v) for v in table.astype(str).values.flatten())
         if "목표주가" not in text:
             continue
-        lines.append(f"      [표 {index}] shape={table.shape} 컬럼={list(table.columns)[:6]}")
-        for row in table.astype(str).values[:4]:
-            lines.append(f"        {list(row)[:8]}")
+        lines.append(f"      [표 {index}] shape={table.shape} 컬럼={list(table.columns)}")
+        # 행을 자르지 않는다 — 표에 연도별 행이 여러 개면 **어느 행을 읽었는지**가
+        # 바로 쟁점이 되는데, 앞 4행만 찍으면 그게 안 보인다(2026-10-27).
+        for row in table.astype(str).values:
+            lines.append(f"        {list(row)}")
+
+    # 표만으로는 "이 숫자가 정말 목표주가인가"를 가릴 수 없다. 표 바깥의 제목·
+    # 단위 표기가 답을 들고 있는 경우가 많아(예: '단위: 원', '컨센서스는 최근
+    # 3개월'), '목표주가'가 나온 자리의 **원문 주변 글자**를 그대로 보여 준다.
+    # 2026-10-27에 삼성전자 목표가가 현재가의 2.31배로 나와 프로브가 빨간불을
+    # 냈는데, 표 구조만 봐서는 파싱 오류인지 진짜 그런 값인지 못 갈랐다.
+    plain = re.sub(r"<[^>]+>", " ", html)
+    plain = html_mod.unescape(plain)
+    plain = re.sub(r"\s+", " ", plain)
+    spots = [m.start() for m in re.finditer("목표주가", plain)]
+    lines.append(f"      원문에서 '목표주가'가 나온 자리 {len(spots)}곳:")
+    for spot in spots[:4]:
+        lines.append(f"        …{plain[max(0, spot - 220):spot + 220]}…")
+
+    # 같은 페이지가 현재가를 들고 있으면 그것으로도 검산할 수 있다 — 수급에서
+    # 받은 종가와 어긋나면 종목을 잘못 집은 것이다.
+    for label in ("현재가", "종가", "전일"):
+        hit = plain.find(label)
+        if hit >= 0:
+            lines.append(f"      '{label}' 주변: …{plain[max(0, hit - 80):hit + 160]}…")
+            break
     return lines
 
 
