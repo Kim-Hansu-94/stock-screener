@@ -91,11 +91,8 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `naver_api.py` | 네이버 증권 내부 API 공통 헬퍼 — JSON이 아닌 응답(봇 차단 페이지는 200+HTML로 온다)을 사유가 드러나는 에러로 바꾸고, 감싸는 키 이름을 고정하지 않고 구조로 찾는다(`rows_from_json`/`find_first`). `universe_us.py`에 같은 함수가 있지만 그쪽은 손대지 않았다 — 유니버스 수집은 본 파이프라인 첫 단계라 리팩터링하다 깨지면 스크리닝 전체가 멈춘다 |
 | `investor_flow.py` | **수급** — 국내 종목 일별 외국인·기관 순매매 → `investor_flow`. 소스는 네이버 금융 `item/frgn.naver` HTML 표(10년 넘게 같은 형태) 1순위, `m.stock.naver.com/api/stock/{code}/trend` 2순위. **네이버 금융은 아직 EUC-KR이라 인코딩을 지정 안 하면 컬럼명이 깨져 '외국인'을 못 찾고 조용히 빈 결과가 된다.** 원본 단위는 **수량(주)**이고 금액은 종가를 곱한 근사치다(장중 평균단가 아님) |
 | `consensus.py` | **목표주가 컨센서스** — 증권사 평균 목표가 → `stock_consensus`. 네이버 3개 경로를 후보로 두고 앞에서부터 시도. **카드의 ATR 목표가와 합치지 않는다** — 전자는 애널리스트의 12개월 밸류에이션, 후자는 변동성 기반 단기 매매 목표라 평균 내면 둘 다 아닌 값이 된다 |
-| `buyback.py` | **자사주 매입** — DART 공시 → `stock_buyback`. 네이버가 아니라 DART인 이유: 자기주식 취득은 공시 의무 사항이라 원본이 여기 있고, `DART_API_KEY`가 이미 등록돼 있다. **진행률이 두 개인 것이 의도적이다** — `amount_progress_pct`(취득 금액 기준, 진짜 진행률)와 `period_progress_pct`(기간 기준 근사치). 합치면 화면에서 어느 근거인지 알 수 없게 된다. 공시가 없으면 예외가 아니라 `None`을 돌려준다("자사주를 안 사는 회사"와 "못 받았다"를 구분) |
-| `broker_flow.py` | **거래원**(증권사 창구별 매매) → `broker_trading`. 자사주 매입을 **진행 중에** 따라가기 위한 데이터다 — DART 결과보고서는 프로그램이 끝난 뒤에 나와서 진행 중 3~6개월간 아무것도 알 수 없기 때문. 자사주 취득 결정 공시에는 **위탁투자중개업자**(`cs_iv_bk`, SK하이닉스는 SK증권)가 적혀 있고, 거래소는 종목별 상위 매수·매도 창구를 매일 공개하므로 그 증권사의 순매수를 누적하면 매입량을 **추정**할 수 있다. **확정치가 아니다** — 그 창구 매수에 같은 증권사 일반 고객 주문이 섞이므로 화면에 반드시 '추정'으로 밝힌다. 네이버 표의 매수 수량 컬럼이 **'거개량'으로 오타**나 있어(2026-09-10 실측) 값은 컬럼 이름이 아니라 **열 위치**로 읽는다. 네이버가 그날 상위 5개만 주므로 **과거 소급이 안 되고**(표가 처음 도는 날부터 쌓임), 그날 6위 밖이면 빠져서 추정 진행률이 실제보다 낮게 나올 수 있다 |
-| `trstk.py` | **자기주식 체결내역** — KRX KIND `/api/trstk/traded` → `buyback_trades`. 자사주 진행률의 **확정** 근거다. `buyback.py`의 DART 주요사항보고서가 "얼마를 사겠다"는 계획인 반면, 이건 거래소가 **매매일마다 공시하는 실제 체결수량**이라 진행 중에도 확정치를 쓸 수 있고 **소급도 된다**(그래서 수집이 며칠 끊겨도 다음 실행이 구멍을 메운다 — 거래원과 결정적으로 다른 점). 조건 이름은 화면 소스 그대로 `marketType`·`corpName`·`repIsuSrtCd`·`fromDate`·`toDate`·`pageNo`, 날짜는 **대시 없는 `YYYYMMDD`**(실측 확정). **전체 건수(`tot_cnt`)가 응답 본문이 아니라 각 행 안에** 들어 있어 그걸로 페이지를 멈춘다. `trstk_acqstdisp_tp_cd`는 1=취득·2=처분·0=신탁이라 **취득만 더해야** 진행률이 맞다. KIND는 403을 주는 소스라 세션(쿠키)·요청 간격·Referer 정합이 필수 |
-| `buyback_probe.py` | 자사주 실제 매입량 소스 **탐색** 프로브(`.github/workflows/buyback_probe.yml`). 성패를 판정하지 않고 응답 구조만 찍는다 — 목적이 "살아 있나"가 아니라 "어떤 모양으로 오나"이기 때문. DART 공시서류원본파일(`document.xml`, 새 키 불필요)과 네이버 거래원을 같이 두드린다 |
-| `kr_market_extras_main.py` | 위 3종 수집 오케스트레이션 — **본 파이프라인과 분리된 별도 워크플로**(`.github/workflows/kr_market_extras.yml`). **하루 두 번 돈다**: 1차 17:30 KST 전체 수집, 2차 18:40 KST `--trstk-only`(체결내역만). 당일 자기주식 체결수량이 **18시 이후**에 공시되므로 1차만으로는 확정 진행률이 영구히 하루씩 밀리고, 그렇다고 1차를 18시 뒤로 미루면 거래원이 깨진다(시간대를 타는 소스) — 한쪽을 맞추면 다른 쪽이 깨지는 구조라 나눠 돈다. 2차는 종목 선정·공시 조회를 다시 하지 않고 저장된 `stock_buyback`을 읽어 체결내역만 갱신한다. 셋 중 하나가 죽어도 나머지는 저장된다. 대상은 유니버스 전체가 아니라 **화면에 실제로 뜨는 국내 종목**(감시·보유 + 최근 스크리닝 + 횡보/조정 후보)이고 실행당 상한이 있다 |
+| ~~`buyback.py` · `broker_flow.py` · `trstk.py` · `buyback_probe.py`~~ | **자사주 매입 추적 — 2026-10-27에 통째로 삭제했다 (사용자 요청).** SK하이닉스의 40조원 프로그램을 따라가려고 만든 기능인데, DART 최신 공시가 2026-10-26에 `자기주식취득결과보고서`로 바뀌었다(결과보고서는 프로그램이 **끝난 뒤** 나오는 서류다). 삼성전자도 10-12에 같은 상태. 볼 대상이 없어진 화면을 두면 끝난 프로그램의 진행률만 계속 보여주게 된다. **되살릴 일이 생기면 git 이력에 네 파일이 그대로 있다** — 소스별 함정(DART 공시 키 이름, 네이버 거래원 표의 '거개량' 오타, KIND의 403·세션·Referer 요구)도 그 안 docstring에 남아 있고, 그중 **다른 프로브가 지금도 인용하는 교훈**(400과 404는 다르다 / 확장자를 전제하지 말 것 / 천천히 두드릴 것)은 아래 "알려진 이슈" 절에 그대로 남겨뒀다. 같이 지운 것: `.github/workflows/buyback_probe.yml`, `pipeline/tests/test_trstk.py`, `frontend/lib/buybackProgress.ts`, DB 래퍼의 `save_buyback`/`save_broker_trading`/`save_buyback_trades`/`prune_buyback`. **Supabase 표(`stock_buyback`·`broker_trading`·`buyback_trades`)는 안 지웠다** — 지우려면 손으로 `drop table`을 돌려야 한다 |
+| `kr_market_extras_main.py` | 위 2종(수급·컨센서스) 수집 오케스트레이션 — **본 파이프라인과 분리된 별도 워크플로**(`.github/workflows/kr_market_extras.yml`, 평일 17:30 KST 하루 한 번). **2026-10-27 이전엔 하루 두 번 돌았다** — 2차(18:40)가 자기주식 체결내역만 다시 받는 실행이었다. 당일 체결수량이 18시 이후에 공시되는데 1차 시점엔 없고, 그렇다고 1차를 18시 뒤로 미루면 거래원 표가 깨져서(시간대를 타는 소스) 나눠 돌 수밖에 없었다. 자사주 추적을 걷어내면서 2차도 같이 없앴다. 둘 중 하나가 죽어도 나머지는 저장된다. 대상은 유니버스 전체가 아니라 **화면에 실제로 뜨는 국내 종목**(감시·보유 + 최근 스크리닝 + 횡보/조정 후보)이고 실행당 상한이 있다 |
 | `kr_market_extras_probe.py` | 위 3종 소스가 살아 있는지 1분 만에 확인하는 진단(`.github/workflows/kr_market_extras_probe.yml`). 작업 컨테이너는 네이버·DART가 막혀 있어 거기서 확인이 안 된다 — universe_probe와 같은 이유·같은 방식. **응답 키 후보가 맞았는지는 이 출력으로만 알 수 있다**(값이 None이면 후보 목록에 실제 키를 추가해야 한다는 뜻) |
 | `etf_holdings.py` / `etf_holdings_main.py` | **490590 구성종목·비중 수집** → `etf_holdings` (2026-09-25 추가, 별도 워크플로 `.github/workflows/etf_holdings.yml` 평일 09:10 KST). 예전엔 `etfEntryCheck.ts`에 종목·비중을 손으로 적어 뒀는데, 리밸런싱되면 아무도 모르고 화면이 **조용히 틀린 바구니로 신호등을 계산했다** — 실제로 2026-09-25 실측에서 10개 중 5개가 어긋나 있었다(인텔·오라클·버티브가 들어오고 마이크로소프트·메타가 빠졌는데 화면은 여전히 빠진 둘을 세고 있었다). 소스는 `m.stock.naver.com/api/stock/490590/etfAnalysis`의 `etfTop10MajorConstituentAssets`. **프로브로 실측한 제약 세 가지**: (1) **비중(`etfWeight`)을 안 준다** — 10개 전부 `"-"`다. 그래서 `주식 수 × 종가`로 낸다(추정이 아니라 비중의 정의 그대로). 단 **상위 10개만** 주므로 ETF 전체에서 몇 %인지는 알 수 없고 그 안에서의 **상대 비중**만 나온다 — 화면이 쓰는 것도 `cStageWeight / evaluatedWeight`라 충분하다. (2) **미국 종목은 `itemCode`가 빈 문자열**이라 이름으로 `stock_universe`와 이어야 한다. 네이버는 정식명(`"AMAZON.COM INC"`), DB는 통칭(`"Amazon"`)을 써서 접두사까지 본다. **후보가 둘 이상이면 잇지 않는다** — 틀린 비중이 조용히 들어가는 것보다 못 이었다고 드러내는 편이 낫다. 법인격 접미사는 **글자가 아니라 단어 단위로** 뗀다(글자로 자르면 `"ORACLE CORPORATION"`이 `"ORACLE ORATION"`이 된다 — 실제로 9개 중 4개를 이것 때문에 못 이었다). (3) **주가는 yfinance가 아니라 `stock_price_history`에서 읽는다** — 프로브에서 yfinance가 `OperationalError('database is locked')`로 ANET 하나를 흘려 비중이 통째로 틀어졌다. 못 이은 이름과 구성 변경은 `::warning::`으로 띄우고, 저장은 **통째로 갈아끼운다**(upsert만 하면 빠진 종목의 지난 행이 유령처럼 남아 계속 세게 된다). 소스가 살아 있는지는 `.github/workflows/etf_holdings_probe.yml`로 1분 만에 확인된다 |
 | `etf_distribution_probe.py` / `etf_distribution_probe5.py` | **490590 분배금 회차별 이력의 자동 수집 소스 탐색 — 5번 시도해 전부 못 찾았다 (2026-09-30).** 프로브는 처음 5개를 만들었다가 **1차(네이버)와 5차(KIND)만 남겼다** — 2~4차(RISE 사이트·KIND 입구 탐색)는 결과가 아래 ②③에 다 적혀 있고 5차가 대체해 지웠다. 결과를 남겨 같은 길을 다시 파지 않게 한다(각각 `.github/workflows/etf_distribution_probe{,5}.yml`, 작업 컨테이너는 이 사이트들이 막혀 있어 Actions에서만 확인된다). 1차는 네이버가 나중에 회차별 값을 추가했는지 1분 만에 다시 볼 수 있게 두었다. ① **네이버** `m.stock.naver.com/api/stock/490590/etfAnalysis`(=`integration`)에는 **요약값뿐**이다: `dividendYieldTtm=20.57`, `dividendPerShareTtm=2905`, `dividendCountThisYear=9`, `dividendMonthThisYear="1,2,3,4,5,6,7,8,9"`. 회차별 배당락일·지급일·금액은 없고, `dividend`·`etfDividend`·`distribution`·`etfBasic`·`etfKeyIndicator`·`etf/…/dividend`는 전부 404, PC 화면엔 '분배금' 문구가 없다. **이 요약값은 사용자가 알려 준 회차별 값으로 검산됐다 (2026-09-30)** — 최근 12개월(2025-10-30~2026-09-29) 12건 합계가 2,905원으로 `dividendPerShareTtm=2905`와 **정확히 같고**, 올해 횟수 9회(1~9월 매달)도 `dividendCountThisYear`·`dividendMonthThisYear`와 맞고, `dividendYieldTtm=20.57`도 2,905 ÷ 종가 14,120 = 20.57%와 같다(9/29의 188원도 이 합계에 포함돼 있어 함께 맞았다). 즉 **네이버 요약값은 믿을 수 있다** — 다만 회차별 이력이 없어 자동 수집의 근거로는 못 쓰고, 화면에는 붙이지 않았다(회차별 목록에서 같은 값을 직접 계산할 수 있다). ② **RISE(KB자산운용) 사이트**는 화면을 브라우저에서 그리는 Next.js라 표 데이터가 HTML에 없다. 검색이 안 먹고(응답의 '490590'은 검색어 에코였다 — 홈 HTML엔 0회), 스크립트 청크로 요청한 30개는 전부 홈 화면 HTML(약 141,000자)이 돌아왔다. 상품 코드는 네 글자(`4432`, `44K1` 등)인데 홈에 걸린 13개는 전부 다른 상품이었고 490590의 코드는 못 찾았다. ③ **KRX KIND** ETF 공시 화면(`/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf`)은 **`?method=`를 붙여야 열리고**(모바일 `mkind.krx.co.kr/`은 207자짜리 `/main` 리다이렉트뿐) 조건 이름(`etfIsuSrtCd`·`fromDate`·`toDate`·`reportCd`…)까지 나오지만, 그 조건으로 POST해도 **검색 결과가 아니라 화면 자체(74,157자)가 그대로** 돌아온다 — 목록을 가져오는 실제 주소는 이 페이지 HTML 안에 없고(Etf 관련 method 이름이 화면 자신뿐) 별도 스크립트 파일에 있는 것으로 보이나 확인하지 못했다. 공시 목록에 제목·날짜가 나오더라도 주당 금액은 본문에만 있을 수 있다. **5차 프로브의 '표를 돌려준 method' 판정은 오판이다** — 성공 조건(표 행이 있거나 종목코드가 있으면)이 너무 느슨해 검색창 글자('종목명 찾기', '기간 ~')를 표로 셌다. 다시 시도한다면 KIND 스크립트 파일에서 목록 주소를 찾는 것부터(403이 나기 쉬우니 천천히). 그때까지는 `frontend/lib/etfDistribution.ts`의 손으로 적은 목록을 쓴다 |
@@ -121,9 +118,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `realestate_media` | realestate_media_main.py (4시간마다, 매 실행마다 전체 갈아끼움) | 부동산 동향 탭 홈 상단 뉴스·영상 (`supabase/realestate_media.sql`로 생성) |
 | `investor_flow` | investor_flow.py (평일 17:30, 최근 60일 upsert) | 카드 펼침 시 수급 막대 (`supabase/kr_market_extras.sql`로 생성) |
 | `stock_consensus` | consensus.py (종목당 최신 1행 스냅샷) | 카드 펼침 시 증권사 목표주가 |
-| `stock_buyback` | buyback.py (종목당 최신 1행 스냅샷) | 카드 펼침 시 자사주 진행률 |
-| `broker_trading` | broker_flow.py (자사주 프로그램 진행 중인 종목만, 매일) | 자사주 추정 진행률 계산 (`supabase/kr_market_extras.sql` 하단) |
-| `buyback_trades` | trstk.py (취득 기간 시작일부터 매번 다시 받음 — 소급되는 소스라 구멍이 저절로 메워진다) | 자사주 **확정** 진행률 (`supabase/kr_market_extras.sql` 하단) |
+| ~~`stock_buyback`·`broker_trading`·`buyback_trades`~~ | (없음 — 2026-10-27에 쓰는 쪽을 삭제) | (없음). **표 자체는 Supabase에 남아 있다** — 지우려면 손으로 `drop table`을 돌려야 한다 |
 | `etf_holdings` | etf_holdings_main.py (평일 09:10, 매 실행 전체 갈아끼움) | 490590 매수체크 화면의 **리밸런싱 알람**(`getEtfHoldings`의 `staleNames`). **비중 계산에는 안 쓴다** — 네이버가 주식 수 순 상위 10개만 줘서 64%밖에 못 덮기 때문(위 `etfEntryCheck.ts` 항목 참고). (`supabase/etf_holdings.sql`로 생성). 티커를 못 이은 행도 ticker=null로 남긴다 — 조용히 사라지면 '구성에 없다'와 '이름을 못 이었다'가 구분되지 않는다 |
 | `paper_trades` | 사이트의 매수/매도 버튼 | 보유 종목 점검 탭 (`supabase/paper_trades.sql`로 생성) |
 | `recommendation_history` | main.py (저점 매집 후보 추천 기록 + 추천 시점 특성) | 스크리너 성적 탭의 **저점 매집 후보 성적** 섹션 (`getPatternRecommendations`). 특성 컬럼은 `supabase/recommendation_history_features.sql`로 추가 |
@@ -160,7 +155,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 | `averageCost.ts` | 분할매수 평단 계산 — 차수별(단가·수량) 매수를 수량 가중 평균으로 합쳐 평단가·평가손익·본전 가격을 낸다. 매도 비용(KR 0.165% = 거래세·농특세 0.15% + 수수료, US 0.07%)을 평가손익에서 차감할 수 있고, 그래서 **본전 가격 ≠ 평단가**다(비용만큼 위). `simulateAddBuy()`는 물타기 시뮬레이션(지금 N주 더 사면 평단이 얼마). 순수 함수라 `averageCost.test.ts`로 검증. 라오니(raoni.xyz/calc)의 평단 손익계산기를 벤치마킹 |
 | `investorFlow.ts` | 수급 요약(누적 순매매·연속 일수·매수일 수)과 금액 한국식 축약(`1.2조`/`3,400억`). **판정하지 않는다** — "외국인이 사니 좋다" 같은 결론은 내지 않고 값만 낸다(supportSignals.ts와 같은 원칙). `investorFlow.test.ts`로 검증. 입력 타입은 `FlowLike`(필요한 열만 있는 최소 형태)라 배지용 축소 조회도 같은 함수를 쓴다 — **연속 일수 규칙이 두 곳으로 갈라지면 배지와 상세가 다른 숫자를 말하게 된다** |
 | `useLazyPriceHistory.ts` | 카드를 펼쳤을 때만 그 종목 일봉을 `/api/price-history`로 받아오는 훅. 한 번 받으면 다시 안 받고, 접으면 진행 중 요청을 취소한다 |
-| `queries/krExtras.ts` | 수급·컨센서스·자사주 조회. `getKrExtrasSummaries()`는 **접힌 카드 배지용 요약**(종목당 숫자 서너 개)을 서버에서 미리 낸다 — 상세는 펼쳤을 때 `/api/kr-extras`가 맡는다. 자사주 진행률의 근거 우선순위(확정→추정→기간)를 `MarketExtrasPanel`과 **똑같이** 골라야 배지와 상세가 같은 숫자를 말한다. **조회 실패·표 없음이 정상 상태**다(별도 워크플로가 처음 돌기 전까지) — 예외를 던지지 않고 빈 값을 돌려주며, 화면은 그 섹션만 숨긴다 |
+| `queries/krExtras.ts` | 수급·컨센서스 조회. `getKrExtrasSummaries()`는 **접힌 카드 배지용 요약**(종목당 숫자 서너 개)을 서버에서 미리 낸다 — 상세는 펼쳤을 때 `/api/kr-extras`가 맡는다. 연속 일수·누적 규칙은 `MarketExtrasPanel`과 **같은 함수**(`summarizeFlow`)를 써야 배지와 상세가 같은 숫자를 말한다. **조회 실패·표 없음이 정상 상태**다(별도 워크플로가 처음 돌기 전까지) — 예외를 던지지 않고 빈 값을 돌려주며, 화면은 그 섹션만 숨긴다. (2026-10-27 이전엔 자사주도 같이 조회했다) |
 | `risk.ts` | 손절/목표가/손익비 계산 (`computeStopTarget`). 추세 종목(`trendFrame`) vs 횡보 종목(`rangeFrame`) 틀 분리 |
 | `riskGrade.ts` | 손익비 색상 등급 기준 (틀별로 다름) |
 | `scorecard.ts` | 스크리너 성적 집계 — 추천을 앞으로 걸어 목표/손절/기간만료로 판정하고 기댓값(R)·본전선·구간별 성과를 낸다. 순수 함수라 `scorecard.test.ts`로 검증 |
@@ -213,7 +208,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 
 ## frontend/components/
 
-`KrExtrasBadges.tsx`(접힌 카드의 요약 배지 — 외국인 수급·목표가·자사주를 한 줄로. 새 정보가 전부 '펼쳐야 보이는' 곳에 있으면 매일 보는 화면에서 없는 기능이나 마찬가지라 만들었다. 상태 없는 서버 컴포넌트라 클라이언트 카드 안에서도 그대로 쓴다) · `MarketExtrasPanel.tsx`(수급·컨센서스·자사주 — 카드를 펼치면 `/api/kr-extras`로 받아 그린다. **국내 종목 전용**이고, 세 값 모두 기존 판정·점수에 넣지 않고 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수인지 알 수 없게 되고 지금까지 쌓인 스크리너 성적과 기준이 갈라진다) · `LazyStockChart.tsx`(펼쳤을 때 일봉을 받아 그리는 차트) · `AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load. **RSI를 켜면 차트가 두 개가 되는데 반드시 묶어 둘 것** — v4에는 한 차트 안에 패널을 나누는 기능이 없어 `createChart`를 두 번 부를 수밖에 없고, 그냥 두면 위를 확대·이동해도 아래 RSI는 가만히 있어 **같은 날짜를 보고 있다는 보장이 없다**(실제로 위는 2~7월, 아래는 3~4월을 보여주고 있었다, 2026-09-15). 지금은 ① 보이는 범위(`subscribeVisibleLogicalRangeChange` ↔ `setVisibleLogicalRange`, **재진입 깃발 필수** — 없으면 둘이 서로를 끝없이 밀어댄다) ② 십자선(`subscribeCrosshairMove` ↔ `setCrosshairPosition`) ③ 가격축 폭(넓은 쪽에 맞춰 `minimumWidth` 고정, 안 맞추면 같은 날짜가 위아래로 어긋나 보인다)을 묶고, 위 차트의 시간축을 숨겨 아래 축 하나를 공유한다. **RSI 워밍업 구간(앞 14봉)을 `filter`로 버리면 안 된다** — 두 차트의 봉 개수가 달라져 같은 논리 인덱스가 다른 날짜를 가리키고, 그러면 범위 동기화가 어긋난 채 맞은 것처럼 보인다. 값이 없는 봉은 빈 점(whitespace, `{ time }`만)으로 넣는다) ·
+`KrExtrasBadges.tsx`(접힌 카드의 요약 배지 — 외국인 수급·목표가를 한 줄로. 자사주 배지는 2026-10-27에 기능째 뺐다. 새 정보가 전부 '펼쳐야 보이는' 곳에 있으면 매일 보는 화면에서 없는 기능이나 마찬가지라 만들었다. 상태 없는 서버 컴포넌트라 클라이언트 카드 안에서도 그대로 쓴다) · `MarketExtrasPanel.tsx`(수급·컨센서스 — 카드를 펼치면 `/api/kr-extras`로 받아 그린다. **국내 종목 전용**이고, 두 값 모두 기존 판정·점수에 넣지 않고 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수인지 알 수 없게 되고 지금까지 쌓인 스크리너 성적과 기준이 갈라진다) · `LazyStockChart.tsx`(펼쳤을 때 일봉을 받아 그리는 차트) · `AverageCostCalculator.tsx`(분할매수 평단 계산기 — 포지션 관리 카드를 펼치면 나온다. **차수별 매수 내역은 브라우저 localStorage에만** 두고, 계산된 평단가만 버튼으로 `watchlist_tickers.avg_cost`에 올린다 — 매수 기록은 기기에서 끝나는 개인 메모라 스키마를 늘릴 이유가 없고 파이프라인도 안 쓰는 반면, 손익률 표시는 다른 기기에서도 보여야 하기 때문. 카드를 펼쳐야만 마운트되므로 첫 렌더에서 localStorage를 바로 읽어도 SSR 불일치가 없다) · `StockCard.tsx`(눌림목 카드) · `StockChart.tsx`(lightweight-charts, lazy load. **RSI를 켜면 차트가 두 개가 되는데 반드시 묶어 둘 것** — v4에는 한 차트 안에 패널을 나누는 기능이 없어 `createChart`를 두 번 부를 수밖에 없고, 그냥 두면 위를 확대·이동해도 아래 RSI는 가만히 있어 **같은 날짜를 보고 있다는 보장이 없다**(실제로 위는 2~7월, 아래는 3~4월을 보여주고 있었다, 2026-09-15). 지금은 ① 보이는 범위(`subscribeVisibleLogicalRangeChange` ↔ `setVisibleLogicalRange`, **재진입 깃발 필수** — 없으면 둘이 서로를 끝없이 밀어댄다) ② 십자선(`subscribeCrosshairMove` ↔ `setCrosshairPosition`) ③ 가격축 폭(넓은 쪽에 맞춰 `minimumWidth` 고정, 안 맞추면 같은 날짜가 위아래로 어긋나 보인다)을 묶고, 위 차트의 시간축을 숨겨 아래 축 하나를 공유한다. **RSI 워밍업 구간(앞 14봉)을 `filter`로 버리면 안 된다** — 두 차트의 봉 개수가 달라져 같은 논리 인덱스가 다른 날짜를 가리키고, 그러면 범위 동기화가 어긋난 채 맞은 것처럼 보인다. 값이 없는 봉은 빈 점(whitespace, `{ time }`만)으로 넣는다) ·
 `WatchlistCard.tsx`(매집 감시 카드) · `PositionCard.tsx`(포지션 관리 카드 — 보유 종목 지지 신호 점검,
 `supportSignals.ts` 사용) · `Scorecard.tsx`(성적 판정·구간별 막대)/`PerformanceTable.tsx`/`ExitSignalTable.tsx`
 (스크리너 성적·포지션) · `LeadingSectors.tsx` · `MarketRegimeBadge.tsx` ·
@@ -279,30 +274,15 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
   숫자 몇 개짜리 요약(`getKrExtrasSummaries`)은 미리 보내는 게 맞다. 실제로 새
   기능 3종을 전부 펼침 안에 넣었더니 "사이트가 그대로인데?"라는 말을 들었다
   (2026-09-10). 무거운 건 펼쳤을 때, 요약은 접힌 채로
-- **자사주 진행률은 네 종류이고 절대 합치지 않는다 (2026-09-11 갱신)**: ⓪
-  `confirmed_progress_pct`(**거래소 체결내역 확정**, `trstk.py`) ①
-  `amount_progress_pct`(취득 금액 확정, 결과보고서 기반) ② `estimated_progress_pct`
-  (위탁증권사 창구 누적 순매수 기반 **추정**) ③ `period_progress_pct`(취득 기간
-  경과율, 마지막 수단). 근거를 고르는 규칙은 `frontend/lib/buybackProgress.ts`
-  **한 곳**에 있고 배지·상세가 같이 쓴다 — 각자 고르면 같은 종목인데 다른 숫자를
-  말한다. ①은 DART에 정형 API가 없어 지금은 거의 안 채워진다.
-  **②는 관측 일수를 반드시 따져야 한다**: 거래원은 과거 소급이 안 돼 수집 시작일부터
-  쌓이는데, SK하이닉스는 8/20에 40조원 취득을 시작했고 수집 첫날 관측한 SK증권
-  순매수가 1.16조원이라 그대로 나누면 **2.9%**가 나왔다. 그건 "회사가 3%만 샀다"가
-  아니라 "우리가 하루만 봤다"는 뜻인데 숫자만 보면 정반대로 읽힌다. 그래서
-  커버리지(관측일 ÷ 경과 거래일)가 `MIN_ESTIMATE_COVERAGE`(50%) 미만이면 ②를
-  대표로 쓰지 않고 ③으로 내려간다.
-  **ⓘ ⓪이 생기면서 ②·③은 차선책으로 내려갔다 (2026-09-11)**: KRX KIND
-  `/api/trstk/traded`가 일자별 체결수량을 그대로 주므로, 체결내역이 잡히는 종목은
-  결과보고서를 기다릴 필요도 창구로 추정할 필요도 없다. **⓪은 커버리지를 따지지
-  않는다** — 소급되는 소스라 "하루만 봤다"는 상태 자체가 없기 때문이다.
-  ②·③은 체결내역이 아직 없는 종목(취득 기간 시작 전 등)의 차선책으로 남긴다.
+- ~~자사주 진행률은 네 종류이고 절대 합치지 않는다~~ — **기능째 없어졌다
+  (2026-10-27).** 확정(거래소 체결내역) → 금액 → 창구 추정 → 기간 경과 순으로
+  근거를 고르던 규칙이 `buybackProgress.ts` 한 곳에 있었고 배지·상세가 같이 썼다.
+  **남길 만한 교훈 두 가지**: (1) 추정치는 **관측 일수를 반드시 따져야 한다** —
+  거래원은 소급이 안 돼 수집 첫날 관측분만으로 나누면 SK하이닉스가 2.9%로 나왔는데,
+  그건 "회사가 3%만 샀다"가 아니라 "우리가 하루만 봤다"는 뜻이었다. (2) **퍼센트를
+  진행률 자리에 놓는 순간 사람은 매입량으로 읽는다** — 기간 경과 23%를 보고
+  "자사주를 23% 샀구나"로 읽힌 일이 있었다. 비슷한 지표를 새로 만들 때 이 둘을 볼 것.
 
-  **③으로 내려갔을 때 퍼센트를 진행률 자리에 그대로 놓으면 안 된다** — 2026-09-11에
-  기간 경과 23%를 보고 "자사주를 23% 샀구나"로 읽혔다. %를 진행률 자리에 놓는 순간
-  사람은 매입량으로 읽는다. 그래서 `BuybackBasis.measuresPurchase`로 "이게 매입량을
-  재는 값인가"를 구분하고, false면 배지는 퍼센트 없이 '자사주 매입중'만, 상세는
-  진행바를 옅게 그리고 "달력이 얼마나 지났는지일 뿐"이라고 명시한다
 - **성적이 두 갈래다 (2026-09-14)**: `frontend/lib/scorecard.ts`는 **눌림목**(손절·목표가가
   있으므로 손익을 R로 잰다), `frontend/lib/patternScorecard.ts`는 **저점 매집 후보**(손절·목표를
   계산하지 않으므로 보유 수익률 %로 잰다). 둘 다 `app/history` 한 페이지에 나란히 있지만
@@ -443,6 +423,9 @@ DART 접수번호가 같은 번호였습니다"**라고 단정했다. 확인해 
   정도). 둘 다
   Settings → Secrets and variables → Actions에 등록하면 다음 실행부터 채워진다.
 - ~~수급·컨센서스·자사주 소스 미검증~~ — **2026-09-10 프로브로 3/3 확인 완료**
+  (**자사주는 2026-10-27에 기능째 삭제됐다.** 아래 기록은 지우지 않는다 — KIND·DART를
+  두드리며 배운 것들을 `etf_holdings_probe.py`·`etf_pdf_probe.py`·`etf_distribution_probe5.py`가
+  지금도 인용하기 때문이다. 자사주 코드 자체는 git 이력에 있다.)
   (`KR Market Extras Source Probe`). 확인된 사실과 그 과정에서 드러난 함정:
   - **수급**: 네이버 금융 `item/frgn.naver` 정상. 종목당 60행(3페이지).
     EUC-KR 인코딩을 지정해야 컬럼명이 안 깨진다
@@ -558,10 +541,10 @@ DART 접수번호가 같은 번호였습니다"**라고 단정했다. 확인해 
   팝업·메일이 뜨지 않아 예전처럼 모르고 지나가게 된다. 실행 후
   `.github/workflows/etf_holdings.yml`을 한 번 수동 실행하면 바로 채워진다
 - **`supabase/etf_holdings_status.sql`을 실행할 것** (2026-09-29 추가). `etf_holdings`에 `status` 열을 더한다 — '빠진 종목' 알림의 **팝업 경로**가 이 열로 돈다. **메일 알림은 이 열 없이도 정상 동작한다**(워크플로 빨간불). 안 돌리면 `save_etf_holdings`가 보유 행만 다시 저장하고 `::warning::`을 남기므로 수집은 안 깨지지만, **팝업만 조용히 안 뜬다** — 그래서 여기 적어 둔다.
-- **`supabase/kr_market_extras.sql`을 실행할 것.** 이미 실행했다면 파일 맨 아래의
-  **`buyback_trades` 표 + `confirmed_*` 열**만 더 실행하면 된다(2026-09-11 추가).
-  이걸 안 하면 체결내역 수집이 통째로 건너뛰어지고(본체는 계속 저장된다) 화면은
-  예전처럼 기간 경과율만 보여준다
+- **`supabase/kr_market_extras.sql`을 실행할 것** — 다만 `investor_flow`·`stock_consensus`
+  두 표만 쓴다. 파일 맨 아래의 `buyback_trades` 표와 `confirmed_*` 열은 **이제 안 쓴다**
+  (2026-10-27에 자사주 추적을 걷어냈다). 이미 만들어 둔 표를 지울 필요는 없고, 새로
+  세팅한다면 그 부분은 건너뛰어도 된다.
 - **수집 워크플로는 기본 브랜치에 있어야 스케줄이 돈다.** GitHub Actions의
   `schedule`·`workflow_dispatch`는 기본 브랜치의 워크플로 파일만 본다 —
   `kr_market_extras.yml`이 master에 병합되기 전까지 평일 17:30 자동 실행은

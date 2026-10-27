@@ -4,25 +4,23 @@ import { useEffect, useState } from 'react'
 import { LoadingFallback } from '@/components/LoadingFallback'
 import { changeTextClass, formatSignedPercent } from '@/lib/marketColors'
 import { flowScale, formatKrwCompact, summarizeFlow, type FlowSide } from '@/lib/investorFlow'
-import { buybackProgress } from '@/lib/buybackProgress'
-import type { BuybackRow, ConsensusRow, InvestorFlowRow, Market } from '@/lib/types'
+import type { ConsensusRow, InvestorFlowRow, Market } from '@/lib/types'
 
 /**
- * 국내 종목 부가 정보 — 수급 · 목표주가 컨센서스 · 자사주 매입.
+ * 국내 종목 부가 정보 — 수급 · 목표주가 컨센서스.
  *
  * 카드를 펼쳤을 때만 /api/kr-extras로 받아온다(일봉과 같은 방식). 세 값 모두
  * 보물지도에 없던 축이라, 기존 판정(눌림목·매력도 점수)에는 **넣지 않고**
  * 나란히 보여주기만 한다 — 점수에 섞으면 왜 그 점수가 나왔는지 알 수 없게 되고,
  * 지금까지 쌓인 스크리너 성적과도 기준이 달라져 비교가 깨진다.
  *
- * 미국 종목에는 해당 없음이다(외국인·기관 구분, 증권사 컨센서스, 자기주식 공시는
- * 국내 시장 개념이고 소스도 네이버·DART다). 그 경우 섹션째 렌더하지 않는다.
+ * 미국 종목에는 해당 없음이다(외국인·기관 구분도, 증권사 컨센서스도 국내 시장
+ * 개념이고 소스도 네이버다). 그 경우 섹션째 렌더하지 않는다.
  */
 
 type ExtrasResponse = {
   flow: InvestorFlowRow[]
   consensus: ConsensusRow | null
-  buyback: BuybackRow | null
   unsupported?: boolean
 }
 
@@ -114,126 +112,6 @@ function ConsensusBlock({ consensus, close }: { consensus: ConsensusRow; close: 
   )
 }
 
-function BuybackBlock({ buyback }: { buyback: BuybackRow }) {
-  // 어느 근거를 대표로 쓸지는 buybackProgress 한 곳에서 정한다 — 접힌 카드의
-  // 배지도 같은 함수를 쓰므로 두 곳이 다른 숫자를 말할 일이 없다.
-  const progress = buybackProgress(buyback, new Date().toISOString().slice(0, 10))
-  const basis = progress.basis
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
-        <span className="text-xs font-semibold text-secondary-foreground">
-          자사주 {buyback.is_disposal ? '처분' : '매입'}
-        </span>
-        {buyback.latest_report_date && (
-          <span className="text-xs text-muted-foreground">공시 {buyback.latest_report_date}</span>
-        )}
-      </div>
-
-      {basis && (
-        <>
-          <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full rounded-full ${
-                // 매입량을 재는 값이 아니면 진행바도 옅게 그린다 — 같은 모양으로
-                // 그리면 "회사가 그만큼 샀다"로 읽힌다.
-                !basis.measuresPurchase
-                  ? 'bg-muted-foreground/30'
-                  : buyback.is_disposal
-                    ? 'bg-down'
-                    : 'bg-primary'
-              }`}
-              style={{ width: `${Math.min(Math.max(basis.pct, 0), 100)}%` }}
-            />
-          </div>
-          <p className="mt-0.5 text-xs">
-            <span className="font-mono font-semibold">{basis.pct.toFixed(0)}%</span>
-            <span className="ml-1 text-muted-foreground">
-              {basis.measuresPurchase ? `진행 · ${basis.label}` : basis.label}
-            </span>
-          </p>
-          {!basis.measuresPurchase && (
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              <b>이 숫자는 달력이 얼마나 지났는지일 뿐입니다.</b> 이 종목은 아직 거래소
-              체결내역이 안 잡혀서(공시 전이거나 취득 기간이 시작되지 않았을 수 있습니다)
-              회사가 실제로 얼마나 샀는지는 여기 표시되지 않습니다.
-            </p>
-          )}
-          {/* 확정 근거일 때는 근거의 두께를 같이 밝힌다 — 며칠치 공시를 더한 값인지,
-              어느 날짜까지 반영됐는지. 체결량은 18시 이후 공시라 당일치는 늦게 붙는다. */}
-          {basis.kind === 'confirmed' && buyback.confirmed_qty != null && (
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              누적 {Math.round(buyback.confirmed_qty).toLocaleString('ko-KR')}주 체결
-              {buyback.confirmed_through && ` · ${buyback.confirmed_through}까지 반영`}. 거래소가
-              매매일마다 공시하는 확정 수량이라 추정이 아닙니다.
-            </p>
-          )}
-        </>
-      )}
-
-      {buyback.planned_amount != null && (
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {buyback.is_disposal ? '처분' : '취득'} 예정 {formatKrwCompact(buyback.planned_amount)}원
-          {buyback.planned_qty != null && ` (${Math.round(buyback.planned_qty).toLocaleString('ko-KR')}주)`}
-          {buyback.period_start && buyback.period_end && ` · ${buyback.period_start} ~ ${buyback.period_end}`}
-        </p>
-      )}
-
-      {/* 창구 관측치는 별도 줄로 근거를 다 드러낸다 — 어느 증권사인지, 며칠
-          관측했는지, 왜 확정치가 아닌지. 숫자만 보여주면 확정 진행률과 구분이 안 되고,
-          관측이 모자란 상태를 안 밝히면 "회사가 3%만 샀다"로 정반대로 읽힌다. */}
-      {buyback.estimated_amount != null && buyback.estimated_amount > 0 && (
-        <p className="mt-1 rounded-md bg-accent/60 px-2 py-1.5 text-xs leading-relaxed text-accent-foreground">
-          <b>{buyback.broker ?? '위탁 증권사'}</b> 창구에서{' '}
-          <span className="font-mono font-semibold">
-            {formatKrwCompact(buyback.estimated_amount)}원
-          </span>
-          {buyback.estimated_qty != null &&
-            ` (${Math.round(buyback.estimated_qty).toLocaleString('ko-KR')}주)`}{' '}
-          순매수
-          {buyback.observed_days != null && ` · ${buyback.observed_days}일 관측`}.
-          <span className="text-accent-foreground/70">
-            {progress.estimateUnderObserved ? (
-              <>
-                {' '}
-                <b>취득 시작({buyback.period_start})부터의 일부만 관측한 값입니다.</b> 거래원은
-                과거 소급이 안 돼 수집을 시작한 날부터 하루씩 쌓이므로, 이 금액은 실제 매입량보다
-                작습니다 — 진행률로 환산하지 않는 이유입니다.
-              </>
-            ) : (
-              <>
-                {' '}
-                회사가 자사주를 이 창구로 사겠다고 공시했기 때문에 매입 진행을 가늠하는 데
-                쓰지만, 그 창구 매수가 전부 자사주는 아닙니다(같은 증권사의 다른 주문이
-                섞입니다).
-              </>
-            )}{' '}
-            확정 수치는 취득이 끝난 뒤 결과보고서로 공시됩니다.
-          </span>
-        </p>
-      )}
-
-      {buyback.latest_report && (
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {buyback.latest_report_url ? (
-            <a
-              href={buyback.latest_report_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline decoration-dotted underline-offset-2 hover:text-primary"
-            >
-              {buyback.latest_report} (공시 원문)
-            </a>
-          ) : (
-            buyback.latest_report
-          )}
-        </p>
-      )}
-    </div>
-  )
-}
-
 export function MarketExtrasPanel({
   market,
   ticker,
@@ -261,7 +139,7 @@ export function MarketExtrasPanel({
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === 'AbortError') return
         // 부가 정보라 실패해도 카드는 그대로 보여야 한다 — 빈 값으로 두면 섹션이 숨는다.
-        setData({ flow: [], consensus: null, buyback: null })
+        setData({ flow: [], consensus: null })
       })
     return () => controller.abort()
   }, [market, ticker])
@@ -271,7 +149,7 @@ export function MarketExtrasPanel({
   if (!data) return null
 
   const hasFlow = data.flow.length > 0
-  const hasAnything = hasFlow || data.consensus || data.buyback
+  const hasAnything = hasFlow || data.consensus
   // 아직 수집 워크플로가 한 번도 안 돌았으면 아무 것도 없는 게 정상이다.
   // 빈 껍데기 제목만 남기지 않도록 섹션째 숨긴다.
   if (!hasAnything) return null
@@ -281,7 +159,6 @@ export function MarketExtrasPanel({
       <p className="text-xs font-bold text-foreground">시장이 이 종목을 어떻게 보고 있나</p>
 
       {data.consensus && <ConsensusBlock consensus={data.consensus} close={close} />}
-      {data.buyback && <BuybackBlock buyback={data.buyback} />}
 
       {hasFlow && (
         <div className="space-y-2.5">

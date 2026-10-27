@@ -70,7 +70,7 @@ export function PositionCard({
   tickers: WatchlistTickerRow[]
   /** `${market}-${ticker}` 키의 일봉 */
   history: Record<string, PriceHistoryRow[]>
-  /** 티커 → 수급·목표가·자사주 요약 (국내 종목만) */
+  /** 티커 → 수급·목표가 요약 (국내 종목만) */
   krExtras?: Record<string, KrExtrasSummary>
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())

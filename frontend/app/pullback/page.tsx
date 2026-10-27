@@ -174,7 +174,7 @@ async function PositionSection() {
   for (const [ticker, bars] of Object.entries(krHistory)) history[`KR-${ticker}`] = bars
   for (const [ticker, bars] of Object.entries(usHistory)) history[`US-${ticker}`] = bars
 
-  // 접힌 카드에도 수급·목표가·자사주가 보이게 요약만 미리 받는다(종목당 숫자 몇 개).
+  // 접힌 카드에도 수급·목표가가 보이게 요약만 미리 받는다(종목당 숫자 몇 개).
   const krExtras = await getKrExtrasSummaries(
     tickers.filter((t) => t.market === 'KR').map((t) => t.ticker),
   )
@@ -191,7 +191,7 @@ async function MarketSection({ market, label, universe }: { market: Market; labe
     market === 'US' ? fetchUsdKrwRate() : Promise.resolve(1),
   ])
 
-  // 수급·컨센서스·자사주는 국내 데이터라 한국장에서만 받는다. 종목당 숫자 몇 개뿐이라
+  // 수급·컨센서스는 국내 데이터라 한국장에서만 받는다. 종목당 숫자 몇 개뿐이라
   // 미리 보내도 가볍다 — 페이지를 느리게 만들던 건 종목당 일봉 150개였다.
   const krExtras: Record<string, KrExtrasSummary> =
     market === 'KR' ? await getKrExtrasSummaries(section.stocks.map((s) => s.ticker)) : {}

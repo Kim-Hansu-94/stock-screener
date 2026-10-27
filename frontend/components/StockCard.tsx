@@ -30,7 +30,7 @@ interface StockCardProps {
   /** 전일 대비 등락률(%). 예전엔 일봉 전체를 받아 카드에서 계산했는데, 그 한 줄
    *  때문에 종목마다 150봉이 통째로 클라이언트까지 따라왔다. 서버에서 계산해 넘긴다. */
   changePercent: number | null
-  /** 수급·목표가·자사주 요약. 접힌 카드에서도 "펼쳐볼 만한지" 보이게 하는 배지용 */
+  /** 수급·목표가 요약. 접힌 카드에서도 "펼쳐볼 만한지" 보이게 하는 배지용 */
   krExtras?: KrExtrasSummary
   market: Market
   usdKrwRate: number

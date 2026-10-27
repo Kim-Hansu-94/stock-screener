@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import time
 from collections import Counter
-from datetime import date
 
 from dotenv import load_dotenv
 
@@ -438,74 +437,6 @@ def _probe_etf_distribution_bars(db: ScreenerDB) -> None:
     )
 
 
-def _probe_buyback(db: ScreenerDB) -> None:
-    """국내 자사주 프로그램이 아직 진행 중인지 — 종목별로 기간과 확정 진행률을 찍는다.
-
-    **"수집이 돌았다"와 "아직 진행 중이다"는 다르다.** 수집 대상을 고르는
-    `_buyback_rows_for_trstk`는 `period_start`가 있고 처분이 아닌 행을 전부
-    가져온다 — **종료일은 안 본다.** 그래서 끝난 프로그램도 매일 같이 수집되고,
-    로그의 "체결내역 재수집 (N개 대상)"을 "N개가 진행 중"으로 읽으면 틀린다
-    (2026-10-27에 실제로 그렇게 읽을 뻔했다). 진행 중인지는 종료일로만 알 수 있어
-    여기서 그 날짜를 그대로 찍는다.
-    """
-    print("\n=== 자사주 프로그램 (stock_buyback, KR) ===", flush=True)
-    rows = _attempt(
-        "stock_buyback",
-        lambda: (
-            db.client.table("stock_buyback")
-            .select(
-                "ticker, name, is_disposal, period_start, period_end, planned_qty,"
-                " confirmed_qty, confirmed_progress_pct, confirmed_through,"
-                " latest_report, latest_report_date"
-            )
-            .eq("market", "KR")
-            .execute()
-        ).data
-        or [],
-    )
-    if rows is None:
-        return
-    if not rows:
-        print("  행 없음 — 수집이 아직 안 돌았거나 대상 종목이 없다", flush=True)
-        return
-
-    today = date.today().isoformat()
-    live, ended, unknown = [], [], []
-    for r in rows:
-        end = r.get("period_end")
-        (live if (end and end >= today) else ended if end else unknown).append(r)
-
-    def _show(label: str, group: list[dict]) -> None:
-        print(f"\n  [{label}] {len(group)}개", flush=True)
-        for r in sorted(group, key=lambda x: x.get("period_end") or ""):
-            pct = r.get("confirmed_progress_pct")
-            pct_txt = f"{pct:.1f}%" if isinstance(pct, (int, float)) else "—"
-            print(
-                f"    {r.get('name') or '?'}({r.get('ticker')}): "
-                f"{r.get('period_start')} ~ {r.get('period_end')} · "
-                f"확정 {pct_txt} "
-                f"({r.get('confirmed_qty')}/{r.get('planned_qty')}주, "
-                f"{r.get('confirmed_through')}까지) · "
-                f"{r.get('latest_report')} ({r.get('latest_report_date')})"
-                + (" · 처분" if r.get("is_disposal") else ""),
-                flush=True,
-            )
-
-    if live:
-        _show(f"진행 중 (종료일이 오늘 {today} 이후)", live)
-    if ended:
-        _show("이미 끝남 (종료일이 지남)", ended)
-    if unknown:
-        _show("종료일 미상", unknown)
-
-    print(
-        f"\n  → 전체 {len(rows)}개 중 **진행 중 {len(live)}개**, 끝남 {len(ended)}개,"
-        f" 종료일 미상 {len(unknown)}개."
-        " 화면의 자사주 섹션은 종료일과 무관하게 이 표의 행이 있으면 그대로 뜬다.",
-        flush=True,
-    )
-
-
 def main() -> None:
     load_dotenv()
     db = ScreenerDB.from_env()
@@ -556,7 +487,6 @@ def main() -> None:
                     flush=True,
                 )
 
-    _probe_buyback(db)
     _probe_recommendation_features(db)
     _probe_market_indices(db)
     _probe_etf_proxy_bars(db)

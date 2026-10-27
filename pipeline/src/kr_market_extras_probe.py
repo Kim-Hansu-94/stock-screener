@@ -19,7 +19,6 @@ import sys
 
 from dotenv import load_dotenv
 
-from . import buyback as buyback_mod
 from . import consensus as consensus_mod
 from . import investor_flow as flow_mod
 
@@ -30,7 +29,7 @@ _SAMPLES = [("005930", "삼성전자"), ("000660", "SK하이닉스")]
 
 def _probe_flow() -> tuple[bool, dict[str, float]]:
     """(정상 여부, 종목별 최신 종가). 종가는 컨센서스 검산에 쓴다."""
-    print("\n[1/3] 수급 (외국인·기관 순매매)", flush=True)
+    print("\n[1/2] 수급 (외국인·기관 순매매)", flush=True)
     ok = False
     closes: dict[str, float] = {}
     for ticker, name in _SAMPLES:
@@ -61,7 +60,7 @@ _MIN_UPSIDE_RATIO = 0.4
 
 
 def _probe_consensus(closes: dict[str, float]) -> bool:
-    print("\n[2/3] 목표주가 컨센서스", flush=True)
+    print("\n[2/2] 목표주가 컨센서스", flush=True)
     ok = True
     for ticker, name in _SAMPLES:
         try:
@@ -101,54 +100,12 @@ def _probe_consensus(closes: dict[str, float]) -> bool:
     return ok
 
 
-def _probe_buyback() -> bool:
-    print("\n[3/3] 자사주 매입 (DART)", flush=True)
-    try:
-        corp_codes = buyback_mod.load_corp_codes()
-    except Exception as exc:  # noqa: BLE001
-        print(f"  x corp_code 목록: {exc}", flush=True)
-        return False
-    print(f"  o corp_code {len(corp_codes)}개 로드", flush=True)
-
-    ok = False
-    for ticker, name in _SAMPLES:
-        corp_code = corp_codes.get(ticker)
-        if not corp_code:
-            print(f"  x {name}({ticker}): corp_code 없음", flush=True)
-            continue
-        try:
-            row = buyback_mod.build_row(ticker, name, corp_code)
-        except Exception as exc:  # noqa: BLE001
-            print(f"  x {name}({ticker}): {exc}", flush=True)
-            continue
-        if row is None:
-            # 자사주를 안 사는 회사는 정상이다 — 소스가 죽은 것과 구분해서 찍는다.
-            print(f"  - {name}({ticker}): 최근 2년 자기주식 공시 없음 (정상일 수 있음)", flush=True)
-            ok = True
-            continue
-        print(
-            f"  o {name}({ticker}): {row['latest_report']} ({row['latest_report_date']}), "
-            f"공시 {row['disclosure_count']}건, 상세소스={row['detail_source']}, "
-            f"금액진행률={row['amount_progress_pct']}, 기간진행률={row['period_progress_pct']}",
-            flush=True,
-        )
-        if row["detail_error"]:
-            print(f"      상세 API 실패 사유: {row['detail_error']}", flush=True)
-        if row["amount_progress_pct"] is None and row["period_progress_pct"] is None:
-            # 공시는 잡혔는데 진행률이 둘 다 비었다 = 상세 응답의 키 이름이 우리
-            # 후보와 다르다는 뜻이다. 원본 키를 그대로 찍어 다음 수정 근거로 삼는다.
-            for line in buyback_mod.describe_detail(corp_code):
-                print(line, flush=True)
-        ok = True
-    return ok
-
-
 def main() -> int:
     load_dotenv()
-    print("국내 부가 데이터 소스 점검 (수급 · 컨센서스 · 자사주)", flush=True)
+    print("국내 부가 데이터 소스 점검 (수급 · 컨센서스)", flush=True)
     flow_ok, closes = _probe_flow()
-    results = [flow_ok, _probe_consensus(closes), _probe_buyback()]
-    print(f"\n결과: {sum(results)}/3 소스 정상", flush=True)
+    results = [flow_ok, _probe_consensus(closes)]
+    print(f"\n결과: {sum(results)}/2 소스 정상", flush=True)
     # 하나라도 죽어 있으면 실패로 끝낸다 — 초록불로 끝나면 "다 됐다"로 보인다.
     return 0 if all(results) else 1
 
