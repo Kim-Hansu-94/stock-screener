@@ -601,3 +601,70 @@ def test_probe_does_not_retry_timeouts(monkeypatch):
     realestate.probe_prefix("KEY", "28", "202606")
 
     assert len(calls) == len(set(calls)), "같은 코드를 두 번 부르면 재시도한 것이다"
+
+
+class TestMapCoverage:
+    """지도 폴리곤(`capital-sigungu.json`)과 지역코드(`lawd_codes.py`)가 맞물리는지.
+
+    **이걸 안 보면 지도가 조용히 회색이 된다.** 실거래는 새 코드로 들어오는데
+    지도는 옛 코드 폴리곤을 들고 있으면 매칭이 안 돼 그 지역만 색이 빠지는데,
+    에러도 경고도 없다. 인천 중구·동구가 2026-07 개편 이후 **석 달 넘게** 그 상태로
+    있었던 게 정확히 이 때문이다(2026-10-27에 폴리곤을 다시 그려 해결).
+
+    규칙은 둘뿐이다.
+      · 지도에 있는 코드는 **실제 지역코드**이거나, 분구 전 옛 코드라면
+        `SPLIT_REGION_CHILDREN`에 자식이 매핑돼 있어야 한다.
+      · 지역코드는 **자기 폴리곤이 있거나**, 그 매핑의 자식이어야 한다.
+    """
+
+    @staticmethod
+    def _map_codes() -> set[str]:
+        import json
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[2] / "frontend/lib/data/capital-sigungu.json"
+        return {r["region_code"] for r in json.loads(path.read_text(encoding="utf-8"))["regions"]}
+
+    @staticmethod
+    def _split_children() -> dict[str, list[str]]:
+        """프론트의 SPLIT_REGION_CHILDREN을 TS 파일에서 그대로 읽는다.
+
+        값을 여기에 또 적으면 어긋날 곳이 하나 더 는다 — etf_holdings의
+        `test_known_tickers_matches_the_frontend_list`와 같은 방식이다.
+        """
+        import re
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[2] / "frontend/lib/realestateTrend.ts"
+        body = re.search(
+            r"SPLIT_REGION_CHILDREN[^=]*=\s*\{(.*?)\n\}", path.read_text(encoding="utf-8"), re.S
+        )
+        assert body, "SPLIT_REGION_CHILDREN을 못 찾았다 — 이름이 바뀌었는지 확인할 것"
+        return {
+            parent: re.findall(r"'(\d{5})'", kids)
+            for parent, kids in re.findall(r"'(\d{5})':\s*\[([^\]]*)\]", body.group(1))
+        }
+
+    def test_every_polygon_is_a_real_region_or_a_mapped_legacy_code(self):
+        extra = self._map_codes() - set(CAPITAL_AREA)
+        unmapped = extra - set(self._split_children())
+        assert not unmapped, (
+            f"지도에만 있고 매핑도 없는 코드: {sorted(unmapped)}. "
+            "폐지된 코드라면 폴리곤을 다시 그리거나 SPLIT_REGION_CHILDREN에 자식을 넣을 것"
+        )
+
+    def test_every_region_gets_painted_somewhere(self):
+        children = {c for kids in self._split_children().values() for c in kids}
+        orphans = set(CAPITAL_AREA) - self._map_codes() - children
+        assert not orphans, (
+            f"칠할 폴리곤이 없는 지역코드: {sorted(orphans)}. "
+            "지도에서 회색으로만 보이게 된다 — 폴리곤을 만들거나 옛 코드에 매핑할 것"
+        )
+
+    def test_incheon_new_districts_have_their_own_polygons(self):
+        # 2026-10-27 작업의 결과를 고정한다. 제물포·영종은 폴리곤을 따로 가졌고,
+        # 서해·검단은 경계 데이터가 없어 옛 서구 폴리곤에 합산된다.
+        codes = self._map_codes()
+        assert {"28125", "28155"} <= codes
+        assert not {"28110", "28140"} & codes, "옛 중구·동구 폴리곤이 남아 있다"
+        assert self._split_children()["28260"] == ["28275", "28290"]

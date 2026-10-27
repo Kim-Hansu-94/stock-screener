@@ -157,10 +157,11 @@ describe('mapPriceByCode', () => {
     expect(map.get('41591')).toBe(55000)
   })
 
-  it('merges 인천 서구 but leaves 중구·동구 grey (2026-07 개편)', () => {
-    // 서구만 합치는 것이 의도다. 옛 서구 = 서해구 + 검단구라 합집합이 딱 맞지만,
-    // 제물포구는 옛 중구와 옛 동구에 걸쳐 있어 어느 쪽에 칠해도 틀린다 —
-    // 그 둘을 나중에 "빠졌네" 하고 무심코 채우지 않도록 여기에 박아 둔다.
+  it('merges 인천 서구 but not 제물포·영종 (폴리곤을 따로 가졌다)', () => {
+    // 서구만 합치는 것이 의도다. 옛 서구 = 서해구 + 검단구인데 둘을 가를 선이
+    // 지도 데이터에 없어서다. 제물포구·영종구는 2026-10-27에 폴리곤을 따로
+    // 만들었으므로 합산 대상이 아니다 — 나중에 "얘들도 넣어야 하나" 하고
+    // 무심코 추가하지 않도록 여기에 박아 둔다.
     const rows = [
       row({ region_code: '28275', region_name: '인천 서해구', price_avg: 60000, deal_count: 30 }),
       row({ region_code: '28290', region_name: '인천 검단구', price_avg: 50000, deal_count: 10 }),
@@ -171,8 +172,12 @@ describe('mapPriceByCode', () => {
 
     // (60000*30 + 50000*10) / 40
     expect(map.get('28260')).toBeCloseTo(57500, 1)
-    expect(map.has('28110')).toBe(false) // 옛 중구
-    expect(map.has('28140')).toBe(false) // 옛 동구
+    // 제 코드로 그대로 칠해진다(합산되지 않는다).
+    expect(map.get('28125')).toBe(40000)
+    expect(map.get('28155')).toBe(45000)
+    // 옛 코드는 지도에서 사라졌으므로 칠할 자리도 없다.
+    expect(map.has('28110')).toBe(false)
+    expect(map.has('28140')).toBe(false)
   })
 
   it('leaves the legacy code out when none of its children have a sale price yet', () => {
