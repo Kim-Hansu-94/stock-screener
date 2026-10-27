@@ -65,7 +65,7 @@ export function WatchlistCard({
 }: {
   rows: WatchlistStatusRow[]
   tickers: WatchlistTickerRow[]
-  /** 티커 → 수급·목표가·자사주 요약 (국내 종목만) */
+  /** 티커 → 수급·목표가 요약 (국내 종목만) */
   krExtras?: Record<string, KrExtrasSummary>
 }) {
   // 종목 수가 늘면서 뉴스를 다 펼쳐 두면 스크롤이 너무 길어져, 이름을 눌러야만

@@ -1,12 +1,14 @@
 import { cacheLife, cacheTag } from 'next/cache'
 import { createServerSupabaseClient } from '../supabase'
 import { SCREENER_CACHE_TAG } from './shared'
-import type { BuybackRow, ConsensusRow, InvestorFlowRow } from '../types'
+import type { ConsensusRow, InvestorFlowRow } from '../types'
 import { summarizeFlow } from '../investorFlow'
-import { buybackProgress } from '../buybackProgress'
 
 /**
- * 국내 시장 부가 데이터 3종 조회 — 수급 · 목표주가 컨센서스 · 자사주 매입.
+ * 국내 시장 부가 데이터 2종 조회 — 수급 · 목표주가 컨센서스.
+ *
+ * **자사주 매입은 2026-10-27에 걷어냈다 (사용자 요청)** — SK하이닉스 프로그램이
+ * 끝나(DART 최신 공시가 2026-10-26자 `자기주식취득결과보고서`) 볼 대상이 없어졌다.
  *
  * 세 표 모두 본 파이프라인이 아닌 별도 워크플로
  * (`.github/workflows/kr_market_extras.yml`)가 채운다. 그래서 **데이터가 아직
@@ -64,26 +66,8 @@ export async function getConsensus(ticker: string): Promise<ConsensusRow | null>
   return rows[0] ?? null
 }
 
-export async function getBuyback(ticker: string): Promise<BuybackRow | null> {
-  'use cache'
-  cacheLife('hours')
-  cacheTag(SCREENER_CACHE_TAG)
-  const supabase = createServerSupabaseClient()
-  const rows = await safeSelect<BuybackRow>(() =>
-    supabase
-      .from('stock_buyback')
-      .select(
-        'market, ticker, name, latest_report, latest_report_date, latest_report_url, is_disposal, planned_amount, planned_qty, acquired_amount, amount_progress_pct, period_progress_pct, period_start, period_end, disclosure_count, broker, estimated_qty, estimated_amount, estimated_progress_pct, observed_days, confirmed_qty, confirmed_progress_pct, confirmed_days, confirmed_through',
-      )
-      .eq('market', 'KR')
-      .eq('ticker', ticker)
-      .limit(1),
-  )
-  return rows[0] ?? null
-}
-
 /**
- * 접힌 카드에 띄울 **요약** — 수급·컨센서스·자사주를 종목당 숫자 몇 개로 줄인다.
+ * 접힌 카드에 띄울 **요약** — 수급·컨센서스를 종목당 숫자 몇 개로 줄인다.
  *
  * 카드를 펼쳐야만 보이던 정보를 눈에 띄게 하려고 만들었다. 상세는 그대로
  * `/api/kr-extras`(펼쳤을 때)가 맡고, 여기서는 **미리 보내도 무겁지 않은 것만**
@@ -105,15 +89,6 @@ export type KrExtrasSummary = {
   targetPrice: number | null
   /** 저장 시점 종가 기준 상승여력. 화면에 최신 종가가 있으면 그걸로 다시 계산한다. */
   targetUpsidePct: number | null
-  /** 자사주 프로그램 방향. null이면 배지 없음 */
-  buyback: 'buy' | 'sell' | null
-  /** 자사주 진행률과 그 근거 — 근거를 같이 넘겨야 배지에 "추정"을 표시할 수 있다 */
-  buybackPct: number | null
-  buybackBasis: 'confirmed' | 'amount' | 'estimated' | 'period' | null
-  /** 창구 추정치가 있는데 관측이 모자라 대표로 못 쓴 상태. 배지가 이를 밝혀야 한다. */
-  buybackUnderObserved: boolean
-  /** `buybackPct`가 "회사가 얼마나 샀나"인가. false면 달력 경과율일 뿐이다. */
-  buybackMeasuresPurchase: boolean
 }
 
 function emptySummary(): KrExtrasSummary {
@@ -124,11 +99,6 @@ function emptySummary(): KrExtrasSummary {
     foreignDays: 0,
     targetPrice: null,
     targetUpsidePct: null,
-    buyback: null,
-    buybackPct: null,
-    buybackBasis: null,
-    buybackUnderObserved: false,
-    buybackMeasuresPurchase: false,
   }
 }
 
@@ -150,7 +120,7 @@ export async function getKrExtrasSummaries(
   cutoff.setDate(cutoff.getDate() - SUMMARY_FLOW_DAYS * 2)
   const cutoffStr = cutoff.toISOString().slice(0, 10)
 
-  const [flowRows, consensusRows, buybackRows] = await Promise.all([
+  const [flowRows, consensusRows] = await Promise.all([
     safeSelect<{
       ticker: string
       date: string
@@ -169,26 +139,6 @@ export async function getKrExtrasSummaries(
       supabase
         .from('stock_consensus')
         .select('ticker, target_price, upside_pct')
-        .eq('market', 'KR')
-        .in('ticker', tickers),
-    ),
-    safeSelect<{
-      ticker: string
-      is_disposal: boolean
-      confirmed_progress_pct: number | null
-      confirmed_days: number | null
-      amount_progress_pct: number | null
-      estimated_progress_pct: number | null
-      period_progress_pct: number | null
-      period_start: string | null
-      observed_days: number | null
-      broker: string | null
-    }>(() =>
-      supabase
-        .from('stock_buyback')
-        .select(
-          'ticker, is_disposal, confirmed_progress_pct, confirmed_days, amount_progress_pct, estimated_progress_pct, period_progress_pct, period_start, observed_days, broker',
-        )
         .eq('market', 'KR')
         .in('ticker', tickers),
     ),
@@ -221,19 +171,6 @@ export async function getKrExtrasSummaries(
     const summary = ensure(row.ticker)
     summary.targetPrice = row.target_price
     summary.targetUpsidePct = row.upside_pct
-  }
-
-  const today = new Date().toISOString().slice(0, 10)
-  for (const row of buybackRows) {
-    const summary = ensure(row.ticker)
-    summary.buyback = row.is_disposal ? 'sell' : 'buy'
-    // 근거를 고르는 규칙은 상세 화면과 **같은 함수**를 쓴다(buybackProgress).
-    // 각자 고르면 같은 종목인데 배지와 상세가 다른 숫자를 말하게 된다.
-    const progress = buybackProgress(row, today)
-    summary.buybackPct = progress.basis?.pct ?? null
-    summary.buybackBasis = progress.basis?.kind ?? null
-    summary.buybackUnderObserved = progress.estimateUnderObserved
-    summary.buybackMeasuresPurchase = progress.basis?.measuresPurchase ?? false
   }
 
   return result

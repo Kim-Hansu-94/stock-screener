@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
-import { getBuyback, getConsensus, getInvestorFlow } from '@/lib/queries/krExtras'
+import { getConsensus, getInvestorFlow } from '@/lib/queries/krExtras'
 
 /**
- * 국내 부가 데이터 3종(수급·컨센서스·자사주)을 종목 단위로 내려주는 라우트.
+ * 국내 부가 데이터 2종(수급·컨센서스)을 종목 단위로 내려주는 라우트.
  *
  * 카드를 펼쳤을 때만 부른다 — /api/price-history와 같은 이유다. 세 표를 화면
  * 렌더에 미리 실으면 종목 수만큼 곱해져 다시 페이로드가 불어난다.
@@ -18,13 +18,12 @@ export async function GET(request: NextRequest) {
   if (!ticker) return Response.json({ error: 'ticker가 필요합니다.' }, { status: 400 })
   if (market !== 'KR') {
     // 오류가 아니라 "해당 없음"이다 — 화면은 이 응답을 받으면 섹션을 숨긴다.
-    return Response.json({ flow: [], consensus: null, buyback: null, unsupported: true })
+    return Response.json({ flow: [], consensus: null, unsupported: true })
   }
 
-  const [flow, consensus, buyback] = await Promise.all([
+  const [flow, consensus] = await Promise.all([
     getInvestorFlow(ticker),
     getConsensus(ticker),
-    getBuyback(ticker),
   ])
-  return Response.json({ flow, consensus, buyback })
+  return Response.json({ flow, consensus })
 }
