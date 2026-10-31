@@ -16,3 +16,8 @@ pipeline/logs/
 
 # 백테스트 OHLCV 캐시 (용량 큼, 재생성 가능)
 pipeline/research/_cache/
+
+# npm 캐시 — frontend/.gitignore의 `/node_modules`는 그 폴더 기준이라 **저장소 루트**의
+# node_modules를 못 막는다. vitest를 루트에서 돌리면 여기에 `.vite` 캐시가 생기는데,
+# 그걸 모르고 `git add -A`를 해서 캐시 44개가 커밋에 섞인 적이 있다(2026-10-31).
+node_modules/

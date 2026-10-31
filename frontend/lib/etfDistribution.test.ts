@@ -97,6 +97,34 @@ describe('DISTRIBUTIONS (손으로 적은 목록)', () => {
       amount: 188,
     })
   })
+
+  it('가장 최근 분배금은 2026-10-29의 158원이다', () => {
+    // 2026-10-31에 사용자가 증권사 앱 캡처로 알려 준 값. 맨 끝을 고정해 두면 새
+    // 분배금을 더할 때 **오름차순으로 끝에 붙였는지**까지 같이 걸린다 — 중간에
+    // 끼워 넣거나 날짜를 잘못 적으면 여기서 멈춘다.
+    const last = DISTRIBUTIONS[DISTRIBUTIONS.length - 1]
+    expect(last).toEqual({ exDate: '2026-10-29', amount: 158 })
+    // 지급일은 캡처에 없었다 — 모르는 것을 지어내면 '지급 완료' 배지가 거짓말을 한다.
+    expect(last.payDate).toBeUndefined()
+  })
+
+  it('최근 12건 합계가 네이버 요약(dividendPerShareTtm=2805)과 정확히 같다', () => {
+    // 2026-10-31에 프로브로 받은 값(`.github/workflows/etf_distribution_probe.yml`):
+    //   dividend = {"dividendYieldTtm": 21.74, "dividendPerShareTtm": 2805,
+    //               "dividendCountThisYear": 10, "dividendMonthThisYear": "1,2,3,4,5,6,7,8,9,10"}
+    // 네이버 TTM 창은 **가장 최근 12건**이다 — 10/29분이 들어오면서 2025-10-30(258원)이
+    // 밀려났다(2,905 - 258 + 158 = 2,805). 그래서 위 2,905 검산과 숫자가 다른 게 정상이다.
+    // 이 합계가 맞는다는 건 **새로 적은 158원이 맞는다는 뜻**이기도 하다 — 한 건이라도
+    // 틀리면 네이버 값과 어긋난다.
+    const recent12 = DISTRIBUTIONS.slice(-12)
+    expect(recent12[0].exDate).toBe('2025-11-27')
+    expect(recent12.reduce((sum, d) => sum + d.amount, 0)).toBe(2805)
+  })
+
+  it('올해 분배는 10회이고 1~10월 매달이다 (네이버 dividendCountThisYear=10)', () => {
+    const thisYear = DISTRIBUTIONS.filter((d) => d.exDate.startsWith('2026-'))
+    expect(thisYear.map((d) => Number(d.exDate.slice(5, 7)))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  })
 })
 
 describe('일봉이 모자란 경우', () => {
