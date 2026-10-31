@@ -97,6 +97,25 @@ describe('DISTRIBUTIONS (손으로 적은 목록)', () => {
       amount: 188,
     })
   })
+
+  it('가장 최근 분배금은 2026-10-29의 158원이다', () => {
+    // 2026-10-31에 사용자가 증권사 앱 캡처로 알려 준 값. 맨 끝을 고정해 두면 새
+    // 분배금을 더할 때 **오름차순으로 끝에 붙였는지**까지 같이 걸린다 — 중간에
+    // 끼워 넣거나 날짜를 잘못 적으면 여기서 멈춘다.
+    const last = DISTRIBUTIONS[DISTRIBUTIONS.length - 1]
+    expect(last).toEqual({ exDate: '2026-10-29', amount: 158 })
+    // 지급일은 캡처에 없었다 — 모르는 것을 지어내면 '지급 완료' 배지가 거짓말을 한다.
+    expect(last.payDate).toBeUndefined()
+  })
+
+  it('새 12개월 창(2025-10-30 ~ 2026-10-29)은 13건 3,063원이다', () => {
+    // 옛 TTM 검산(2,905원)은 9/29까지로 묶여 있어 그대로 두고, 창이 한 칸 넘어간
+    // 뒤의 값을 따로 적어 둔다. 네이버 `dividendPerShareTtm`이 이 값으로 바뀌었는지는
+    // `.github/workflows/etf_distribution_probe.yml`로 확인할 수 있다.
+    const window = DISTRIBUTIONS.filter((d) => d.exDate >= '2025-10-30' && d.exDate <= '2026-10-29')
+    expect(window).toHaveLength(13)
+    expect(window.reduce((sum, d) => sum + d.amount, 0)).toBe(3063)
+  })
 })
 
 describe('일봉이 모자란 경우', () => {
