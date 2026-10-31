@@ -108,13 +108,22 @@ describe('DISTRIBUTIONS (손으로 적은 목록)', () => {
     expect(last.payDate).toBeUndefined()
   })
 
-  it('새 12개월 창(2025-10-30 ~ 2026-10-29)은 13건 3,063원이다', () => {
-    // 옛 TTM 검산(2,905원)은 9/29까지로 묶여 있어 그대로 두고, 창이 한 칸 넘어간
-    // 뒤의 값을 따로 적어 둔다. 네이버 `dividendPerShareTtm`이 이 값으로 바뀌었는지는
-    // `.github/workflows/etf_distribution_probe.yml`로 확인할 수 있다.
-    const window = DISTRIBUTIONS.filter((d) => d.exDate >= '2025-10-30' && d.exDate <= '2026-10-29')
-    expect(window).toHaveLength(13)
-    expect(window.reduce((sum, d) => sum + d.amount, 0)).toBe(3063)
+  it('최근 12건 합계가 네이버 요약(dividendPerShareTtm=2805)과 정확히 같다', () => {
+    // 2026-10-31에 프로브로 받은 값(`.github/workflows/etf_distribution_probe.yml`):
+    //   dividend = {"dividendYieldTtm": 21.74, "dividendPerShareTtm": 2805,
+    //               "dividendCountThisYear": 10, "dividendMonthThisYear": "1,2,3,4,5,6,7,8,9,10"}
+    // 네이버 TTM 창은 **가장 최근 12건**이다 — 10/29분이 들어오면서 2025-10-30(258원)이
+    // 밀려났다(2,905 - 258 + 158 = 2,805). 그래서 위 2,905 검산과 숫자가 다른 게 정상이다.
+    // 이 합계가 맞는다는 건 **새로 적은 158원이 맞는다는 뜻**이기도 하다 — 한 건이라도
+    // 틀리면 네이버 값과 어긋난다.
+    const recent12 = DISTRIBUTIONS.slice(-12)
+    expect(recent12[0].exDate).toBe('2025-11-27')
+    expect(recent12.reduce((sum, d) => sum + d.amount, 0)).toBe(2805)
+  })
+
+  it('올해 분배는 10회이고 1~10월 매달이다 (네이버 dividendCountThisYear=10)', () => {
+    const thisYear = DISTRIBUTIONS.filter((d) => d.exDate.startsWith('2026-'))
+    expect(thisYear.map((d) => Number(d.exDate.slice(5, 7)))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
   })
 })
 
