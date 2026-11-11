@@ -35,7 +35,12 @@ export interface ScreenedStockRow {
   rsi: number
   /** 전 조건 통과 여부 — false면 미달 조건이 가장 적은 근접 후보(참고용) */
   passed: boolean
-  /** 미달 조건 라벨 목록 (예: '거래량 미감소', '시장 하락장') */
+  /**
+   * 미달 조건 라벨 목록 (예: '눌림 구간 하단 이탈', '시장 하락장').
+   * 라벨은 `pipeline/src/screener.py`의 CRITERION_* 상수에서 그대로 온다.
+   * **옛 행에는 없어진 라벨이 남아 있다** — '거래량 미감소'와 '눌림 구간 밖'은
+   * 2026-11-11에 조건이 바뀌면서 사라졌지만 그 전에 저장된 행은 그대로다.
+   */
   failed_criteria: string[]
 }
 

@@ -5,9 +5,9 @@ from pipeline.src.screener import (
     CRITERION_BOUNCE,
     CRITERION_IMPULSE,
     CRITERION_PULLBACK_DEPTH,
+    CRITERION_PULLBACK_ZONE,
     CRITERION_RSI_RISING,
     CRITERION_VOLATILITY,
-    CRITERION_VOLUME,
     evaluate_pullback,
     passes_pullback_filter,
 )
@@ -103,15 +103,6 @@ def test_fails_when_no_pullback_rsi_too_high():
     assert passes_pullback_filter(close, volume, high, low, open_) is False
 
 
-def test_fails_when_volume_increasing_during_pullback():
-    # same shape as the "passes" test so only volume blocks it
-    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
-        drop_pct=0.10,
-        volume_pullback=[1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000],
-    )
-    assert passes_pullback_filter(close, volume, high, low, open_) is False
-
-
 def test_fails_when_recovery_under_half():
     # 조정폭의 30%만 회복 — 50% 룰 미달
     close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
@@ -177,16 +168,60 @@ def test_evaluate_full_pass_has_no_failures():
     assert ev.impulse_gain >= 0.15
 
 
-def test_evaluate_labels_volume_failure_only():
-    # "passes" 케이스와 같은 가격 모양, 거래량만 증가 → 거래량 조건 하나만 미달
+def test_rising_volume_during_pullback_no_longer_fails():
+    """**2026-11-11에 없앤 조건** — 조정 중 거래량이 늘어도 미달로 세지 않는다.
+
+    예전에는 이 입력이 "거래량 미감소" 하나만 미달이었다. 백테스트에서 그 조건이
+    성과와 **반대 방향**이었다(충족 7,578건 -0.008R · 미달 9,992건 +0.044R, 구간을
+    반으로 갈라도 탐색 -0.017R / 검증 -0.050R로 부호 동일). 조건을 되살리면 이
+    테스트가 깨지므로, 되살리려면 근거를 새로 들고 와야 한다.
+    """
     close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
         drop_pct=0.10,
         volume_pullback=[1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000],
     )
     ev = evaluate_pullback(close, volume, high, low, open_)
     assert ev is not None
-    assert ev.passed is False
-    assert ev.failed == [CRITERION_VOLUME]
+    assert ev.failed == []
+    assert ev.passed is True
+
+
+# ── 눌림 구간: 하한만 본다 (2026-11-11) ──────────────────────────────────
+#
+# 원래 조건은 `sma20*0.95 <= 종가 <= sma10`이라는 좁은 띠였다. 백테스트에서 띠를
+# **위로** 벗어난 쪽(10,113건 +0.056R, 종목 A/B조 각각 +0.067·+0.046)이 띠 안
+# (6,670건 -0.027R)보다 꾸준히 나아서 상한을 없앴다. 아래로 벗어난 787건은 A조
+# -0.070 / B조 +0.037로 부호가 뒤집혀 판단 근거가 없으므로 하한은 그대로 뒀다.
+
+
+def test_above_sma10_is_no_longer_a_pullback_zone_failure():
+    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
+        drop_pct=0.10, volume_pullback=BOUNCE_VOLUME,
+    )
+    # 마지막 종가를 10일선 위로 올린다 — 예전 상한을 넘기는 자리다.
+    sma10_now = close.iloc[-10:].mean()
+    close = close.copy()
+    close.iloc[-1] = sma10_now * 1.02
+    high = high.copy()
+    high.iloc[-1] = close.iloc[-1]
+    ev = evaluate_pullback(close, volume, high, low, open_)
+    assert ev is not None
+    assert CRITERION_PULLBACK_ZONE not in ev.failed
+
+
+def test_below_lower_bound_still_fails():
+    close, volume, high, low, open_ = _uptrend_with_recovering_pullback(
+        drop_pct=0.10, volume_pullback=BOUNCE_VOLUME,
+    )
+    # 20일선의 95% 아래로 떨어뜨린다 — 하한은 남아 있어야 한다.
+    sma20_now = close.iloc[-20:].mean()
+    close = close.copy()
+    close.iloc[-1] = sma20_now * 0.90
+    low = low.copy()
+    low.iloc[-1] = close.iloc[-1]
+    ev = evaluate_pullback(close, volume, high, low, open_)
+    assert ev is not None
+    assert CRITERION_PULLBACK_ZONE in ev.failed
 
 
 # ── 변동성 과다 (온투이노베이션 2026-08-26 사례로 발견) ──────────────────

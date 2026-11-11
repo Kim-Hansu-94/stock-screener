@@ -32,8 +32,9 @@ def _passing_history(n_up=195, total_gain=120, drop_pct=0.05) -> pd.DataFrame:
     day5 = day4 * 1.012
     pullback = [day1, day2, day3, day4, day5]
     close = list(base) + pullback
-    # 마지막 날 거래량은 직전 20일 평균보다 높아야 한다(반등 확인 조건). 그 앞
-    # 4일은 우상향 구간(1,000,000) 대비 감소해야 한다(거래량 미감소 조건).
+    # 마지막 날 거래량은 직전 20일 평균보다 높아야 한다(반등 확인 조건). 그 앞 4일이
+    # 낮은 것은 눌림목 모양을 흉내 낸 것일 뿐, 이제 판정에는 쓰이지 않는다
+    # (조정 중 거래량 감소 조건은 2026-11-11에 없앴다).
     volume = [1_000_000.0] * n_up + [600_000, 550_000, 500_000, 480_000, 1_000_000.0]
     index = pd.date_range(end=LAST_BAR_DATE, periods=len(close))
     open_ = list(close)
@@ -182,9 +183,16 @@ def test_run_us_pipeline_screens_only_leading_sector_and_cap_qualified_stocks(mo
 
 
 def _near_miss_history(volume_tail=None) -> pd.DataFrame:
-    # _passing_history와 같은 모양이지만 거래량이 증가 → "거래량 미감소" 하나만 미달
+    """_passing_history와 같은 가격 모양이지만 **반등일 거래량이 안 실려** 하나만 미달.
+
+    2026-11-11 이전에는 "거래량 미감소"(조정 중 거래량 증가)로 미달을 만들었는데,
+    백테스트가 그 조건이 성과와 반대 방향이라고 해서 없앴다. 지금은 마지막 날
+    거래량을 직전 20일 평균 아래로 낮춰 '반등 미확인' 하나만 걸리게 한다 —
+    근접 후보(미달 1개)로 랭킹에 채워지는지를 보는 것이 이 픽스처의 목적이라
+    어느 조건으로 미달이든 상관없지만, 미달이 **정확히 하나**여야 한다.
+    """
     df = _passing_history()
-    df["Volume"] = [1_000_000.0] * 195 + [1_200_000, 1_250_000, 1_300_000, 1_350_000, 1_400_000]
+    df["Volume"] = [1_000_000.0] * 199 + [300_000.0]
     return df
 
 
@@ -198,7 +206,7 @@ def test_run_kr_pipeline_fills_top5_with_labeled_near_misses(monkeypatch, kr_uni
     def fake_history(ticker, today, lookback_days):
         if lookback_days != pl.FULL_HISTORY_LOOKBACK_DAYS:
             return _flat_history()
-        # AAA는 전 조건 통과, CCC는 거래량 조건 하나만 미달인 근접 종목
+        # AAA는 전 조건 통과, CCC는 반등 확인 하나만 미달인 근접 종목
         return _passing_history() if ticker == "AAA" else _near_miss_history()
 
     monkeypatch.setattr(pl.prices_kr, "get_kr_stock_history", fake_history)
@@ -211,7 +219,7 @@ def test_run_kr_pipeline_fills_top5_with_labeled_near_misses(monkeypatch, kr_uni
     assert result.screened_stocks[0].passed is True
     assert result.screened_stocks[0].failed_criteria == []
     assert result.screened_stocks[1].passed is False
-    assert result.screened_stocks[1].failed_criteria == ["거래량 미감소"]
+    assert result.screened_stocks[1].failed_criteria == ["반등 미확인"]
     # 근접 종목 차트를 위해 히스토리도 저장 대상에 포함
     assert "CCC" in result.price_history
 

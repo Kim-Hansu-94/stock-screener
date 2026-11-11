@@ -61,9 +61,13 @@ from pipeline.src.screener import (  # noqa: E402
     CRITERION_PULLBACK_ZONE,
     MID_TERM_WINDOW,
     PULLBACK_LOWER_TOLERANCE,
-    PULLBACK_UPPER_WINDOW,
     evaluate_pullback,
 )
+
+# **옛 상한선**. 2026-11-11에 screener.py에서 없앤 값이라 거기서 가져올 수 없다.
+# 여기 남겨 두는 이유는 "상한을 없앤 게 맞았나"를 나중에 다시 재려면 옛 경계가
+# 필요하기 때문이다 — 지금은 `z`가 'above'여도 미달이 아니므로 순수 관측용이다.
+OLD_PULLBACK_UPPER_WINDOW = 10
 
 load_dotenv()
 
@@ -186,12 +190,17 @@ def main() -> None:
                     continue
 
                 # 눌림 구간을 벗어난 방향 — 판정은 건드리지 않고 같은 식으로 다시 잰다.
+                # 2026-11-11부터 상한이 없어 `ev.failed`에는 하단 이탈만 들어온다.
+                # 그래도 **옛 경계 기준의 방향**을 계속 찍는다 — 상한을 없앤 판단을
+                # 나중에 다시 재려면 "그때 위로 벗어나 있었나"를 알아야 한다.
                 zone: str | None = None
-                if CRITERION_PULLBACK_ZONE in ev.failed:
-                    s10 = float(sma(part["close"], PULLBACK_UPPER_WINDOW).iloc[-1])
-                    s20 = float(sma(part["close"], MID_TERM_WINDOW).iloc[-1])
-                    last = float(part["close"].iloc[-1])
-                    zone = "above" if last > s10 else "below" if last < s20 * (1 - PULLBACK_LOWER_TOLERANCE) else "?"
+                s10 = float(sma(part["close"], OLD_PULLBACK_UPPER_WINDOW).iloc[-1])
+                s20 = float(sma(part["close"], MID_TERM_WINDOW).iloc[-1])
+                last = float(part["close"].iloc[-1])
+                if last > s10:
+                    zone = "above"
+                elif last < s20 * (1 - PULLBACK_LOWER_TOLERANCE):
+                    zone = "below"
                 fh.write(
                     json.dumps(
                         {

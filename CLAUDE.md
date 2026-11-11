@@ -52,7 +52,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 |---|---|
 | `main.py` | 파이프라인 전체 오케스트레이션 (엔트리포인트, `python -m src.main [--kr-only]`) |
 | `pipeline.py` | KR/US 스크리닝 실행 (`run_kr_pipeline` / `run_us_pipeline`), 눌림목 후보 선정 |
-| `screener.py` | 눌림목 조건 평가 (`evaluate_pullback`) — 8개 CRITERION_* 판정 |
+| `screener.py` | 눌림목 조건 평가 (`evaluate_pullback`) — CRITERION_* 판정. **2026-11-11에 백테스트로 두 군데를 고쳤다**(17,570건, 구간·종목 분리 검증). (1) **조정 중 거래량 감소 조건을 없앴다** — 충족 7,578건 −0.008R · 미달 9,992건 +0.044R로 성과와 **반대 방향**이었다. `pattern_discovery.py`가 2026-09-14에 고친 것과 같은 종류의 오류다. 거래량은 반등 확인 조건에서 여전히 보는데, 거기서는 양봉과 함께 보므로 이 문제가 없다. (2) **눌림 구간의 상한(sma10)만 없애고 하한은 남겼다** — 띠를 위로 벗어난 10,113건이 +0.056R(종목 A/B조 +0.067·+0.046)로 띠 안 6,670건(−0.027R)보다 꾸준히 나았고, 아래로 벗어난 787건은 A조 −0.070 / B조 +0.037로 부호가 뒤집혀 판단 근거가 없다. **조건을 통째로 빼면 근거 없는 쪽까지 같이 빼게 되고 눌림목 스크리너가 눌림목을 안 보게 된다** — 거꾸로 박힌 조건을 찾았다고 바로 지우지 말고 **방향별로 갈라 볼 것**. 라벨도 뜻에 맞춰 `눌림 구간 밖` → `눌림 구간 하단 이탈`로 바꿨다(옛 `screened_stocks` 행에는 옛 라벨이 그대로 남아 있다). 결과: 모집단을 화면과 맞춘 성적이 −0.075R → +0.055R, 목표도달률이 본전선 아래(35.4% < 37.0%)에서 위(38.2% > 34.9%)로 넘어갔고, 무엇보다 **전 조건 통과가 2년에 1건 → 588건**이 되어 랭킹이 비로소 좋은 것과 나쁜 것을 갈라낸다. **상수를 건드리기 전에 `docs/backtest-guide.md`의 '눌림목 스크리너 조건 수정' 절을 읽을 것** — R만 보면 손절폭이 좁아진 착시에 속는다는 것, 실전 55건으로는 아무것도 단정할 수 없다는 것(95% 신뢰구간 −0.513R ~ +0.187R)이 수치까지 남아 있다 |
 | `universe_kr.py` / `universe_us.py` | KOSPI / S&P1500+NASDAQ100+Russell3000 유니버스 수집. `universe_us.py`의 NASDAQ100(stockanalysis.com)엔 업종 정보가 없어, S&P500에도 없는 NASDAQ100 전용 소수 종목은 `_backfill_missing_sectors`가 yfinance로 보완(실패해도 그 종목만 '미분류'로 남고 파이프라인은 계속). yfinance의 업종 이름이 GICS 표준과 4개 다른데(Consumer Cyclical/Defensive, Financial Services, Basic Materials) `frontend/lib/sectorMap.ts`의 `broadSector()`는 GICS 이름 기준이라, `_YFINANCE_SECTOR_TO_GICS`로 저장 전에 정규화한다 — 안 하면 그 업종 종목만 '기타'로 조용히 잘못 분류된다 |
 | `prices_kr.py` | FinanceDataReader로 국장 일봉 조회 |
 | `prices_us.py` | yfinance/KIS로 미장 일봉·시총·환율 조회, 파일 캐시 |
@@ -236,6 +236,7 @@ stockanalysis·위키백과가 전부 막힌 상황에서 Russell 3000을 유일
 ## 작업 시 주의할 동기화 지점
 
 - **눌림목 추세 게이트**: `pipeline/src/screener.py`(long_term_up) ↔ `frontend/lib/risk.ts`(trendStatus) — 동일 로직이어야 손익비 표시가 스크리닝 결과와 안 어긋남
+- **눌림목 조건 라벨**: `screener.py`의 `CRITERION_*` 문자열이 그대로 `screened_stocks.failed_criteria`에 저장되고 화면·성적표가 그 문자열로 묶는다. **라벨을 바꾸면 옛 행과 새 행이 다른 이름으로 갈린다** — 2026-11-11에 `눌림 구간 밖` → `눌림 구간 하단 이탈`로 바꿨고(뜻이 바뀌었으므로 바꾸는 게 맞다), `거래량 미감소`는 조건째 없어졌다. 성적 화면의 조건별 집계에서 옛 라벨이 따로 뜨는 것은 버그가 아니다
 - **변동성 상한**: `screener.py`의 `MAX_VOLATILITY_RATIO`(0.10)는 `risk.ts`의
   `MAX_STOP_DISTANCE_PCT`(0.15)에서 역산한 값(`entry-1.5*ATR` 손절이 15% 넘게
   벌어지는 지점이 `ATR/entry=0.10`) — 둘 중 하나를 바꾸면 다른 쪽도 재계산해서 맞출 것
