@@ -3,6 +3,7 @@ import {
   LADDER_DROPS,
   LADDER_WEIGHTS,
   buildAverageDownPlan,
+  defaultScenarios,
   evaluateScenario,
   roundTrigger,
   type PlanInput,
@@ -164,5 +165,28 @@ describe('evaluateScenario', () => {
     const o = evaluateScenario(HYNIX, plan, '', 1_280_000, 1_600_000)
     expect(o.executedSteps).toBe(1)
     expect(o.allInPnl).toBeGreaterThan(o.planPnl)
+  })
+})
+
+describe('defaultScenarios', () => {
+  const plan = buildAverageDownPlan(HYNIX)!
+  // 807,000원은 position_signals_probe가 찍은 **실제 구간 저가**다(2026-03-16~11-11).
+  const scenarios = defaultScenarios(HYNIX, plan, 807_000)
+
+  it('네 개를 돌려주고 전부 손에 있는 값에서 나온다', () => {
+    expect(scenarios).toHaveLength(4)
+    expect(scenarios.map((s) => s.lowPrice)).toEqual([1_088_000, 807_000, 807_000, 1_280_000])
+    expect(scenarios.map((s) => s.endPrice)).toEqual([1_088_000, 1_280_000, 2_032_230, 2_032_230])
+  })
+
+  it('구간 저가가 현재가보다 높으면(=저가 정보가 쓸모없으면) 측정 중간값으로 대신한다', () => {
+    const s = defaultScenarios(HYNIX, plan, 9_999_999)
+    expect(s[1].lowPrice).toBe(1_088_000)
+  })
+
+  it('평단까지만 회복해도 계획 쪽은 플러스다 — 평단을 낮춰 놨으니까', () => {
+    const recovered = scenarios[2]
+    expect(recovered.planPnl).toBeGreaterThan(0)
+    expect(recovered.holdPnl).toBeCloseTo(0, 0)
   })
 })

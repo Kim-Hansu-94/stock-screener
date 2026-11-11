@@ -225,3 +225,36 @@ export function evaluateScenario(
 
 /** 매도비용 비율(화면이 '약'이라고 밝히는 데 쓴다). */
 export const SELL_COST_PCT = DEFAULT_SELL_COST_PCT
+
+/**
+ * 측정된 중간값만큼 더 빠지는 경우의 가격. 시나리오의 기준점이자, 2·3차 사다리가
+ * 감싸고 있는 바로 그 값이다.
+ */
+export const MEDIAN_FURTHER_DROP = 0.15
+
+/**
+ * 화면에 띄울 기본 시나리오 네 개.
+ *
+ * **가격을 지어내지 않는다** — 전부 손에 있는 값에서 나온다: 현재가, 측정된 중간
+ * 하락폭(-15%), 이 종목의 **실제 구간 저가**, 그리고 사용자의 평단. 목표가나
+ * 컨센서스는 넣지 않는다(이 라이브러리는 예측을 다루지 않는다).
+ *
+ * 확률은 붙이지 않는다. 어느 쪽이 얼마나 그럴듯한지 이 코드는 모르고, 숫자를 붙이면
+ * 예측처럼 읽힌다.
+ */
+export function defaultScenarios(
+  input: PlanInput,
+  plan: AverageDownPlan,
+  periodLow: number,
+): ScenarioOutcome[] {
+  const { price, avgCost } = input
+  const medianDown = Math.round(price * (1 - MEDIAN_FURTHER_DROP))
+  const low = periodLow > 0 && periodLow < price ? periodLow : medianDown
+  const out: ScenarioOutcome[] = [
+    evaluateScenario(input, plan, `${Math.round(MEDIAN_FURTHER_DROP * 100)}% 더 빠진 채로 끝`, medianDown, medianDown),
+    evaluateScenario(input, plan, '구간 저가까지 갔다가 지금 가격 회복', low, price),
+    evaluateScenario(input, plan, '구간 저가까지 갔다가 내 평단 회복', low, avgCost),
+    evaluateScenario(input, plan, '안 빠지고 바로 평단 회복', price, avgCost),
+  ]
+  return out
+}

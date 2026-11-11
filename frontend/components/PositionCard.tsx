@@ -13,6 +13,7 @@ import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
 import { AverageCostCalculator } from '@/components/AverageCostCalculator'
+import { AverageDownPlanPanel } from '@/components/AverageDownPlanPanel'
 import { LazyStockChart } from '@/components/LazyStockChart'
 import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 import { KrExtrasBadges } from '@/components/KrExtrasBadges'
@@ -233,6 +234,18 @@ export function PositionCard({
                       savedAvgCost={entry.avg_cost}
                     />
                   </div>
+                )}
+                {latest && (
+                  <AverageDownPlanPanel
+                    market={entry.market}
+                    ticker={entry.ticker}
+                    avgCost={entry.avg_cost}
+                    currentPrice={latest.close}
+                    /* 시나리오의 '구간 저가'는 지어낸 값이 아니라 **이 종목이 실제로
+                       찍었던 저가**다. 판정에 쓰는 것과 같은 일봉에서 낸다. */
+                    periodLow={bars.reduce((lo, b) => (b.low < lo ? b.low : lo), Number.POSITIVE_INFINITY)}
+                    className="mt-3 border-t border-border pt-3"
+                  />
                 )}
                 <MarketExtrasPanel
                   market={entry.market}
