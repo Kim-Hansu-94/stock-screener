@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  LADDER_DROPS,
+  DEFAULT_LADDER_STYLE,
+  LADDERS,
   MEDIAN_FURTHER_DROP,
   buildAverageDownPlan,
   defaultScenarios,
+  type LadderStyle,
 } from '@/lib/averageDownPlan'
 import type { Market } from '@/lib/types'
 
@@ -62,14 +64,33 @@ export function AverageDownPlanPanel({
 
   const budget = Number(budgetText.replace(/[^0-9]/g, '')) || 0
 
+  // 사다리 모양도 기기에만 둔다 — 시장을 어떻게 보는지는 개인 판단이고 서버가 알 이유가 없다.
+  const styleKey = `avgdownstyle:${market}:${ticker}`
+  const [style, setStyle] = useState<LadderStyle>(() => {
+    if (typeof window === 'undefined') return DEFAULT_LADDER_STYLE
+    try {
+      const v = window.localStorage.getItem(styleKey)
+      return v === 'dip' || v === 'rebound' ? v : DEFAULT_LADDER_STYLE
+    } catch {
+      return DEFAULT_LADDER_STYLE
+    }
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(styleKey, style)
+    } catch {
+      /* 저장 실패는 계산을 막지 않는다 */
+    }
+  }, [styleKey, style])
+
   const plan = useMemo(
     () =>
       avgCost != null && avgCost > 0
-        ? buildAverageDownPlan({ avgCost, shares: 1, price: currentPrice, budget, market })
+        ? buildAverageDownPlan({ avgCost, shares: 1, price: currentPrice, budget, market, style })
         : null,
     // shares는 사다리 가격·수량에 영향을 주지 않는다(평단 계산에만 쓰인다).
     // 실제 보유 수량은 아래에서 다시 넣는다.
-    [avgCost, currentPrice, budget, market],
+    [avgCost, currentPrice, budget, market, style],
   )
 
   const won = (v: number) => `${Math.round(v).toLocaleString('ko-KR')}원`
@@ -104,6 +125,30 @@ export function AverageDownPlanPanel({
         {budget > 0 && <span className="font-mono text-muted-foreground">{won(budget)}</span>}
       </label>
 
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-muted-foreground">사다리 모양</span>
+        {(
+          [
+            ['rebound', '반등에 싣기', '바닥권으로 보고 예산의 절반 이상을 현재가 위에 둔다'],
+            ['dip', '더 빠질 때 싣기', '측정 기반 기본값 — 아래로 갈수록 크게 산다'],
+          ] as [LadderStyle, string, string][]
+        ).map(([v, label, why]) => (
+          <button
+            key={v}
+            type="button"
+            title={why}
+            onClick={() => setStyle(v)}
+            className={`rounded-md border px-2.5 py-1 font-medium ${
+              style === v
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-input text-secondary-foreground hover:border-ring'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {!plan ? (
         <p className="mt-2 text-xs text-muted-foreground">
           {budget > 0
@@ -112,12 +157,14 @@ export function AverageDownPlanPanel({
         </p>
       ) : (
         <PlanBody
+          key={style}
           plan={plan}
           avgCost={avgCost}
           currentPrice={currentPrice}
           periodLow={periodLow}
           budget={budget}
           market={market}
+          style={style}
           won={won}
           pct={pct}
         />
@@ -133,6 +180,7 @@ function PlanBody({
   periodLow,
   budget,
   market,
+  style,
   won,
   pct,
 }: {
@@ -142,6 +190,7 @@ function PlanBody({
   periodLow: number
   budget: number
   market: Market
+  style: LadderStyle
   won: (v: number) => string
   pct: (v: number) => string
 }) {
@@ -152,16 +201,20 @@ function PlanBody({
 
   const scenarios = useMemo(() => {
     if (shares <= 0) return null
-    const input = { avgCost, shares, price: currentPrice, budget, market }
+    const input = { avgCost, shares, price: currentPrice, budget, market, style }
     const p = buildAverageDownPlan(input)
     return p ? defaultScenarios(input, p, periodLow) : null
-  }, [avgCost, shares, currentPrice, budget, market, periodLow])
+  }, [avgCost, shares, currentPrice, budget, market, periodLow, style])
 
   return (
     <>
       <ol className="mt-2 space-y-1.5">
         {plan.tranches.map((t) => {
-          const reached = currentPrice <= t.triggerPrice
+          // 아래쪽 차수는 '그 가격까지 내려오면', 위쪽 차수는 '그 가격까지 올라오면' 산다.
+          const reached =
+            t.direction === 'rebound' ? currentPrice >= t.triggerPrice : currentPrice <= t.triggerPrice
+          const when =
+            t.direction === 'now' ? '지금 바로' : t.direction === 'dip' ? '이하로 내려오면' : '이상으로 올라오면'
           return (
             <li
               key={t.step}
@@ -171,11 +224,13 @@ function PlanBody({
             >
               <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                 <span className="font-semibold">
-                  {t.step}차 · {won(t.triggerPrice)} 이하
-                  {reached && <span className="ml-1 text-primary">← 지금 집행 구간</span>}
+                  {t.step}차 · {won(t.triggerPrice)} {when}
+                  {reached && <span className="ml-1 text-primary">← 지금 조건 충족</span>}
                 </span>
                 <span className="font-mono text-muted-foreground">
-                  {t.dropPct === 0 ? '지금' : `-${Math.round(t.dropPct * 100)}%`}
+                  {t.offsetPct === 0
+                    ? '지금'
+                    : `${t.offsetPct > 0 ? '+' : ''}${Math.round(t.offsetPct * 100)}%`}
                 </span>
               </div>
               <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-secondary-foreground">
@@ -196,15 +251,34 @@ function PlanBody({
       </p>
 
       <p className="mt-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-secondary-foreground">
-        차수 가격은 현재가에서 {LADDER_DROPS.slice(1).map((d) => `-${Math.round(d * 100)}%`).join(' · ')}를
-        기계적으로 계산한 값입니다. 근거는 실측 한 가지뿐입니다 —{' '}
-        <span className="font-semibold">
-          이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값{' '}
-          {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠집니다
-        </span>
-        (104,119건). 예측이 아니라 각오해야 할 기본값이라, 지금 다 쓰지 않고 아래로 갈수록 크게
-        삽니다. 지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기 상황에서는 그 개수와
-        성과 사이에 관계가 없다는 것이 측정됐습니다.
+        차수 가격은 현재가에서{' '}
+        {LADDERS[plan.style]
+          .filter((d) => d.offset !== 0)
+          .map((d) => `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`)
+          .join(' · ')}
+        를 기계적으로 계산한 값입니다.{' '}
+        {plan.style === 'dip' ? (
+          <>
+            근거는 실측 한 가지뿐입니다 —{' '}
+            <span className="font-semibold">
+              이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값{' '}
+              {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠집니다
+            </span>
+            (104,119건). 예측이 아니라 각오해야 할 기본값이라, 지금 다 쓰지 않고 아래로 갈수록 크게
+            삽니다.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold">이 모양은 측정이 아니라 당신의 시장 판단에서 나왔습니다</span>
+            — &ldquo;지금이 바닥권이고 저점을 다지는 중&rdquo;이라고 보고 예산의 절반 이상을 현재가
+            위에 두는 구성입니다. 반대쪽 숫자도 알려 드립니다: 이미 15% 이상 빠진 종목을 추가
+            매수하면 60거래일 안에 중간값 {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠졌고
+            (104,119건), &lsquo;반등 확인 후 매수&rsquo; 트리거 7개는 모두 기준선을 넘지 못했습니다.
+            그래서 아래쪽 한 칸은 보험으로 남겨 뒀습니다.
+          </>
+        )}{' '}
+        지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기 상황에서는 그 개수와 성과 사이에
+        관계가 없다는 것이 측정됐습니다.
       </p>
 
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -225,7 +299,8 @@ function PlanBody({
               <div key={s.label} className="rounded-md border border-border px-2.5 py-1.5 text-xs">
                 <div className="font-semibold">{s.label}</div>
                 <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                  최저 {won(s.lowPrice)} → 끝 {won(s.endPrice)} · {s.executedSteps}차까지 집행
+                  최저 {won(s.lowPrice)} · 최고 {won(s.highPrice)} → 끝 {won(s.endPrice)} ·{' '}
+                  {s.executedSteps}개 차수 집행
                 </div>
                 <dl className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 font-mono text-[11px] sm:grid-cols-2">
                   <div className="flex justify-between gap-2">

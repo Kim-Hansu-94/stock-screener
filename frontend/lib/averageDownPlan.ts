@@ -45,10 +45,62 @@
 import { computeAverageCost, DEFAULT_SELL_COST_PCT, type BuyLot } from './averageCost'
 import type { Market } from './types'
 
-/** 차수별 "현재가 대비 하락률". 0 = 지금 바로. */
-export const LADDER_DROPS = [0, 0.11, 0.22, 0.34] as const
-/** 차수별 예산 비중. 합이 1이다. */
-export const LADDER_WEIGHTS = [0.18, 0.2, 0.25, 0.37] as const
+/**
+ * 사다리 한 칸. `offset`은 **현재가 대비 비율**이고 부호가 방향을 정한다.
+ *   0보다 작으면 "그 가격까지 **떨어지면** 산다"(dip)
+ *   0보다 크면   "그 가격까지 **올라오면** 산다"(rebound)
+ *   0이면        지금 바로
+ */
+export interface LadderStep {
+  offset: number
+  weight: number
+}
+
+export type LadderStyle = 'dip' | 'rebound'
+
+/**
+ * 두 가지 사다리를 **둘 다 코드에 둔다.** 어느 쪽이 맞는지는 데이터가 못 정해 주고
+ * (아래 참조), 그렇다고 한쪽을 지우면 왜 그 모양인지 근거가 사라진다.
+ *
+ * ## `dip` — 측정이 뒷받침하는 기본값
+ * "더 빠진다"를 전제로 아래로 갈수록 크게 산다. 근거는 `backtestTurnSignals.ts`의
+ * 104,119건: **이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값 -15%까지
+ * 더 빠진다.** 2·3차가 그 중간값을 양옆에서 감싼다.
+ *
+ * ## `rebound` — 사용자가 고른 모양 (2026-11-11)
+ * "지금이 바닥권이고 저점을 다지는 중이라, 반등에 크게 싣고 싶다"는 판단을 그대로
+ * 옮긴 것이다. 1차를 키우고(25%), 아래쪽은 한 칸만 남기고(20%), **나머지 55%를
+ * 현재가 위에** 둔다 — 반등이 확인되면 그때 크게 사는 모양이다.
+ *
+ * **이 모양은 측정이 뒷받침하지 않는다는 것을 분명히 해 둔다.** 같은 날 잰 두 가지가
+ * 반대를 가리킨다: (1) 위의 -15% 기본값은 "지금이 바닥"이라는 전제와 어긋나고,
+ * (2) `backtestTurnSignals.ts`가 "하락이 멈추고 상승 전환"을 잡는 트리거 후보 7개를
+ * 재서 **전부 기준선을 못 넘었다**(20거래일에서 7개 중 5개가 기준선보다 나빴고,
+ * 60일 1·2등이 20일 꼴찌권이었다). 즉 **반등 확인 매수에 측정된 우위가 없다.**
+ * 그래도 이 모양을 넣는 이유는, 돈을 넣는 사람이 시장을 어떻게 보는지가 데이터로
+ * 정해지지 않는 선택이고 **사용자가 그 선택을 했기 때문**이다. 바꿀 때도 같은
+ * 원칙으로 — 성적을 맞추려고 숫자를 돌리지 말 것.
+ *
+ * 두 모양의 성격 차이는 시나리오 표에 그대로 드러난다: `rebound`는 평단을 덜 낮추는
+ * 대신 반등이 진짜일 때 주식 수가 많고, `dip`은 그 반대다. **어느 쪽이 "좋다"가
+ * 아니라 어느 쪽에 걸겠느냐의 문제다.**
+ */
+export const LADDERS: Record<LadderStyle, readonly LadderStep[]> = {
+  dip: [
+    { offset: 0, weight: 0.18 },
+    { offset: -0.11, weight: 0.2 },
+    { offset: -0.22, weight: 0.25 },
+    { offset: -0.34, weight: 0.37 },
+  ],
+  rebound: [
+    { offset: 0, weight: 0.25 },
+    { offset: -0.12, weight: 0.2 },
+    { offset: 0.08, weight: 0.22 },
+    { offset: 0.23, weight: 0.33 },
+  ],
+} as const
+
+export const DEFAULT_LADDER_STYLE: LadderStyle = 'rebound'
 
 /**
  * 다음 차수가 이 거래일 수 동안 안 걸리면 사람을 부른다(자동 집행이 아니다).
@@ -67,15 +119,21 @@ export interface PlanInput {
   /** 추가로 쓸 수 있는 금액(원). */
   budget: number
   market?: Market
+  /** 사다리 모양. 생략하면 `DEFAULT_LADDER_STYLE`. */
+  style?: LadderStyle
 }
 
 export interface Tranche {
   /** 1부터. */
   step: number
-  /** 이 가격 **이하**가 되면 집행한다. 1차는 현재가(즉시). */
+  /**
+   * 집행 가격. `direction`이 'dip'이면 이 가격 **이하**로 내려올 때,
+   * 'rebound'면 이 가격 **이상**으로 올라올 때 산다. 1차는 현재가(즉시).
+   */
   triggerPrice: number
-  /** 현재가 대비 하락률(0~1). */
-  dropPct: number
+  direction: 'now' | 'dip' | 'rebound'
+  /** 현재가 대비 비율. 음수면 아래, 양수면 위. */
+  offsetPct: number
   qty: number
   cost: number
   /** 이 차수까지 집행했을 때의 평단가. */
@@ -87,12 +145,14 @@ export interface Tranche {
 }
 
 export interface AverageDownPlan {
+  /** 어떤 사다리로 만든 계획인지 — 화면이 밝혀 적어야 한다. */
+  style: LadderStyle
   tranches: Tranche[]
   /** 계획대로 다 사도 남는 돈(1주 값보다 적어 못 쓰는 잔액). */
   unusedBudget: number
   /** 더 사지 않는 가격 — 지금 평단. 이 위에서 사면 평단이 올라간다. */
   stopBuyingAbove: number
-  /** 4차까지 다 집행한 뒤의 총 수량·평단. */
+  /** 모든 차수를 집행한 뒤의 총 수량·평단(한 가지 경로 기준 — 위 주석 참조). */
   finalQty: number
   finalAvgCost: number
 }
@@ -114,17 +174,34 @@ export function roundTrigger(price: number): number {
 export function buildAverageDownPlan(input: PlanInput): AverageDownPlan | null {
   const { avgCost, shares, price, budget } = input
   const market = input.market ?? 'KR'
+  const style = input.style ?? DEFAULT_LADDER_STYLE
   if (!(avgCost > 0) || !(shares > 0) || !(price > 0) || !(budget > 0)) return null
 
   const lots: BuyLot[] = [{ price: avgCost, qty: shares }]
   const tranches: Tranche[] = []
   let spent = 0
 
-  for (let i = 0; i < LADDER_DROPS.length; i += 1) {
-    const drop = LADDER_DROPS[i]
-    const trigger = i === 0 ? roundTrigger(price) : roundTrigger(price * (1 - drop))
-    const slice = budget * LADDER_WEIGHTS[i]
+  // **집행된 순서가 아니라 사다리에 적힌 순서대로** 쌓는다. 양방향 사다리에서는
+  // 아래 차수와 위 차수 중 뭐가 먼저 걸릴지 알 수 없으므로, `avgCostAfter`는
+  // "1차부터 이 차수까지 전부 샀다면"이라는 **한 가지 경로**의 값이다.
+  // 실제 경로별 손익은 `evaluateScenario`가 따로 낸다.
+  // 차수마다 주 수를 **내림**하면 끝에 쓸 수 없는 잔액이 남는다. 그 잔액을 그대로
+  // 버리면 반등 사다리(비싼 가격에 사는 칸이 많다)에서 예산의 10%가 놀았다
+  // (실측: 30,000,000원 중 3,060,000원). 그래서 **다음 차수로 넘긴다** — 비중은
+  // 그대로 두고 자투리만 흘려보내는 것이라 설계 의도가 바뀌지 않는다.
+  let carry = 0
+  for (const [i, stepDef] of LADDERS[style].entries()) {
+    const { offset, weight } = stepDef
+    const trigger = roundTrigger(price * (1 + offset))
+    if (!(trigger > 0)) continue
+    // **평단 위에서는 사지 않는다.** 위쪽 차수는 반등을 쫓아 올라가므로 평단을 넘길
+    // 수 있는데, 그 가격에 사면 평단이 **올라간다** — 이 계산기의 목적과 정반대다.
+    // 건너뛴 몫은 `unusedBudget`으로 그대로 드러낸다(조용히 다른 차수로 밀어 넣으면
+    // 사용자가 정한 비중이 아닌 계획이 된다).
+    if (offset > 0 && trigger >= avgCost) continue
+    const slice = budget * weight + carry
     const qty = Math.floor(slice / trigger)
+    carry = slice - qty * trigger
     if (qty <= 0) continue
     const cost = qty * trigger
     spent += cost
@@ -136,7 +213,8 @@ export function buildAverageDownPlan(input: PlanInput): AverageDownPlan | null {
     tranches.push({
       step: i + 1,
       triggerPrice: trigger,
-      dropPct: drop,
+      direction: offset === 0 ? 'now' : offset < 0 ? 'dip' : 'rebound',
+      offsetPct: offset,
       qty,
       cost,
       avgCostAfter: agg.avgCost,
@@ -148,6 +226,7 @@ export function buildAverageDownPlan(input: PlanInput): AverageDownPlan | null {
   if (tranches.length === 0) return null
   const last = tranches[tranches.length - 1]
   return {
+    style,
     tranches,
     unusedBudget: budget - spent,
     stopBuyingAbove: avgCost,
@@ -158,8 +237,10 @@ export function buildAverageDownPlan(input: PlanInput): AverageDownPlan | null {
 
 export interface ScenarioOutcome {
   label: string
-  /** 1년 사이 **최저가** — 어느 차수까지 걸렸는지를 정한다. */
+  /** 1년 사이 **최저가** — 아래쪽(dip) 차수가 걸렸는지를 정한다. */
   lowPrice: number
+  /** 1년 사이 **최고가** — 위쪽(rebound) 차수가 걸렸는지를 정한다. */
+  highPrice: number
   /** 1년 뒤 **가격** — 손익을 정한다. */
   endPrice: number
   executedSteps: number
@@ -178,21 +259,29 @@ export interface ScenarioOutcome {
 }
 
 /**
- * "1년 뒤 이 가격이면 얼마"를 계산한다. **확률은 붙이지 않는다** — 어느 시나리오가
+ * "1년 동안 이렇게 움직이면 얼마"를 계산한다. **확률은 붙이지 않는다** — 어느 시나리오가
  * 얼마나 그럴듯한지는 이 코드가 알 수 없고, 숫자를 붙이면 예측처럼 읽힌다.
  *
- * 최저가와 1년 뒤 가격을 **따로** 받는 이유: 차수가 걸리는 건 지나간 최저가로 정해지고
- * 손익은 끝 가격으로 정해진다. 하나로 뭉치면 "바닥을 찍고 회복한 경우"를 표현할 수 없다.
+ * 최저가·최고가·끝 가격을 **따로** 받는다. 아래쪽 차수는 지나간 **최저가**로,
+ * 위쪽 차수는 지나간 **최고가**로 걸리는지가 정해지고, 손익은 **끝 가격**으로 정해진다.
+ * 하나로 뭉치면 "바닥을 찍고 회복한 경우"도 "반등했다가 되밀린 경우"도 표현할 수 없다.
+ *
+ * **순서는 모른다는 것을 알고 쓴다** — 같은 1년이라도 "먼저 빠졌다 오른" 경우와
+ * "먼저 올랐다 빠진" 경우에 실제 집행 결과가 다를 수 있다. 여기서는 걸린 차수를
+ * 전부 집행한 것으로 보므로, 양방향 사다리에서는 **가장 많이 산 경우**에 해당한다.
  */
 export function evaluateScenario(
   input: PlanInput,
   plan: AverageDownPlan,
   label: string,
   lowPrice: number,
+  highPrice: number,
   endPrice: number,
 ): ScenarioOutcome {
   const { avgCost, shares, price, budget } = input
-  const executed = plan.tranches.filter((t) => lowPrice <= t.triggerPrice)
+  const executed = plan.tranches.filter((t) =>
+    t.direction === 'rebound' ? highPrice >= t.triggerPrice : lowPrice <= t.triggerPrice,
+  )
   const addQty = executed.reduce((a, t) => a + t.qty, 0)
   const addCost = executed.reduce((a, t) => a + t.cost, 0)
 
@@ -209,6 +298,7 @@ export function evaluateScenario(
   return {
     label,
     lowPrice,
+    highPrice,
     endPrice,
     executedSteps: executed.length,
     planInvested,
@@ -233,14 +323,17 @@ export const SELL_COST_PCT = DEFAULT_SELL_COST_PCT
 export const MEDIAN_FURTHER_DROP = 0.15
 
 /**
- * 화면에 띄울 기본 시나리오 네 개.
+ * 화면에 띄울 기본 시나리오 다섯 개.
  *
  * **가격을 지어내지 않는다** — 전부 손에 있는 값에서 나온다: 현재가, 측정된 중간
- * 하락폭(-15%), 이 종목의 **실제 구간 저가**, 그리고 사용자의 평단. 목표가나
- * 컨센서스는 넣지 않는다(이 라이브러리는 예측을 다루지 않는다).
+ * 하락폭(-15%), 이 종목의 **실제 구간 저가**, 사용자의 평단, 그리고 **사다리 자신의
+ * 마지막 위쪽 차수**(반등 시나리오의 기준점). 목표가나 컨센서스는 넣지 않는다
+ * (이 라이브러리는 예측을 다루지 않는다).
  *
  * 확률은 붙이지 않는다. 어느 쪽이 얼마나 그럴듯한지 이 코드는 모르고, 숫자를 붙이면
- * 예측처럼 읽힌다.
+ * 예측처럼 읽힌다. 다섯 개를 고른 기준은 **서로 다른 결론을 내는 경우**를 덮는 것이다:
+ * 더 빠지는 경우 / 바닥을 재확인하는 경우 / 회복하는 경우 / 안 빠지고 오르는 경우 /
+ * 반등만 하고 평단까지는 못 가는 경우.
  */
 export function defaultScenarios(
   input: PlanInput,
@@ -250,11 +343,19 @@ export function defaultScenarios(
   const { price, avgCost } = input
   const medianDown = Math.round(price * (1 - MEDIAN_FURTHER_DROP))
   const low = periodLow > 0 && periodLow < price ? periodLow : medianDown
-  const out: ScenarioOutcome[] = [
-    evaluateScenario(input, plan, `여기서 ${Math.round(MEDIAN_FURTHER_DROP * 100)}% 더 빠진 채로 끝`, medianDown, medianDown),
-    evaluateScenario(input, plan, '구간 저가까지 갔다가 지금 가격 회복', low, price),
-    evaluateScenario(input, plan, '구간 저가까지 갔다가 내 평단 회복', low, avgCost),
-    evaluateScenario(input, plan, '안 빠지고 바로 평단 회복', price, avgCost),
+  // 사다리의 가장 높은 위쪽 차수 — 없으면(dip 사다리) 현재가.
+  const topTrigger = plan.tranches.reduce(
+    (hi, t) => (t.direction === 'rebound' && t.triggerPrice > hi ? t.triggerPrice : hi),
+    price,
+  )
+  const S = (label: string, lo: number, hi: number, end: number) =>
+    evaluateScenario(input, plan, label, lo, hi, end)
+  return [
+    S(`여기서 ${Math.round(MEDIAN_FURTHER_DROP * 100)}% 더 빠진 채로 끝`, medianDown, price, medianDown),
+    S('구간 저가까지 갔다가 지금 가격 회복', low, price, price),
+    S('구간 저가까지 갔다가 내 평단 회복', low, avgCost, avgCost),
+    S('안 빠지고 바로 평단 회복', price, avgCost, avgCost),
+    // 반등 사다리가 노리는 바로 그 경우 — 마지막 위쪽 차수까지 올라와서 거기서 멈춤.
+    S('안 빠지고 반등해서 마지막 차수 가격에서 끝', price, topTrigger, topTrigger),
   ]
-  return out
 }
