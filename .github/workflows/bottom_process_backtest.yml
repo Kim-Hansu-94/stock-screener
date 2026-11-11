@@ -1,0 +1,58 @@
+name: Bottom Process Backtest
+
+# "물타기 상황에 들어선 뒤 실제로 어떤 일이 벌어졌나"를 과정으로 재고,
+# 그 모양에서 나온 '저점 확인 대기' 트리거 격자를 종목 A/B 분리로 검증한다.
+# 읽기만 한다 — DB·사이트에 아무것도 쓰지 않는다.
+#
+# 순서가 핵심이다: 2026-11-11에 트리거 7개를 먼저 만들었다가 전부 기준선을 못 넘었다.
+# 바닥이 어떻게 생겼는지 재 보지도 않고 지표부터 골랐기 때문이다.
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: '시장'
+        required: false
+        type: choice
+        default: 'KR'
+        options: [KR, US]
+      drawdown_gate:
+        description: '하락 국면 판정 (120봉 고점 대비 %)'
+        required: false
+        default: '15'
+      large_cap_n:
+        description: '대형주로 볼 시총 상위 종목 수'
+        required: false
+        default: '50'
+  push:
+    paths:
+      - 'frontend/research/backtestBottomProcess.ts'
+      - '.github/workflows/bottom_process_backtest.yml'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Measure the bottom process
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MARKET: ${{ inputs.market || 'KR' }}
+          DRAWDOWN_GATE: ${{ inputs.drawdown_gate || '15' }}
+          LARGE_CAP_N: ${{ inputs.large_cap_n || '50' }}
+        run: node --import ./research/resolveTsImports.mjs research/backtestBottomProcess.ts
