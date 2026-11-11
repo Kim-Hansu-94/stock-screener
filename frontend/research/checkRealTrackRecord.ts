@@ -90,11 +90,14 @@ function printPatternCard(title: string, card: PatternScorecard) {
     return
   }
   console.log(`  판정 완료 ${card.settled}건 (기간 미달 ${card.pending}건)`)
+  // winRate·bigWinRate·bigLossRate는 **0~1 비율**이다(patternScorecard의 `rate`가
+  // n/done.length를 돌려준다). 처음에 .toFixed(1)에 %를 붙여 승률 36%가 '0.4%'로
+  // 찍혔다 — scorecard 쪽 hitRate는 pct()로 ×100 하는데 여기만 빠뜨린 것이다.
   console.log(
-    `  **중간값 ${num2(card.medianReturnPct)}% · 평균 ${num2(card.avgReturnPct)}%** · 승률 ${card.winRate.toFixed(1)}% (기준선 50%)`,
+    `  **중간값 ${num2(card.medianReturnPct)}% · 평균 ${num2(card.avgReturnPct)}%** · 승률 ${pct(card.winRate)} (기준선 50%)`,
   )
   console.log(
-    `  크게 오름(+30% 이상) ${card.bigWinRate.toFixed(1)}% · 크게 빠짐(-30% 이하) ${card.bigLossRate.toFixed(1)}%`,
+    `  크게 오름(+30% 이상) ${pct(card.bigWinRate)} · 크게 빠짐(-30% 이하) ${pct(card.bigLossRate)}`,
   )
   console.log(
     `  관찰 중 최고 ${num2(card.avgMaxGainPct)}% / 최저 ${num2(card.avgMaxDropPct)}% (버티려면 견뎌야 했던 폭)`,
@@ -109,7 +112,7 @@ function patternRow(label: string, card: PatternScorecard): string {
   return (
     `    ${label.padEnd(12)}${String(card.settled).padStart(4)}건  ` +
     `중간값 ${num2(card.medianReturnPct).padStart(7)}%  평균 ${num2(card.avgReturnPct).padStart(7)}%  ` +
-    `승률 ${card.winRate.toFixed(1).padStart(5)}%  최저 ${num2(card.avgMaxDropPct).padStart(7)}%`
+    `승률 ${pct(card.winRate).padStart(6)}  최저 ${num2(card.avgMaxDropPct).padStart(7)}%`
   )
 }
 
@@ -148,6 +151,23 @@ async function main() {
         `    ${s.label.padEnd(14)} ${String(s.card.resolved).padStart(4)}건  기댓값 ${num(s.card.expectancyR)}R  목표도달 ${pct(s.card.hitRate)}`,
       )
     }
+  }
+
+  // ── 1-b. SK하이닉스(000660)가 이 스크리너에 실제로 뜬 적이 있나 ──────
+  // 사용자가 "눌림목 매수 스크리너에서 SK하이닉스 관련으로 보여주는 정보"를 물었는데,
+  // SK하이닉스는 **스크리너 추천 종목이 아니라 포지션 관리 카드의 보유 종목**이다.
+  // 둘이 같은 페이지에 있어 헷갈리기 쉬우므로, 실제로 추천된 적이 있는지 직접 찍는다.
+  const hynix = kr.filter((t) => t.ticker === '000660')
+  console.log(`\n  [SK하이닉스 000660] 최근 180일 눌림목 추천 ${hynix.length}건`)
+  for (const t of hynix) {
+    console.log(
+      `    ${t.date}  진입 ${Math.round(t.entry).toLocaleString('ko-KR')} · 손절 ${Math.round(t.stop).toLocaleString('ko-KR')} · 목표 ${Math.round(t.target).toLocaleString('ko-KR')}` +
+        ` → ${t.outcome}${t.r !== null ? ` (${num(t.r)}R)` : ''}`,
+    )
+  }
+  if (hynix.length === 0) {
+    console.log('    → 눌림목 스크리너는 SK하이닉스를 이 기간에 추천한 적이 없다.')
+    console.log('      (화면의 SK하이닉스는 포지션 관리 카드의 보유 종목이고, 그쪽은 매수 추천이 아니다)')
   }
 
   // ── 2. 저점 매집 후보 ────────────────────────────────────────────────
