@@ -339,6 +339,25 @@ async function main() {
   const split0 = dates0[Math.floor(dates0.length / 2)]
   const missAll = (p: Pair) => p.failed.length
   const missTrimmed = (p: Pair) => p.failed.filter((f) => !INVERTED.includes(f)).length
+  /**
+   * **가장 좁은 수정안** — 2026-11-11 실측이 가리키는 바로 그 자리만 고친다.
+   *
+   * 눌림 구간 조건이 거꾸로였던 것은 **위쪽 경계 하나 때문이었다**: sma10 위로 벗어난
+   * 10,113건이 +0.056R(종목 A/B조 각각 +0.067·+0.046로 양쪽 다 플러스)인데, 구간 안
+   * 6,670건은 -0.027R이다. 아래로 벗어난 787건은 A조 -0.070 / B조 +0.037로 부호가
+   * 뒤집혀 아무 말도 못 한다.
+   *
+   * 그러니 조건을 통째로 없애면 **근거 없는 쪽(아래 경계)까지 같이 없애게 된다.**
+   * 여기서는 `z === 'below'`일 때만 미달로 세어 **상한만 푼다** — 임계값을 돌리는 게
+   * 아니라 경계 하나를 빼는 구조적 변경이고, 측정이 가리킨 자리와 정확히 같다.
+   * 거래량 조건은 방향 구분이 없는 이진 조건이라 그대로 뺀다.
+   */
+  const missUpperFreed = (p: Pair) =>
+    p.failed.filter((f) => {
+      if (f === '거래량 미감소') return false
+      if (f === '눌림 구간 밖') return p.zone === 'below'
+      return true
+    }).length
 
   line('=')
   console.log('모집단을 화면과 맞춘 성적 — 하루 상위 5종목 · 종목당 첫 1건')
@@ -347,6 +366,7 @@ async function main() {
   for (const [label, missOf] of [
     ['지금 랭킹 (8개 조건)', missAll],
     [`거꾸로 2개 뺀 랭킹 (${INVERTED.join('·')})`, missTrimmed],
+    ['거래량만 빼고 눌림구간은 상한만 푼 랭킹', missUpperFreed],
   ] as [string, (p: Pair) => number][]) {
     const top = topPerDay(pairs, missOf, 5)
     const dedup = firstPerTicker(top)
@@ -408,6 +428,7 @@ async function main() {
   for (const [label, missOf] of [
     ['8개 조건 기준', missAll],
     ['거꾸로 2개 뺀 기준', missTrimmed],
+    ['거래량만 빼고 눌림구간 상한만 푼 기준', missUpperFreed],
   ] as [string, (p: Pair) => number][]) {
     console.log(`\n  ${label}`)
     for (let k = 0; k <= MAX_MISS; k += 1) {
