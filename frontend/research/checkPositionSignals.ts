@@ -143,6 +143,59 @@ async function main() {
       const c = con[0] as Record<string, unknown>
       console.log(`  컨센서스(stock_consensus): ${JSON.stringify(c)}`)
     }
+
+    // ── 추가 매수 계획을 세우려면 '지금 숫자'만으로는 모자란다 ──────────
+    // 물타기 금액·가격대를 정하려면 (1) 이 주식이 어디까지 갔던 주식인지,
+    // (2) 실적이 같이 무너진 건지 가격만 빠진 건지를 알아야 한다. 둘 다 DB에 있는데
+    // 화면에는 안 나오므로 여기서 찍는다 — **추정하지 않고 저장값을 그대로 인용한다.**
+    const anchors = rows.map((r) => r.close)
+    if (anchors.length > 0) {
+      const hi = Math.max(...anchors)
+      const lo = Math.min(...anchors)
+      const sma = (n: number) =>
+        anchors.length >= n ? anchors.slice(-n).reduce((a, b) => a + b, 0) / n : null
+      const s60 = sma(60)
+      const s120 = sma(120)
+      console.log(`\n  가격 기준점 (최근 ${anchors.length}봉)`)
+      console.log(`    구간 고가 ${won(hi)}원 · 저가 ${won(lo)}원 · 현재 ${won(latest.close)}원`)
+      console.log(
+        `    60일선 ${s60 ? won(s60) + '원' : '—'} · 120일선 ${s120 ? won(s120) + '원' : '—'}`,
+      )
+    }
+
+    // 10년 월봉 — 이 주식의 역대 고점. 목표가를 상상하기 전에 실제 최고가를 본다.
+    const { data: monthly } = await db
+      .from('stock_long_monthly')
+      .select('month, close, close_high')
+      .eq('market', t.market)
+      .eq('ticker', t.ticker)
+      .order('month', { ascending: false })
+      .limit(130)
+    if (monthly && monthly.length > 0) {
+      const highs = monthly
+        .map((m) => ({ month: m.month as string, v: Number(m.close_high ?? m.close) }))
+        .filter((m) => Number.isFinite(m.v))
+      const peak = highs.reduce((a, b) => (b.v > a.v ? b : a), highs[0])
+      console.log(
+        `    10년 월봉 ${monthly.length}개월 · 역대 고점 ${won(peak.v)}원 (${peak.month})` +
+          ` · 지금은 그 대비 ${(((latest.close - peak.v) / peak.v) * 100).toFixed(1)}%`,
+      )
+    } else {
+      console.log('    10년 월봉(stock_long_monthly): 행 없음')
+    }
+
+    // 실적 — "가격만 빠진 건가, 실적도 같이 꺾인 건가"
+    const { data: fund } = await db
+      .from('stock_fundamentals')
+      .select('*')
+      .eq('market', t.market)
+      .eq('ticker', t.ticker)
+      .limit(1)
+    if (!fund || fund.length === 0) {
+      console.log('    실적(stock_fundamentals): 행 없음')
+    } else {
+      console.log(`    실적(stock_fundamentals): ${JSON.stringify(fund[0])}`)
+    }
   }
 
   line()
