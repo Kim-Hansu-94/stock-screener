@@ -1,0 +1,43 @@
+name: Position Signals Probe
+
+# 포지션 관리 카드가 화면에 띄우고 있는 숫자(지지신호 5개·평단 대비·수급·목표가)를
+# DB 값으로 그대로 재현해 찍는 **진단 전용** 워크플로. 읽기만 한다.
+#
+# 작업 컨테이너에는 Supabase 자격증명이 없어서 거기서는 못 돌린다 — db_probe와 같은 이유.
+# 지지신호는 저장된 값이 아니라 프론트에서 계산하는 값이라, 화면이 쓰는 그 함수를
+# 그대로 import해서 돌린다(파이썬 포팅본을 만들지 않는 이유는 스크립트 docstring에).
+on:
+  workflow_dispatch:
+  # 지지신호 계산이나 진단 코드를 고치면 바로 한 번 돌려 본다(db_probe.yml과 같은 이유).
+  push:
+    paths:
+      - 'frontend/lib/supportSignals.ts'
+      - 'frontend/research/checkPositionSignals.ts'
+      - '.github/workflows/position_signals_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Node 22는 .ts를 타입만 벗겨 그대로 실행한다.
+      - name: Probe position signals
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node --import ./research/resolveTsImports.mjs research/checkPositionSignals.ts
