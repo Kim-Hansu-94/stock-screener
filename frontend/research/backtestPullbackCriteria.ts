@@ -95,6 +95,7 @@ interface Pair {
   openEntry: ResolvedTrade | null
   failed: string[]
   date: string
+  ticker: string
 }
 
 function card(label: string, trades: ResolvedTrade[]): string {
@@ -105,6 +106,59 @@ function card(label: string, trades: ResolvedTrade[]): string {
     `기댓값 ${num(c.expectancyR).padStart(7)}R  ` +
     `목표도달 ${pct(c.hitRate).padStart(6)} (본전선 ${pct(c.breakevenHitRate)})`
   )
+}
+
+/**
+ * 거꾸로 박힌 것으로 **구간 분리 검증까지 일관되게** 나온 조건들.
+ *
+ * 2026-11-11 측정(17,604건, 탐색/검증 둘 다 같은 부호):
+ *   눌림 구간 밖   탐색 -0.032R / 검증 -0.078R   ← 미달 쪽이 더 좋다 = 거꾸로
+ *   거래량 미감소   탐색 -0.017R / 검증 -0.050R   ← 같은 모양
+ *
+ * 후자는 `pattern_discovery.py`가 2026-09-14에 고친 것과 **같은 종류의 오류**다
+ * (거래량 점수가 성과와 반대 방향이었다). 그래서 이 둘을 미달로 세지 않는 랭킹과
+ * 지금 랭킹을 나란히 재 본다 — 상수를 돌리는 게 아니라 **조건 하나를 빼는 것**이고,
+ * 효과는 `passed` 표시와 **하루 5종목 줄 세우기**에 나타난다.
+ */
+const INVERTED = ['눌림 구간 밖', '거래량 미감소']
+
+/**
+ * 하루에 상위 N건만 남긴다 — 파이프라인의 `TOP_CANDIDATES`(5)와 같은 방식.
+ *
+ * **이게 없으면 모집단이 다르다.** 화면에 뜨는 건 그날 평가한 수백 종목 전부가 아니라
+ * "전 조건 통과분 + 미달이 가장 적은 근접 후보"로 채운 5개뿐이다(`pipeline.py`의
+ * `_screen_candidates`). 17,604건을 통째로 재면 실제로 추천된 적 없는 것까지 세게 된다.
+ *
+ * **다른 점 하나를 밝혀 둔다**: 파이프라인은 미달 개수가 같을 때 선행 상승(impulse_gain)
+ * 큰 순으로 가른다. 덤프에 그 값이 없어 여기서는 종목코드 순으로 가르므로, 동순위
+ * 안에서의 선택은 실제와 다를 수 있다. 미달 개수별 줄 세우기 자체는 같다.
+ */
+function topPerDay(pairs: Pair[], missOf: (p: Pair) => number, n: number): Pair[] {
+  const byDate = new Map<string, Pair[]>()
+  for (const p of pairs) {
+    const bucket = byDate.get(p.date)
+    if (bucket) bucket.push(p)
+    else byDate.set(p.date, [p])
+  }
+  const out: Pair[] = []
+  for (const group of byDate.values()) {
+    group.sort((a, b) => missOf(a) - missOf(b) || a.ticker.localeCompare(b.ticker))
+    out.push(...group.slice(0, n))
+  }
+  return out
+}
+
+/**
+ * 종목당 가장 이른 신호 하나만 — `getScorecardTrades`와 같은 중복 제거.
+ * 같은 종목이 눌림목 구간 내내 반복 추천되므로, 이걸 안 하면 한 번의 움직임을
+ * 수십 번 세게 된다(`backtestTurnSignals.ts`의 쿨다운과 같은 이유).
+ */
+function firstPerTicker(pairs: Pair[]): Pair[] {
+  const first = new Map<string, Pair>()
+  for (const p of [...pairs].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (!first.has(p.ticker)) first.set(p.ticker, p)
+  }
+  return [...first.values()]
 }
 
 function expectancy(trades: ResolvedTrade[]): number {
@@ -172,6 +226,7 @@ async function main() {
 
     pairs.push({
       date: s.d,
+      ticker: s.t,
       failed: s.f,
       // (a) 화면 성적표와 같은 기준 — 추천일 종가로 진입했다고 가정
       closeEntry: mk(s.c, future),
@@ -238,9 +293,60 @@ async function main() {
     }
   }
 
+  // ── 모집단을 화면과 맞춘다: 하루 5종목 + 종목당 1건 ──────────────────
+  // 여기까지의 숫자는 **추천된 적 없는 것까지 센 것**이다. 화면에 실제로 뜨는 건
+  // 그날 미달이 가장 적은 상위 5개뿐이고(`TOP_CANDIDATES`), 성적표는 거기서 다시
+  // 종목당 첫 추천 1건만 센다. 그래서 실전 성적(KR 55건)과 모집단이 달랐다.
+  const dates0 = [...new Set(pairs.map((p) => p.date))].sort()
+  const split0 = dates0[Math.floor(dates0.length / 2)]
+  const missAll = (p: Pair) => p.failed.length
+  const missTrimmed = (p: Pair) => p.failed.filter((f) => !INVERTED.includes(f)).length
+
+  line('=')
+  console.log('모집단을 화면과 맞춘 성적 — 하루 상위 5종목 · 종목당 첫 1건')
+  console.log('  (b) 다음날 시가 진입 기준. 실전 성적표와 같은 모집단이어야 숫자를 맞댈 수 있다.')
+  line('=')
+  for (const [label, missOf] of [
+    ['지금 랭킹 (8개 조건)', missAll],
+    [`거꾸로 2개 뺀 랭킹 (${INVERTED.join('·')})`, missTrimmed],
+  ] as [string, (p: Pair) => number][]) {
+    const top = topPerDay(pairs, missOf, 5)
+    const dedup = firstPerTicker(top)
+    const pick = (ps: Pair[]) => ps.map((p) => p.openEntry).filter((t): t is ResolvedTrade => t !== null)
+    console.log(`\n  ${label}`)
+    console.log(card('    하루 5종목 전부', pick(top)))
+    console.log(card('    + 종목당 첫 1건', pick(dedup)))
+    // 구간 분리 — 조건을 뺀 효과가 뒤 구간에서도 남아야 믿을 수 있다.
+    console.log(
+      card('    └ 탐색 구간', pick(dedup.filter((p) => p.date < split0))) +
+        '\n' +
+        card('    └ 검증 구간', pick(dedup.filter((p) => p.date >= split0))),
+    )
+  }
+
+  // 랭킹이 제대로 줄 세우는지 — 실전 성적에서 "미달 적은 쪽이 더 나빴다"가 나온 그 축.
+  line('=')
+  console.log('랭킹 축 점검 — 미달 개수가 적을수록 성적이 좋아야 한다')
+  console.log('  실전 55건에서는 거꾸로였다(미달 1개 -0.661R < 2개 -0.462R < 3개 -0.157R).')
+  console.log('  표본을 키워도 거꾸로면 랭킹 자체가 잘못 줄 세우고 있다는 뜻이다.')
+  line('=')
+  for (const [label, missOf] of [
+    ['8개 조건 기준', missAll],
+    ['거꾸로 2개 뺀 기준', missTrimmed],
+  ] as [string, (p: Pair) => number][]) {
+    console.log(`\n  ${label}`)
+    for (let k = 0; k <= MAX_MISS; k += 1) {
+      const ts = pairs
+        .filter((p) => missOf(p) === k)
+        .map((p) => p.openEntry)
+        .filter((t): t is ResolvedTrade => t !== null)
+      console.log(card(`    미달 ${k}개`, ts))
+    }
+  }
+
   // ── 검증용 구간 분리 ────────────────────────────────────────────────
-  const dates = [...new Set(pairs.map((p) => p.date))].sort()
-  const split = dates[Math.floor(dates.length / 2)]
+  const dates = dates0
+  const split = split0
   line('=')
   console.log(`구간 분리 검증 — 탐색 ${dates[0]}~${split} / 검증 ${split}~${dates[dates.length - 1]}`)
   console.log('  앞 구간에서 거꾸로였던 조건이 뒤 구간에서도 거꾸로여야 믿을 수 있다.')
