@@ -52,11 +52,15 @@ const MARKET = (process.env.MARKET ?? 'KR') as Market
 const MAX_MISS = Number(process.env.MAX_MISS ?? 3)
 const PAGE = 1000
 
-/** 파이썬이 떨어뜨린 한 줄. `f`는 미달 조건 이름 목록(빈 배열 = 전 조건 통과). */
+/**
+ * 파이썬이 떨어뜨린 한 줄. `f`는 미달 조건 이름 목록(빈 배열 = 전 조건 통과),
+ * `g`는 선행 상승률(impulse_gain) — 점수가 아니라 **동순위 가르개**다.
+ */
 interface SignalRow {
   t: string
   d: string
   c: number
+  g?: number
   f: string[]
 }
 
@@ -96,6 +100,8 @@ interface Pair {
   failed: string[]
   date: string
   ticker: string
+  /** 선행 상승률 — 파이프라인이 동순위를 가르는 값. */
+  impulse: number
 }
 
 function card(label: string, trades: ResolvedTrade[]): string {
@@ -129,9 +135,10 @@ const INVERTED = ['눌림 구간 밖', '거래량 미감소']
  * "전 조건 통과분 + 미달이 가장 적은 근접 후보"로 채운 5개뿐이다(`pipeline.py`의
  * `_screen_candidates`). 17,604건을 통째로 재면 실제로 추천된 적 없는 것까지 세게 된다.
  *
- * **다른 점 하나를 밝혀 둔다**: 파이프라인은 미달 개수가 같을 때 선행 상승(impulse_gain)
- * 큰 순으로 가른다. 덤프에 그 값이 없어 여기서는 종목코드 순으로 가르므로, 동순위
- * 안에서의 선택은 실제와 다를 수 있다. 미달 개수별 줄 세우기 자체는 같다.
+ * **동순위 가르개가 결과를 좌우한다** — 17,570건 중 13,222건이 미달 3개라, 하루 5종목은
+ * 대부분 같은 미달 개수 안에서 갈린다. 처음엔 덤프에 impulse_gain이 없어 종목코드 순으로
+ * 갈랐고 -0.107R이 나왔는데, 그건 국장 저번호 종목이 나빴다는 얘기일 뿐 파이프라인의
+ * 선택과는 무관했다. 지금은 `g`(impulse_gain)를 받아 파이프라인과 같은 정렬키를 쓴다.
  */
 function topPerDay(pairs: Pair[], missOf: (p: Pair) => number, n: number): Pair[] {
   const byDate = new Map<string, Pair[]>()
@@ -142,7 +149,9 @@ function topPerDay(pairs: Pair[], missOf: (p: Pair) => number, n: number): Pair[
   }
   const out: Pair[] = []
   for (const group of byDate.values()) {
-    group.sort((a, b) => missOf(a) - missOf(b) || a.ticker.localeCompare(b.ticker))
+    // 미달 적은 순 → 선행 상승 큰 순. 파이프라인의 정렬키와 같다
+    // (`_screen_candidates`의 `key=lambda t: (len(failed), -impulse_gain)`).
+    group.sort((a, b) => missOf(a) - missOf(b) || b.impulse - a.impulse)
     out.push(...group.slice(0, n))
   }
   return out
@@ -227,6 +236,7 @@ async function main() {
     pairs.push({
       date: s.d,
       ticker: s.t,
+      impulse: s.g ?? 0,
       failed: s.f,
       // (a) 화면 성적표와 같은 기준 — 추천일 종가로 진입했다고 가정
       closeEntry: mk(s.c, future),
@@ -316,12 +326,19 @@ async function main() {
     console.log(`\n  ${label}`)
     console.log(card('    하루 5종목 전부', pick(top)))
     console.log(card('    + 종목당 첫 1건', pick(dedup)))
-    // 구간 분리 — 조건을 뺀 효과가 뒤 구간에서도 남아야 믿을 수 있다.
-    console.log(
-      card('    └ 탐색 구간', pick(dedup.filter((p) => p.date < split0))) +
-        '\n' +
-        card('    └ 검증 구간', pick(dedup.filter((p) => p.date >= split0))),
-    )
+    // 날짜 분리와 **종목 분리**를 둘 다 본다.
+    //
+    // 날짜 분리는 이 모집단에서 거의 성립하지 않는다 — `stock_price_history`가 600일만
+    // 보관하고 워밍업으로 205봉을 쓰므로, 앞 구간에는 평가된 종목이 거의 없다(실측:
+    // 탐색 10건 / 검증 302건). 그래서 종목을 반으로 갈라 **같은 기간 다른 종목**에서도
+    // 같은 방향인지 함께 본다. 홀짝은 정렬된 종목 목록의 인덱스로 가른다(코드 자체의
+    // 홀짝으로 가르면 업종이 쏠릴 수 있다).
+    const allTickers = [...new Set(pairs.map((p) => p.ticker))].sort()
+    const half = new Map(allTickers.map((t, i) => [t, i % 2]))
+    console.log(card('    └ 날짜 앞구간', pick(dedup.filter((p) => p.date < split0))))
+    console.log(card('    └ 날짜 뒷구간', pick(dedup.filter((p) => p.date >= split0))))
+    console.log(card('    └ 종목 A조', pick(dedup.filter((p) => half.get(p.ticker) === 0))))
+    console.log(card('    └ 종목 B조', pick(dedup.filter((p) => half.get(p.ticker) === 1))))
   }
 
   // 랭킹이 제대로 줄 세우는지 — 실전 성적에서 "미달 적은 쪽이 더 나빴다"가 나온 그 축.

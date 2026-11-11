@@ -17,10 +17,17 @@
 **파이썬이 덤프, TS가 계산.** 양쪽 다 포팅본이 없다.
 
 출력 (NDJSON, 한 줄이 한 (종목, 날짜))
-  {"t":"000660","d":"2026-05-02","c":123000.0,"f":["RSI 범위 밖","거래량 미감소"]}
+  {"t":"000660","d":"2026-05-02","c":123000.0,"g":0.42,"f":["RSI 범위 밖","거래량 미감소"]}
 
 `f`는 **미달 조건 이름 목록**이다(빈 배열 = 전 조건 통과). 이름을 그대로 쓰는 이유는
 TS 쪽에서 `scorecard.ts`의 `failedCriteria`에 그대로 넘겨야 하기 때문이다.
+
+`g`는 **선행 상승률(impulse_gain)**이다. 점수가 아니라 **동순위 가르개**로 쓴다 —
+`pipeline.py`의 `_screen_candidates`가 미달 개수가 같을 때 이 값이 큰 순으로 하루 5종목을
+고르기 때문이다. 처음엔 이 값을 안 실었고, 그래서 TS 쪽이 종목코드 순으로 동순위를 갈랐다.
+그 결과가 -0.107R이었는데 **그건 국장 저번호 종목(오래된 제조업)이 나빴다는 얘기**일 뿐
+파이프라인의 선택과는 무관했다. 하루 5종목 중 대부분이 동순위에서 갈리므로
+(17,570건 중 13,222건이 미달 3개) 가르개가 바뀌면 고르는 종목이 통째로 달라진다.
 
 실행: MARKET=KR OUT=/tmp/kr.ndjson python -m research.dump_pullback_signals
 작업 컨테이너에는 Supabase 자격증명이 없어 Actions에서만 돈다.
@@ -168,6 +175,7 @@ def main() -> None:
                             "t": ticker,
                             "d": str(df["date"].iloc[i])[:10],
                             "c": float(df["close"].iloc[i]),
+                            "g": float(ev.impulse_gain),
                             "f": ev.failed,
                         },
                         ensure_ascii=False,
