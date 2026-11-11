@@ -88,10 +88,9 @@ export function AverageDownPlanPanel({
 
   return (
     <div className={className}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="text-sm font-bold">추가 매수 분할 계획</h4>
-        <span className="text-xs text-muted-foreground">예측이 아니라 가격 사다리입니다</span>
-      </div>
+      {/* 폰 폭에서 제목과 한 줄에 두면 부제가 잘린다 — 줄을 나눈다. */}
+      <h4 className="text-sm font-bold">추가 매수 분할 계획</h4>
+      <p className="text-xs text-muted-foreground">예측이 아니라 가격 사다리입니다</p>
 
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-muted-foreground">추가로 쓸 수 있는 금액</span>
@@ -180,7 +179,7 @@ function PlanBody({
                 </span>
               </div>
               <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-secondary-foreground">
-                <span>{t.qty}주</span>
+                <span>{t.qty.toLocaleString('ko-KR')}주</span>
                 <span>{won(t.cost)}</span>
                 <span className="text-muted-foreground">→ 평단 {won(t.avgCostAfter)}</span>
               </div>
@@ -201,7 +200,7 @@ function PlanBody({
         기계적으로 계산한 값입니다. 근거는 실측 한 가지뿐입니다 —{' '}
         <span className="font-semibold">
           이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값{' '}
-          {Math.round(MEDIAN_FURTHER_DROP * 100)}%까지 더 빠집니다
+          {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠집니다
         </span>
         (104,119건). 예측이 아니라 각오해야 할 기본값이라, 지금 다 쓰지 않고 아래로 갈수록 크게
         삽니다. 지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기 상황에서는 그 개수와
@@ -228,15 +227,15 @@ function PlanBody({
                 <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                   최저 {won(s.lowPrice)} → 끝 {won(s.endPrice)} · {s.executedSteps}차까지 집행
                 </div>
-                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11px]">
-                  <div className="flex justify-between gap-1">
-                    <dt className="text-muted-foreground">계획대로</dt>
+                <dl className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 font-mono text-[11px] sm:grid-cols-2">
+                  <div className="flex justify-between gap-2">
+                    <dt className="shrink-0 text-muted-foreground">계획대로</dt>
                     <dd className={s.planPnl >= 0 ? 'text-up' : 'text-down'}>
                       {won(s.planPnl)} ({pct(s.planPnlPct)})
                     </dd>
                   </div>
-                  <div className="flex justify-between gap-1">
-                    <dt className="text-muted-foreground">안 사면</dt>
+                  <div className="flex justify-between gap-2">
+                    <dt className="shrink-0 text-muted-foreground">안 사면</dt>
                     <dd className={s.holdPnl >= 0 ? 'text-up' : 'text-down'}>
                       {won(s.holdPnl)} ({pct(s.holdPnlPct)})
                     </dd>

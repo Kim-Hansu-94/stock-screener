@@ -175,6 +175,7 @@ describe('defaultScenarios', () => {
 
   it('네 개를 돌려주고 전부 손에 있는 값에서 나온다', () => {
     expect(scenarios).toHaveLength(4)
+    expect(scenarios[0].label).toBe('여기서 15% 더 빠진 채로 끝')
     expect(scenarios.map((s) => s.lowPrice)).toEqual([1_088_000, 807_000, 807_000, 1_280_000])
     expect(scenarios.map((s) => s.endPrice)).toEqual([1_088_000, 1_280_000, 2_032_230, 2_032_230])
   })

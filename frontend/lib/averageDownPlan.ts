@@ -251,7 +251,7 @@ export function defaultScenarios(
   const medianDown = Math.round(price * (1 - MEDIAN_FURTHER_DROP))
   const low = periodLow > 0 && periodLow < price ? periodLow : medianDown
   const out: ScenarioOutcome[] = [
-    evaluateScenario(input, plan, `${Math.round(MEDIAN_FURTHER_DROP * 100)}% 더 빠진 채로 끝`, medianDown, medianDown),
+    evaluateScenario(input, plan, `여기서 ${Math.round(MEDIAN_FURTHER_DROP * 100)}% 더 빠진 채로 끝`, medianDown, medianDown),
     evaluateScenario(input, plan, '구간 저가까지 갔다가 지금 가격 회복', low, price),
     evaluateScenario(input, plan, '구간 저가까지 갔다가 내 평단 회복', low, avgCost),
     evaluateScenario(input, plan, '안 빠지고 바로 평단 회복', price, avgCost),
