@@ -102,10 +102,26 @@ interface Episode {
   daysToTrough: number
   /** 저점의 추가 하락폭(%). 관측 시작가 대비. */
   extraDropPct: number
-  /** 저점 이후 수익률(%). */
+  /**
+   * 저점 이후 수익률(%). **사후편향이 있다** — 1년치를 다 보고 가장 낮은 날을
+   * 고른 뒤 거기서부터 재는 값이라 양수가 안 나올 수가 없다. 실전에서 그 바닥을
+   * 미리 알 방법은 없으므로 "완벽하게 바닥을 잡았다면 받았을 상한"으로만 읽는다.
+   */
   afterTrough: Record<number, number>
-  /** 시작가를 회복했는가 / 며칠 걸렸는가(못 하면 null). */
+  /**
+   * **사후편향 없는 값** — 그냥 그날 사서 들고 있었을 때의 수익률.
+   * 사람이 실제로 받을 수 있는 숫자는 이쪽이다.
+   */
+  holdFrom: Record<number, number>
+  /**
+   * 저점을 찍은 뒤 **시작가로 돌아오기까지** 걸린 거래일 수(못 돌아오면 null).
+   * 처음엔 "시작가를 한 번이라도 넘은 날"로 쟀다가 중간값 3거래일이 나왔다 —
+   * 하락일 다음 날 살짝 반등만 해도 '회복'으로 세 버린 것이다. 바닥을 지나야
+   * 회복이라고 부를 수 있으므로 **저점 이후**로 한정한다.
+   */
   daysToRecover: number | null
+  /** 저점이 관측 창 **끝자락**(마지막 20일)에 있었나 = 1년 뒤에도 여전히 빠지는 중. */
+  stillFalling: boolean
 }
 
 interface Obs {
@@ -133,25 +149,39 @@ async function main() {
   )
   console.log(`유니버스 ${uni.length}종목 · 대형주(시총 상위) ${largeCaps.size}종목`)
 
-  // 일봉이 있는 종목 — 최신 거래일 하루치로 목록을 만든다.
+  // 일봉이 있는 종목 — **여러 시점의 하루치 합집합**으로 만든다.
+  // 처음에 최신 하루치만 썼다가 401종목밖에 안 잡혔다(실제로는 946종목). 그날 봉이
+  // 아직 안 들어온 종목과 그 사이 수집이 끊긴 종목이 통째로 빠진 것이다.
+  // `backtestEtfStage.ts`·`dump_pullback_signals.py`가 쓰는 앵커 방식과 같다.
   const latest = await db
     .from('stock_price_history')
     .select('date')
     .eq('market', MARKET)
     .order('date', { ascending: false })
     .limit(1)
-  const day = latest.data?.[0]?.date
-  if (!day) throw new Error('일봉이 없다')
-  const tickers = [
-    ...new Set(
-      (
-        await fetchAll<{ ticker: string }>((f, t) =>
-          db.from('stock_price_history').select('ticker').eq('market', MARKET).eq('date', day).range(f, t),
-        )
-      ).map((r) => r.ticker),
-    ),
-  ].sort()
-  console.log(`일봉 보유 ${tickers.length}종목 (기준일 ${day})\n`)
+  const latestDay = latest.data?.[0]?.date
+  if (!latestDay) throw new Error('일봉이 없다')
+  const found = new Set<string>()
+  for (const back of [0, 120, 240, 360, 480]) {
+    const anchor = new Date(latestDay)
+    anchor.setDate(anchor.getDate() - back)
+    const dayRows = await db
+      .from('stock_price_history')
+      .select('date')
+      .eq('market', MARKET)
+      .lte('date', anchor.toISOString().slice(0, 10))
+      .order('date', { ascending: false })
+      .limit(1)
+    const day = dayRows.data?.[0]?.date
+    if (!day) continue
+    const rows = await fetchAll<{ ticker: string }>((f, t) =>
+      db.from('stock_price_history').select('ticker').eq('market', MARKET).eq('date', day).range(f, t),
+    )
+    for (const r of rows) found.add(r.ticker)
+    console.log(`  앵커 ${day}: ${rows.length}종목 (누적 ${found.size})`)
+  }
+  const tickers = [...found].sort()
+  console.log(`일봉 보유 ${tickers.length}종목\n`)
 
   const episodes: Episode[] = []
   // 2부용 — 격자 셀마다 관측치를 모은다. 키는 `${x}|${d}`.
@@ -197,14 +227,17 @@ async function main() {
         for (let k = 1; k < fwd.length; k += 1) if (fwd[k] < fwd[troughRel]) troughRel = k
         const trough = fwd[troughRel]
         const afterTrough: Record<number, number> = {}
+        const holdFrom: Record<number, number> = {}
         for (const h of [60, 120, 250]) {
           const at = troughRel + h
           afterTrough[h] = at < fwd.length ? ((fwd[at] - trough) / trough) * 100 : NaN
+          holdFrom[h] = h - 1 < fwd.length ? ((fwd[h - 1] - startPrice) / startPrice) * 100 : NaN
         }
+        // 회복은 **저점을 지난 뒤**부터 센다 (위 docstring 참조).
         let daysToRecover: number | null = null
-        for (let k = 0; k < fwd.length; k += 1) {
+        for (let k = troughRel; k < fwd.length; k += 1) {
           if (fwd[k] >= startPrice) {
-            daysToRecover = k + 1
+            daysToRecover = k - troughRel
             break
           }
         }
@@ -213,7 +246,9 @@ async function main() {
           daysToTrough: troughRel + 1,
           extraDropPct: ((trough - startPrice) / startPrice) * 100,
           afterTrough,
+          holdFrom,
           daysToRecover,
+          stillFalling: troughRel >= fwd.length - 20,
         })
       }
 
@@ -248,48 +283,67 @@ async function main() {
   }
 
   // ── 1부 출력 ────────────────────────────────────────────────────────
-  const groups: [string, Episode[]][] = [
-    ['전체', episodes],
-    [`대형주 상위${LARGE_CAP_N}`, episodes.filter((e) => largeCaps.has(e.ticker))],
-  ]
-  // 섹터는 건수 많은 순 상위 6개만 — 적은 섹터는 숫자가 흔들린다.
   const bySector = new Map<string, Episode[]>()
   for (const e of episodes) {
-    const s = sectorOf.get(e.ticker) ?? '미분류'
-    const b = bySector.get(s)
+    const sec = sectorOf.get(e.ticker) ?? '미분류'
+    const b = bySector.get(sec)
     if (b) b.push(e)
-    else bySector.set(s, [e])
+    else bySector.set(sec, [e])
   }
-  for (const [s, es] of [...bySector.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 6)) {
-    groups.push([`섹터: ${s}`, es])
-  }
+  const sectorRank = [...bySector.entries()].sort((a, b) => b[1].length - a[1].length)
+
+  const groups: [string, Episode[]][] = [
+    ['전체', episodes],
+    [`대형주 시총상위${LARGE_CAP_N}`, episodes.filter((e) => largeCaps.has(e.ticker))],
+    // 섹터는 **건수 상위 8개를 전부** 찍는다. 처음에 30건 미만을 통째로 가렸더니
+    // 정작 물어본 반도체·대형주가 출력에서 사라졌다 — 표본이 적으면 적다고
+    // 적을 일이지, 질문에 답을 안 하면 안 된다.
+    ...sectorRank.slice(0, 8).map(([sec, es]) => [`섹터: ${sec}`, es] as [string, Episode[]]),
+  ]
 
   line('=')
   console.log('1부 — 물타기 상황에 들어선 뒤 실제로 벌어진 일')
   console.log(`  관측 시작 = 120봉 고점 대비 −${DRAWDOWN_GATE}% 이하인 날 (종목당 ${EPISODE_COOLDOWN}일 쿨다운)`)
+  console.log('  ※ "저점 이후"는 **사후편향**이 있다(1년을 다 보고 최저일을 고른 값).')
+  console.log('    실제로 받을 수 있는 숫자는 "그냥 들고 있었을 때" 쪽이다.')
   line('=')
+  console.log(`\n섹터별 에피소드 수: ${sectorRank.map(([k, v]) => `${k} ${v.length}`).join(' · ')}`)
+
   for (const [label, es] of groups) {
-    if (es.length < 30) continue
-    const recovered = es.filter((e) => e.daysToRecover !== null)
-    console.log(`\n▶ ${label} — ${es.length}건 (${new Set(es.map((e) => e.ticker)).size}종목)`)
+    const n = es.length
+    const tick = new Set(es.map((e) => e.ticker)).size
+    console.log(`\n▶ ${label} — ${n}건 (${tick}종목)${n < 30 ? '  ⚠ 표본 부족, 참고만' : ''}`)
+    if (n === 0) continue
     console.log(
-      `  저점까지 ${d0(median(es.map((e) => e.daysToTrough)))}거래일 (25%분위 ${d0(
-        quantile(es.map((e) => e.daysToTrough), 0.25),
-      )} · 75%분위 ${d0(quantile(es.map((e) => e.daysToTrough), 0.75))})`,
+      `  저점까지 ${d0(median(es.map((e) => e.daysToTrough)))}거래일` +
+        ` (25%분위 ${d0(quantile(es.map((e) => e.daysToTrough), 0.25))}` +
+        ` · 75%분위 ${d0(quantile(es.map((e) => e.daysToTrough), 0.75))})` +
+        ` · **1년 뒤에도 바닥을 못 찍은 비율 ${((es.filter((e) => e.stillFalling).length / n) * 100).toFixed(0)}%**`,
     )
     console.log(
-      `  추가 하락폭 중간값 ${pct(median(es.map((e) => e.extraDropPct)))}` +
-        ` (25%분위 ${pct(quantile(es.map((e) => e.extraDropPct), 0.25))} · 75%분위 ${pct(
-          quantile(es.map((e) => e.extraDropPct), 0.75),
-        )})`,
+      `  저점의 추가 하락폭 중간값 ${pct(median(es.map((e) => e.extraDropPct)))}` +
+        ` (25%분위 ${pct(quantile(es.map((e) => e.extraDropPct), 0.25))}` +
+        ` · 75%분위 ${pct(quantile(es.map((e) => e.extraDropPct), 0.75))})`,
     )
-    for (const h of [60, 120, 250]) {
-      const v = es.map((e) => e.afterTrough[h]).filter((x) => Number.isFinite(x))
-      if (v.length >= 30) console.log(`  저점 이후 ${String(h).padStart(3)}일: 중간값 ${pct(median(v))} (${v.length}건)`)
-    }
+    const hold = [60, 120, 250]
+      .map((h) => {
+        const v = es.map((e) => e.holdFrom[h]).filter((x) => Number.isFinite(x))
+        return v.length >= 20 ? `${h}일 ${pct(median(v))}` : null
+      })
+      .filter(Boolean)
+    console.log(`  **그냥 들고 있었을 때(사후편향 없음)**: ${hold.join(' · ') || '표본 부족'}`)
+    const aft = [60, 120]
+      .map((h) => {
+        const v = es.map((e) => e.afterTrough[h]).filter((x) => Number.isFinite(x))
+        return v.length >= 20 ? `${h}일 ${pct(median(v))}(${v.length}건)` : null
+      })
+      .filter(Boolean)
+    console.log(`  저점을 완벽히 잡았다면(상한): ${aft.join(' · ') || '표본 부족'}`)
+    const rec = es.filter((e) => e.daysToRecover !== null)
     console.log(
-      `  시작가 회복: ${((recovered.length / es.length) * 100).toFixed(1)}%가 ${FORWARD}일 안에 회복` +
-        ` · 걸린 일수 중간값 ${d0(median(recovered.map((e) => e.daysToRecover as number)))}거래일`,
+      `  저점 이후 시작가 회복: ${((rec.length / n) * 100).toFixed(0)}%` +
+        ` · 걸린 일수 중간값 ${d0(median(rec.map((e) => e.daysToRecover as number)))}거래일` +
+        ` (75%분위 ${d0(quantile(rec.map((e) => e.daysToRecover as number), 0.75))})`,
     )
   }
 
