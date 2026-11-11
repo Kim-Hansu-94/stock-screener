@@ -27,8 +27,19 @@ const MARKETS: { market: Market; label: string; universe: string }[] = [
 
 type RiskInfo = RiskResult
 
-// 포지션 관리 카드의 지지 신호(supportSignals)가 보는 최대 구간(120일선)에 여유를 둔 값.
-const SIGNAL_BARS_DAYS = 180
+// 포지션 관리 카드의 지지 신호(supportSignals)가 보는 최대 구간은 **120봉**(120일선)이다.
+//
+// **180일로 두면 여유가 0봉이다 (2026-11-11 실측).** 달력 180일은 거래일로 약 120일밖에
+// 안 된다(주말 52일 + 공휴일) — position_signals_probe로 SK하이닉스를 재니
+// `일봉 120봉 · 2026-05-15 ~ 2026-11-10`으로 **정확히 120봉**이었다. 120일선은 120봉이
+// 모여야 첫 값이 나오므로, 공휴일이 하나 더 끼거나 거래정지로 봉 하나가 비면 그 즉시
+// null이 되어 카드의 '120일선 근접'이 조용히 '—'(판정 불가)로 바뀐다. 에러도 경고도
+// 없이 조건 하나가 사라지고 분모(evaluatedCount)만 4로 줄어든다.
+//
+// 그래서 240일로 올렸다 — 거래일 약 160봉이라 120봉 대비 3분의 1쯤 여유가 생긴다.
+// 예전의 500봉으로 돌아가는 건 아니다(그건 차트를 펼쳐야 쓰이는 구간까지 미리 내려보내
+// 탭 전환을 느리게 만든 값이다). 보유 종목은 많아도 수십 개라 이 정도는 가볍다.
+const SIGNAL_BARS_DAYS = 240
 
 interface MarketSectionData {
   market: Market
@@ -164,8 +175,8 @@ async function PositionSection() {
   const tickers = (await getWatchlistTickers()).filter((t) => t.category === 'position')
 
   // 지지 신호 판정에 필요한 최대 구간은 120일선이다(일목 선행스팬 52+26=78, 저점
-  // 높이기 40). 여유를 둬 180봉만 받는다 — 예전엔 500봉을 받아 그대로 클라이언트까지
-  // 내려보냈는데, 그중 320봉은 차트를 펼쳐야만 쓰이는 데이터였다.
+  // 높이기 40). 달력 일수와 거래일 수가 다르니 SIGNAL_BARS_DAYS 주석을 볼 것 —
+  // 180일로 뒀을 때 실측이 딱 120봉이라 여유가 없었다.
   const [krHistory, usHistory] = await Promise.all([
     getPriceHistoryByTicker('KR', tickers.filter((t) => t.market === 'KR').map((t) => t.ticker), SIGNAL_BARS_DAYS),
     getPriceHistoryByTicker('US', tickers.filter((t) => t.market === 'US').map((t) => t.ticker), SIGNAL_BARS_DAYS),

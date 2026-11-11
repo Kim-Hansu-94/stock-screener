@@ -38,9 +38,11 @@ const db = createClient(url, key)
 
 /**
  * 화면(`app/pullback/page.tsx`의 `SIGNAL_BARS_DAYS`)이 받는 구간과 같은 값.
- * 여기가 어긋나면 프로브와 화면이 **다른 일봉으로** 판정하게 된다.
+ * 여기가 어긋나면 프로브와 화면이 **다른 일봉으로** 판정하게 된다 — 손으로 맞춰야 하는
+ * 동기화 지점이다. 2026-11-11에 180 → 240으로 같이 올렸다(180일이면 거래일로 딱 120봉이라
+ * 120일선이 공휴일 하나에 조용히 판정 불가가 됐다 — 이 프로브가 찾아낸 값이다).
  */
-const SIGNAL_BARS_DAYS = 180
+const SIGNAL_BARS_DAYS = 240
 
 const line = () => console.log('─'.repeat(78))
 const won = (v: number) => Math.round(v).toLocaleString('ko-KR')
