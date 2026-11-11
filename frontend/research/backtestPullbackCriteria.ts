@@ -61,6 +61,8 @@ interface SignalRow {
   d: string
   c: number
   g?: number
+  /** 눌림 구간을 벗어난 방향: above = sma10 위, below = sma20*0.95 아래. */
+  z?: string
   f: string[]
 }
 
@@ -102,15 +104,40 @@ interface Pair {
   ticker: string
   /** 선행 상승률 — 파이프라인이 동순위를 가르는 값. */
   impulse: number
+  /** 눌림 구간을 벗어난 방향 (구간 안이면 undefined). */
+  zone?: string
+}
+
+/**
+ * R만 보면 **손절폭이 좁은 종목이 유리해 보인다** — R은 손절폭을 1로 놓은 단위라,
+ * 같은 +3% 상승이 손절 -2% 종목에서는 +1.5R, 손절 -8% 종목에서는 +0.4R이 된다.
+ * 그래서 "조건을 빼니 R이 좋아졌다"가 실제로는 "손절이 좁은 종목을 고르게 됐다"일 수 있다.
+ * 그걸 가리려고 **실제 수익률(%)과 평균 손절폭(%)을 항상 같이 찍는다.**
+ * R이 좋아졌는데 수익률은 그대로면 그건 발견이 아니라 단위 착시다.
+ */
+function stats(trades: ResolvedTrade[]) {
+  const done = trades.filter((t) => t.outcome !== 'pending' && t.exitPrice !== null && t.entry > 0)
+  if (done.length === 0) return null
+  const rets = done.map((t) => ((t.exitPrice as number) - t.entry) / t.entry).sort((a, b) => a - b)
+  const stops = done.map((t) => (t.entry - t.stop) / t.entry)
+  return {
+    medRet: rets[Math.floor(rets.length / 2)],
+    avgRet: rets.reduce((a, b) => a + b, 0) / rets.length,
+    avgStop: stops.reduce((a, b) => a + b, 0) / stops.length,
+  }
 }
 
 function card(label: string, trades: ResolvedTrade[]): string {
   const c: Scorecard = summarize(trades)
   if (c.resolved === 0) return `  ${label.padEnd(26)} 표본 없음`
+  const st = stats(trades)
   return (
     `  ${label.padEnd(26)}${String(c.resolved).padStart(6)}건  ` +
     `기댓값 ${num(c.expectancyR).padStart(7)}R  ` +
-    `목표도달 ${pct(c.hitRate).padStart(6)} (본전선 ${pct(c.breakevenHitRate)})`
+    `목표도달 ${pct(c.hitRate).padStart(6)} (본전선 ${pct(c.breakevenHitRate)})` +
+    (st
+      ? `  실수익 중간값 ${pct(st.medRet).padStart(6)} 평균 ${pct(st.avgRet).padStart(6)}  손절폭 ${pct(st.avgStop)}`
+      : '')
   )
 }
 
@@ -237,6 +264,7 @@ async function main() {
       date: s.d,
       ticker: s.t,
       impulse: s.g ?? 0,
+      zone: s.z,
       failed: s.f,
       // (a) 화면 성적표와 같은 기준 — 추천일 종가로 진입했다고 가정
       closeEntry: mk(s.c, future),
@@ -339,6 +367,36 @@ async function main() {
     console.log(card('    └ 날짜 뒷구간', pick(dedup.filter((p) => p.date >= split0))))
     console.log(card('    └ 종목 A조', pick(dedup.filter((p) => half.get(p.ticker) === 0))))
     console.log(card('    └ 종목 B조', pick(dedup.filter((p) => half.get(p.ticker) === 1))))
+  }
+
+  // ── 눌림 구간을 '어느 쪽으로' 벗어난 게 좋았나 ──────────────────────
+  // 이 조건은 sma20*0.95 <= 종가 <= sma10 이라는 좁은 띠다. 벗어나는 두 방향의 뜻이
+  // 정반대라(위 = 아직 강하다 / 아래 = 깊게 빠졌다), "미달 쪽이 좋다"만으로는 무엇을
+  // 고쳐야 할지 알 수 없다. 한쪽만 좋으면 고칠 것은 **그쪽 경계를 넓히는 것**이고,
+  // 양쪽 다 좋으면 그때 비로소 조건 자체가 쓸모없다는 뜻이다.
+  line('=')
+  console.log('눌림 구간을 벗어난 방향별 — 조건을 없앨지 경계를 넓힐지가 여기서 갈린다')
+  line('=')
+  {
+    const pickOpen = (ps: Pair[]) =>
+      ps.map((p) => p.openEntry).filter((t): t is ResolvedTrade => t !== null)
+    const inZone = pairs.filter((p) => !p.failed.includes('눌림 구간 밖'))
+    const above = pairs.filter((p) => p.zone === 'above')
+    const below = pairs.filter((p) => p.zone === 'below')
+    const other = pairs.filter((p) => p.zone === '?')
+    console.log(card('구간 안 (조건 충족)', pickOpen(inZone)))
+    console.log(card('위로 벗어남 (sma10 위)', pickOpen(above)))
+    console.log(card('아래로 벗어남', pickOpen(below)))
+    if (other.length > 0) console.log(card('방향 불명', pickOpen(other)))
+    // 종목 분리로 한 번 더 — 한쪽만 좋다는 결론이 종목 쏠림인지 본다.
+    const allT = [...new Set(pairs.map((p) => p.ticker))].sort()
+    const grp = new Map(allT.map((t, i) => [t, i % 2]))
+    for (const [label, set] of [['위로 벗어남', above], ['아래로 벗어남', below]] as [string, Pair[]][]) {
+      console.log(
+        card(`  ${label} A조`, pickOpen(set.filter((p) => grp.get(p.ticker) === 0))) + '\n' +
+          card(`  ${label} B조`, pickOpen(set.filter((p) => grp.get(p.ticker) === 1))),
+      )
+    }
   }
 
   // 랭킹이 제대로 줄 세우는지 — 실전 성적에서 "미달 적은 쪽이 더 나빴다"가 나온 그 축.

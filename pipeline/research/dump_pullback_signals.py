@@ -17,7 +17,8 @@
 **파이썬이 덤프, TS가 계산.** 양쪽 다 포팅본이 없다.
 
 출력 (NDJSON, 한 줄이 한 (종목, 날짜))
-  {"t":"000660","d":"2026-05-02","c":123000.0,"g":0.42,"f":["RSI 범위 밖","거래량 미감소"]}
+  {"t":"000660","d":"2026-05-02","c":123000.0,"g":0.42,"z":"above",
+   "f":["RSI 범위 밖","거래량 미감소"]}
 
 `f`는 **미달 조건 이름 목록**이다(빈 배열 = 전 조건 통과). 이름을 그대로 쓰는 이유는
 TS 쪽에서 `scorecard.ts`의 `failedCriteria`에 그대로 넘겨야 하기 때문이다.
@@ -28,6 +29,13 @@ TS 쪽에서 `scorecard.ts`의 `failedCriteria`에 그대로 넘겨야 하기 �
 그 결과가 -0.107R이었는데 **그건 국장 저번호 종목(오래된 제조업)이 나빴다는 얘기**일 뿐
 파이프라인의 선택과는 무관했다. 하루 5종목 중 대부분이 동순위에서 갈리므로
 (17,570건 중 13,222건이 미달 3개) 가르개가 바뀌면 고르는 종목이 통째로 달라진다.
+
+`z`는 **눌림 구간을 어느 쪽으로 벗어났는지**다("above" = sma10 위, "below" =
+sma20*0.95 아래, 구간 안이면 없음). 이 조건은 `sma20*0.95 <= 종가 <= sma10`이라는
+좁은 띠인데, 벗어나는 두 방향의 뜻이 **정반대**다 — 위로 벗어난 건 "아직 강하다",
+아래로 벗어난 건 "깊게 빠졌다". 그래서 "미달 쪽이 더 좋다"는 측정만으로는 어느 쪽이
+좋은 건지 알 수 없고, 한쪽만 좋다면 고칠 것은 **조건을 없애는 게 아니라 그쪽 경계를
+넓히는 것**이다. 조건을 통째로 빼면 눌림목 스크리너가 더 이상 눌림목을 안 보게 된다.
 
 실행: MARKET=KR OUT=/tmp/kr.ndjson python -m research.dump_pullback_signals
 작업 컨테이너에는 Supabase 자격증명이 없어 Actions에서만 돈다.
@@ -48,7 +56,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pipeline.src.db import ScreenerDB  # noqa: E402
-from pipeline.src.screener import evaluate_pullback  # noqa: E402
+from pipeline.src.indicators import sma  # noqa: E402
+from pipeline.src.screener import (  # noqa: E402
+    CRITERION_PULLBACK_ZONE,
+    MID_TERM_WINDOW,
+    PULLBACK_LOWER_TOLERANCE,
+    PULLBACK_UPPER_WINDOW,
+    evaluate_pullback,
+)
 
 load_dotenv()
 
@@ -169,6 +184,14 @@ def main() -> None:
                 )
                 if ev is None:
                     continue
+
+                # 눌림 구간을 벗어난 방향 — 판정은 건드리지 않고 같은 식으로 다시 잰다.
+                zone: str | None = None
+                if CRITERION_PULLBACK_ZONE in ev.failed:
+                    s10 = float(sma(part["close"], PULLBACK_UPPER_WINDOW).iloc[-1])
+                    s20 = float(sma(part["close"], MID_TERM_WINDOW).iloc[-1])
+                    last = float(part["close"].iloc[-1])
+                    zone = "above" if last > s10 else "below" if last < s20 * (1 - PULLBACK_LOWER_TOLERANCE) else "?"
                 fh.write(
                     json.dumps(
                         {
@@ -176,6 +199,7 @@ def main() -> None:
                             "d": str(df["date"].iloc[i])[:10],
                             "c": float(df["close"].iloc[i]),
                             "g": float(ev.impulse_gain),
+                            **({"z": zone} if zone else {}),
                             "f": ev.failed,
                         },
                         ensure_ascii=False,
