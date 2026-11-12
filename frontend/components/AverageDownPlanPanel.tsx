@@ -11,6 +11,7 @@ import {
   LADDER_ORDER,
   buildAverageDownPlan,
   defaultScenarios,
+  roundTrigger,
   type AverageDownPlan,
   type LadderStyle,
 } from '@/lib/averageDownPlan'
@@ -178,11 +179,17 @@ export function AverageDownPlanPanel({
       />
 
       {!plan ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {budget > 0
-            ? '예산이 1주 값에도 못 미쳐 계획을 세울 수 없습니다.'
-            : '금액을 넣으면 차수별 집행 가격과 수량이 나옵니다. 이 값은 이 기기에만 저장됩니다.'}
-        </p>
+        budget > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            예산이 1주 값에도 못 미쳐 계획을 세울 수 없습니다.
+          </p>
+        ) : (
+          // **금액이 없어도 차수 가격은 보여 준다.** 가격은 현재가와 사다리 모양만으로
+          // 정해지고 예산은 수량·금액에만 쓰인다. 예전엔 여기서 "금액을 넣으면…" 한 줄만
+          // 띄웠는데, 그러면 사다리 모양을 눌러도 **눈에 보이는 것이 글자 한 줄뿐**이라
+          // "버튼이 안 먹는다"로 읽힌다(실제 신고가 들어왔다).
+          <LadderPreview currentPrice={currentPrice} style={style} won={won} />
+        )
       ) : (
         <PlanBody
           key={style}
@@ -675,6 +682,56 @@ function ActionPlanBox({
         전부 집행하면 <span className="font-mono font-semibold">{plan.finalQty}주 · 평단 {won(Math.round(plan.finalAvgCost))}원</span>
         {plan.unusedBudget > 0 && <> (못 쓰는 돈 {won(plan.unusedBudget)}원)</>}. 네 칸이 다 걸리는 경우는
         흔치 않으니 <span className="font-semibold">그 평단은 목표가 아니라 최대치</span>입니다.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * **금액을 넣기 전에도 보이는 차수 가격.**
+ *
+ * 차수 가격은 `현재가 × (1 + 차수 비율)`이라 **예산과 무관하게 정해진다** — 예산은
+ * 수량·금액에만 쓰인다. 그런데 예전엔 금액이 비면 "금액을 넣으면 차수별 집행 가격과
+ * 수량이 나옵니다"라는 **흐린 글씨 한 줄**만 띄웠다. 그 상태에서 사다리 모양 버튼을
+ * 누르면 바뀌는 것이 버튼 테두리와 설명 한 줄뿐이라 **"버튼이 안 먹는다"로 읽힌다**
+ * (2026-11-12 실제 신고). 가격을 먼저 보여 주면 버튼이 일한다는 것이 바로 보인다.
+ */
+function LadderPreview({
+  currentPrice,
+  style,
+  won,
+}: {
+  currentPrice: number
+  style: LadderStyle
+  won: (n: number) => string
+}) {
+  const steps = LADDERS[style]
+  return (
+    <div className="mt-2">
+      <ol className="space-y-1">
+        {steps.map((d, i) => {
+          const price = roundTrigger(currentPrice * (1 + d.offset))
+          const when = d.offset === 0 ? '지금 바로' : d.offset < 0 ? '이하로 내려오면' : '이상으로 올라오면'
+          return (
+            <li
+              key={i}
+              className="flex flex-wrap items-baseline justify-between gap-x-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs"
+            >
+              <span className="font-semibold">
+                {i + 1}차 · {won(price)} {when}
+              </span>
+              <span className="font-mono text-muted-foreground">
+                {d.offset === 0 ? '지금' : `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`}
+                {' · '}
+                예산 {Math.round(d.weight * 100)}%
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+      <p className="mt-1.5 rounded-md border-l-4 border-primary bg-primary/5 px-2.5 py-1.5 text-[11px] leading-snug">
+        <span className="font-semibold">위에 금액을 넣으면</span> 차수별 <span className="font-semibold">수량과
+        금액</span>, 집행 후 평단, 시나리오별 손익까지 채워집니다. 금액은 이 기기에만 저장됩니다.
       </p>
     </div>
   )
