@@ -67,6 +67,45 @@ const REBOUND_PCTS = [5, 10, 15, 20]
 const QUIET_DAYS = [5, 10, 20, 40]
 const TRIGGER_HORIZON = 60
 
+/**
+ * **반도체를 따로 묶는 목록.** DB(`stock_universe`)에는 GICS **섹터**까지만 있어서
+ * (`sector` 컬럼 하나) 반도체와 소프트웨어가 `Information Technology` 하나에 같이
+ * 들어간다. 그런데 둘은 하락·회복 양상이 다를 이유가 분명하다 — 반도체는 메모리·
+ * capex 사이클을 타고, 구독형 소프트웨어는 매출이 반복된다. 섞어 재면 사용자가 물은
+ * "반도체는 어떤가"에 답하지 못한다.
+ *
+ * 그래서 **티커로 직접 묶는다.** 손으로 적은 목록이라 시간이 지나면 낡는다는 것을
+ * 알고 쓴다(이 저장소가 경계하는 상수다). 대신 ① 리서치 스크립트에만 두고 화면·
+ * 파이프라인 판정에는 안 쓰며, ② 실행할 때마다 **실제로 에피소드가 잡힌 티커 수를
+ * 같이 찍어** 목록이 비거나 어긋나면 출력에서 바로 드러나게 한다.
+ *
+ * 국내는 유니버스가 코스피뿐이라(`universe_kr`) 반도체 표본이 구조적으로 얇다 —
+ * 코스닥 소부장(이오테크닉스·리노공업·원익IPS 등)이 통째로 빠진다. 답은 미국 쪽에서 나온다.
+ */
+const SEMI_DESIGN = new Set([
+  // 미국 — 설계·제조(팹리스/IDM/파운드리)
+  'NVDA', 'AMD', 'INTC', 'MU', 'AVGO', 'QCOM', 'TXN', 'ADI', 'MCHP', 'NXPI',
+  'ON', 'SWKS', 'QRVO', 'MPWR', 'MRVL', 'WOLF', 'LSCC', 'SLAB', 'SIMO', 'AMKR',
+  'TSM', 'STM', 'UMC', 'GFS', 'ALGM', 'SITM', 'RMBS', 'CRUS', 'SYNA', 'POWI',
+  'DIOD', 'MTSI', 'AOSL', 'VSH', 'NVTS', 'INDI',
+  // 국내 — 코스피 상장분만 (코스닥은 유니버스에 없다)
+  '000660', '005930', '042700', '000990',
+])
+const SEMI_EQUIP = new Set([
+  'AMAT', 'LRCX', 'KLAC', 'ASML', 'TER', 'ENTG', 'MKSI', 'ONTO', 'ACMR', 'UCTT',
+  'COHU', 'FORM', 'AEIS', 'CAMT', 'PLAB', 'AXT', 'NVMI', 'KLIC', 'ICHR',
+])
+const isSemi = (t: string) => SEMI_DESIGN.has(t) || SEMI_EQUIP.has(t)
+
+/**
+ * 경기민감 ↔ 경기방어. 사용자의 "사이클릭한 테마는 따로 봐야 하지 않나"를 섹터
+ * 수준에서도 확인하려고 둔다. GICS 분류의 통상적인 구분을 그대로 쓴다.
+ */
+const CYCLICAL = new Set([
+  'Energy', 'Materials', 'Industrials', 'Consumer Discretionary', 'Financials', 'Real Estate',
+])
+const DEFENSIVE = new Set(['Consumer Staples', 'Health Care', 'Utilities'])
+
 const maxOf = (xs: number[]) => xs.reduce((a, b) => (b > a ? b : a), -Infinity)
 const median = (xs: number[]) => {
   if (xs.length === 0) return NaN
@@ -292,9 +331,21 @@ async function main() {
   }
   const sectorRank = [...bySector.entries()].sort((a, b) => b[1].length - a[1].length)
 
+  const semiDesign = episodes.filter((e) => SEMI_DESIGN.has(e.ticker))
+  const semiEquip = episodes.filter((e) => SEMI_EQUIP.has(e.ticker))
+  const itAll = episodes.filter((e) => sectorOf.get(e.ticker) === 'Information Technology')
   const groups: [string, Episode[]][] = [
     ['전체', episodes],
     [`대형주 시총상위${LARGE_CAP_N}`, episodes.filter((e) => largeCaps.has(e.ticker))],
+    // ── 사용자 가설 검증: 반도체를 소프트웨어와 섞어 보면 안 되는가 ──────
+    // 세 줄을 나란히 둬야 답이 나온다. 반도체 두 줄이 'IT − 반도체' 줄과 비슷하면
+    // 따로 묶을 이유가 없는 것이고, 다르면 섹터로 뭉뚱그린 앞 측정이 틀린 것이다.
+    ['반도체 설계·제조', semiDesign],
+    ['반도체 장비·소재', semiEquip],
+    ['IT 중 반도체 제외(소프트웨어 등)', itAll.filter((e) => !isSemi(e.ticker))],
+    ['반도체 전체(설계+장비)', episodes.filter((e) => isSemi(e.ticker))],
+    ['경기민감 섹터 합', episodes.filter((e) => CYCLICAL.has(sectorOf.get(e.ticker) ?? ''))],
+    ['경기방어 섹터 합', episodes.filter((e) => DEFENSIVE.has(sectorOf.get(e.ticker) ?? ''))],
     // 섹터는 **건수 상위 8개를 전부** 찍는다. 처음에 30건 미만을 통째로 가렸더니
     // 정작 물어본 반도체·대형주가 출력에서 사라졌다 — 표본이 적으면 적다고
     // 적을 일이지, 질문에 답을 안 하면 안 된다.
@@ -308,6 +359,12 @@ async function main() {
   console.log('    실제로 받을 수 있는 숫자는 "그냥 들고 있었을 때" 쪽이다.')
   line('=')
   console.log(`\n섹터별 에피소드 수: ${sectorRank.map(([k, v]) => `${k} ${v.length}`).join(' · ')}`)
+  // 손으로 적은 반도체 목록이 실제로 걸렸는지 — 0이면 목록이 낡았거나 시장이 안 맞는 것이다.
+  const semiHit = [...new Set(episodes.filter((e) => isSemi(e.ticker)).map((e) => e.ticker))].sort()
+  console.log(
+    `\n반도체 목록 적중: ${semiHit.length}종목 / 목록 ${SEMI_DESIGN.size + SEMI_EQUIP.size}개` +
+      ` → ${semiHit.join(', ') || '(없음)'}`,
+  )
 
   for (const [label, es] of groups) {
     const n = es.length
