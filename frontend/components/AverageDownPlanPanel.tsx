@@ -129,8 +129,9 @@ export function AverageDownPlanPanel({
         <span className="text-muted-foreground">사다리 모양</span>
         {(
           [
-            ['rebound', '반등에 싣기', '바닥권으로 보고 예산의 절반 이상을 현재가 위에 둔다'],
-            ['dip', '더 빠질 때 싣기', '측정 기반 기본값 — 아래로 갈수록 크게 산다'],
+            ['conviction', '바닥권 확신형', '지금 35%를 사고 나머지는 아래에 둔다 — 측정과 어긋나지 않게 바닥권 판단을 실행하는 모양'],
+            ['rebound', '반등에 싣기', '예산의 절반 이상을 현재가 위에 둔다 — 측정은 이 모양에 불리하다'],
+            ['dip', '더 빠질 때 싣기', '측정 기반 — 아래로 갈수록 크게 산다'],
           ] as [LadderStyle, string, string][]
         ).map(([v, label, why]) => (
           <button
@@ -257,15 +258,16 @@ function PlanBody({
           .map((d) => `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`)
           .join(' · ')}
         를 기계적으로 계산한 값입니다.{' '}
-        {plan.style === 'dip' ? (
+        {plan.style !== 'rebound' ? (
           <>
-            근거는 실측 한 가지뿐입니다 —{' '}
+            근거는 실측입니다 —{' '}
             <span className="font-semibold">
               이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값{' '}
               {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠집니다
             </span>
-            (104,119건). 예측이 아니라 각오해야 할 기본값이라, 지금 다 쓰지 않고 아래로 갈수록 크게
-            삽니다.
+            (104,119건). 저점의 추가 하락폭은 국내 전체 중간값 −17.2%(25%분위 −30.1%), 미국
+            IT −30.1%(25%분위 −45.3%)로, 아래쪽을 −36%까지 비워 둘 근거가 됩니다. 예측이
+            아니라 각오해야 할 기본값입니다.
           </>
         ) : (
           <>

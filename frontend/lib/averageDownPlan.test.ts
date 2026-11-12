@@ -23,8 +23,8 @@ const HYNIX: PlanInput = {
   market: 'KR',
 }
 
-describe('사다리 상수 — 두 모양 공통', () => {
-  for (const style of ['dip', 'rebound'] as const) {
+describe('사다리 상수 — 세 모양 공통', () => {
+  for (const style of ['dip', 'rebound', 'conviction'] as const) {
     it(`[${style}] 예산 비중의 합이 정확히 1이다`, () => {
       expect(LADDERS[style].reduce((a, b) => a + b.weight, 0)).toBeCloseTo(1, 10)
     })
@@ -85,6 +85,46 @@ describe('사다리 상수 — rebound (사용자 판단: 바닥권 + 반등에 
 
   it('지금 기본값이다 (사용자가 고른 모양)', () => {
     expect(DEFAULT_LADDER_STYLE).toBe('rebound')
+  })
+})
+
+describe('사다리 상수 — conviction (바닥권 확신을 측정과 어긋나지 않게 실행)', () => {
+  it('1차가 가장 크다 — "지금이 바닥"이라는 믿음을 금액으로 표현한 것', () => {
+    const L = LADDERS.conviction
+    expect(L[0].weight).toBe(Math.max(...L.map((d) => d.weight)))
+    expect(L[0].weight).toBeGreaterThan(LADDERS.rebound[0].weight)
+  })
+
+  it('**현재가 위에는 한 칸도 두지 않는다**', () => {
+    // 2026-11-12 측정: "저점 대비 X% 반등 + D일 저점 유지" 격자를 한국·미국
+    // 32칸 전부 재서 하나도 기준선을 못 넘었고, X가 커질수록 나빠졌다.
+    // 바닥권이라고 믿으면서 +8%·+23% 확인을 기다리는 건 전제와 앞뒤가 안 맞는다.
+    expect(LADDERS.conviction.every((d) => d.offset <= 0)).toBe(true)
+  })
+
+  it('아래 간격이 측정된 추가 하락폭 분포를 덮는다', () => {
+    // 국내 전체 중간값 -17.2%(25%분위 -30.1%) · 미국 IT -30.1%(25%분위 -45.3%).
+    const offs = LADDERS.conviction.map((d) => Math.abs(d.offset))
+    expect(Math.max(...offs)).toBeGreaterThanOrEqual(0.3)
+  })
+
+  it('dip보다 지금 많이 사고 rebound보다 평단을 많이 낮춘다 — 둘의 중간이 아니라 다른 선택이다', () => {
+    const c = buildAverageDownPlan({ ...HYNIX, style: 'conviction' })!
+    const d = buildAverageDownPlan({ ...HYNIX, style: 'dip' })!
+    const r = buildAverageDownPlan({ ...HYNIX, style: 'rebound' })!
+    expect(c.tranches[0].qty).toBeGreaterThan(d.tranches[0].qty)
+    expect(c.finalAvgCost).toBeLessThan(r.finalAvgCost)
+  })
+
+  it('집행 가격·수량이 고정돼 있다', () => {
+    const c = buildAverageDownPlan({ ...HYNIX, style: 'conviction' })!
+    expect(c.tranches.map((t) => [t.triggerPrice, t.direction, t.qty])).toEqual([
+      [1_280_000, 'now', 8],
+      [1_120_000, 'dip', 6],
+      [972_000, 'dip', 7],
+      [819_000, 'dip', 7],
+    ])
+    expect(Math.round(c.finalAvgCost)).toBe(1_363_805)
   })
 })
 
