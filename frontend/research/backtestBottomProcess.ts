@@ -101,6 +101,12 @@ const isSemi = (t: string) => SEMI_DESIGN.has(t) || SEMI_EQUIP.has(t)
  * 경기민감 ↔ 경기방어. 사용자의 "사이클릭한 테마는 따로 봐야 하지 않나"를 섹터
  * 수준에서도 확인하려고 둔다. GICS 분류의 통상적인 구분을 그대로 쓴다.
  */
+/**
+ * **국내(KR)에서는 이 두 집합이 0건이다 — 알고 쓴다.** `stock_universe.sector`가
+ * 국내는 한글 통계청 분류('기타 금융업'·'1차 철강 제조업' …)라 GICS 영문 이름과
+ * 하나도 안 겹친다. 국내용 매핑을 지어내면 그 매핑 자체가 검증 안 된 가정이 되므로
+ * **미국 전용 비교로 두고, 국내 출력에서 0건으로 드러나게** 한다.
+ */
 const CYCLICAL = new Set([
   'Energy', 'Materials', 'Industrials', 'Consumer Discretionary', 'Financials', 'Real Estate',
 ])
