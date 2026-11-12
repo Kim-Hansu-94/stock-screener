@@ -371,62 +371,69 @@ describe("사다리 상수 — cycle (지금 깊이에서 직접 잰 분포)", (
 
 
 describe('사다리 상수 — basing (바닥은 이미 지났다고 칠 때)', () => {
-  it('간격이 실측 분위수를 현재가 쪽으로 한 칸 당긴 값이다 (-14 / -35 / -49%)', () => {
-    // pipeline/research/semi_cycle_probe.py 4부 · 국내 반도체 20종목 10년,
-    // 바닥을 확정해 놓고 거기서 +60% 올라온 자리(= 이 종목이 선 자리)에서 산
-    // 50건의 그 뒤 24개월 되돌림:
-    //   중간값 -14.9% · 25%분위 -35.7% · 10%분위 -49.7% · 최악 -64.4%
-    // 분위수에 **딱 걸지 않는다** — 그러면 딱 그만큼 눌린 경우의 절반이
-    // 체결되지 않는다(실측: -15%에 걸었더니 8,000원 차이로 1차만 집행).
-    expect(LADDERS.basing.map((d) => d.offset)).toEqual([0, -0.14, -0.35, -0.49])
+  it('간격·비중이 되돌려 재서 1등이었던 모양 그대로다 (0/-9/-18/-30, 50/25/15/10)', () => {
+    // semi_cycle_probe.py 5부 — 4부가 고른 표본(= 바닥이 맞았던 경우)에 사다리를
+    // 그대로 돌린 결과. 24개월 +51.6%로 '지금 다 사기'(+50.3%)보다 높았고,
+    // 나쁜 25%도 -0.8%로 '지금 다 사기'(-9.9%)보다 나았다.
+    expect(LADDERS.basing.map((d) => d.offset)).toEqual([0, -0.09, -0.18, -0.3])
+    expect(LADDERS.basing.map((d) => d.weight)).toEqual([0.5, 0.25, 0.15, 0.1])
   })
 
   it('현재가 위에는 두지 않는다 — "바닥 지났다"의 올바른 실행은 지금 사는 것이다', () => {
     expect(LADDERS.basing.every((d) => d.offset <= 0)).toBe(true)
   })
 
-  it('2차가 1차 다음으로 크다 — 그 자리가 중간값이라 가장 자주 걸린다', () => {
+  it('**1차가 절반이지만 전부는 아니다** — 분할이 사는 것은 중간값이 아니라 나쁜 25%다', () => {
+    // 1.0으로 올리면 '지금 다 사기'가 되고, 그쪽은 24개월 25%분위가 -9.9%였다.
+    expect(LADDERS.basing[0].weight).toBe(0.5)
+    expect(LADDERS.basing[0].weight).toBeLessThan(1)
+  })
+
+  it('아래로 갈수록 비중이 줄어든다 — dip과 정반대 모양이다', () => {
     const w = LADDERS.basing.map((d) => d.weight)
-    expect(w[1]).toBe(Math.max(...w.slice(1)))
-    expect(w[0]).toBeGreaterThan(w[1])
+    for (let i = 1; i < w.length; i += 1) expect(w[i]).toBeLessThan(w[i - 1])
   })
 
-  it('cycle보다 간격이 넓다 — 조건이 다른 분포에서 나왔다는 증거', () => {
-    // cycle은 '지금 -45~-60% 빠져 있다'를, basing은 '바닥에서 +60% 올라왔다'를
-    // 조건으로 잰다. 둘이 같은 간격으로 수렴하면 한쪽 측정이 무의미해진 것이다.
-    LADDERS.basing.forEach((b, i) => {
-      if (i > 0) expect(b.offset).toBeLessThan(LADDERS.cycle[i].offset)
-    })
+  it('**꼬리가 다섯 중 가장 얕다** — 깊은 꼬리가 손해였다는 것이 이 모양의 요점이다', () => {
+    const last = (s: keyof typeof LADDERS) => LADDERS[s][LADDERS[s].length - 1].offset
+    for (const other of ['dip', 'conviction', 'cycle'] as const) {
+      expect(last('basing')).toBeGreaterThan(last(other))
+    }
   })
 
-  it('4차는 8개월 전 실제 바닥보다 아래다 — 전제가 깨지는 18%를 맡는 칸', () => {
+  it('예산이 거의 놀지 않는다 (1% 미만) — 깊은 사다리를 버린 이유가 이것이다', () => {
     const b = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
-    expect(b.tranches[3].triggerPrice).toBeLessThan(807_000)
+    expect(b.unusedBudget / HYNIX.budget).toBeLessThan(0.01)
   })
 
   it('SK하이닉스 실제 보유 상태에서의 집행 가격·수량이 고정돼 있다', () => {
     const b = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
     expect(b.tranches.map((t) => [t.triggerPrice, t.qty])).toEqual([
-      [1_280_000, 8],
-      [1_100_000, 8],
-      [832_000, 7],
-      [652_000, 7],
+      [1_280_000, 11],
+      [1_160_000, 7],
+      [1_040_000, 4],
+      [896_000, 4],
     ])
-    expect(Math.round(b.finalAvgCost)).toBe(1_298_767)
+    expect(Math.round(b.finalAvgCost)).toBe(1_445_205)
   })
 
-  it('**중간값만큼 눌린 시나리오에서 2차가 실제로 체결된다**', () => {
-    // 이 테스트가 이 모양의 설계 이유 그 자체다. 간격을 분위수에 딱 걸면
-    // 여기서 1이 나오고, 화면은 "계획을 세웠는데 아무것도 안 걸렸다"를 보여준다.
+  it('**4차가 8개월 전 바닥보다 위다** — 그 아래는 포기했다는 것을 박아 둔다', () => {
+    // 바닥 재이탈 18%는 받지 않기로 했다. 그 칸을 두는 비용(노는 돈)이 효용보다
+    // 컸다는 것이 5부의 결론이고, 전제를 믿지 않으면 cycle·dip을 고르면 된다.
+    const b = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    expect(b.tranches[3].triggerPrice).toBeGreaterThan(807_000)
+    expect(buildAverageDownPlan({ ...HYNIX, style: 'cycle' })!.tranches[3].triggerPrice).toBeLessThan(
+      807_000 + 60_000,
+    )
+  })
+
+  it('중간값(-15%)만큼 눌리면 1·2차가 걸리고 3차는 안 걸린다', () => {
+    // 분위수에 차수를 "딱" 걸면 안 되는 이유를 고정해 둔다 — 2차를 -15%에 두면
+    // 여기서 1이 나온다(실측: 8,000원 차이로 미체결). -9%라 여유 있게 걸린다.
     const b = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
     const medianDown = Math.round(HYNIX.price * (1 - MEDIAN_FURTHER_DROP))
     const o = evaluateScenario(HYNIX, b, '', medianDown, HYNIX.price, medianDown)
     expect(o.executedSteps).toBe(2)
-  })
-
-  it('예산이 3% 이상 놀지 않는다', () => {
-    const b = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
-    expect(b.unusedBudget / HYNIX.budget).toBeLessThan(0.03)
   })
 })
 
@@ -455,10 +462,13 @@ describe('LADDER_INFO — 모양별 설명', () => {
     }
   })
 
-  it('basing의 근거가 측정값을 그대로 인용한다', () => {
+  it('basing의 근거가 모양을 정한 측정값을 그대로 인용한다', () => {
+    // 되돌려 돌린 결과(5부)에서 이 모양이 나왔으므로, 그 세 숫자가 문구에 있어야 한다.
+    // 하나라도 빠지면 "왜 이 모양인가"가 화면에서 사라진다.
     const t = LADDER_INFO.basing.headline + LADDER_INFO.basing.body
-    expect(t).toContain('−14.9%')
-    expect(t).toContain('18%')
+    expect(t).toContain('+51.6%') // 이 모양의 24개월 중간값
+    expect(t).toContain('+50.3%') // 한 번에 다 사기 — 그보다 높았다
+    expect(t).toContain('−9.9%') // 한 번에 다 사기의 나쁜 25% — 나눠 사는 이유
   })
 
   it('판단에서 나온 모양은 rebound 하나뿐이고, 그렇게 표시된다', () => {
