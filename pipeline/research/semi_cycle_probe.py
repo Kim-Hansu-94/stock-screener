@@ -81,11 +81,30 @@ def monthly_from_daily(df: pd.DataFrame) -> pd.Series:
     return s.resample("MS").last().dropna()
 
 
-def fetch_kr() -> dict[str, pd.Series]:
+def monthly_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    """일봉 → 월봉 종가·고가·저가.
+
+    5부(사다리 되돌리기)는 **종가만으로 체결을 판정하면 안 된다** — 달 안에서
+    저가가 차수 가격을 찍고 올라와 끝난 달이 '안 걸렸다'로 세어지면, 아래쪽
+    차수를 체계적으로 과소 체결하게 되고 그러면 깊은 사다리가 실제보다 나빠 보인다.
+    """
+    d = df.copy()
+    d.index = pd.to_datetime(d.index)
+    return pd.DataFrame(
+        {
+            "close": d["Close"].resample("MS").last(),
+            "high": d["High"].resample("MS").max(),
+            "low": d["Low"].resample("MS").min(),
+        }
+    ).dropna()
+
+
+def fetch_kr() -> tuple[dict[str, pd.Series], dict[str, pd.DataFrame]]:
     import FinanceDataReader as fdr
 
     start = f"{date.today().year - YEARS}-01-01"
     out: dict[str, pd.Series] = {}
+    bars: dict[str, pd.DataFrame] = {}
     for code, name in KR_SEMI.items():
         try:
             df = fdr.DataReader(code, start)
@@ -94,11 +113,13 @@ def fetch_kr() -> dict[str, pd.Series]:
                 continue
             m = monthly_from_daily(df)
             out[code] = m
+            if {"High", "Low"} <= set(df.columns):
+                bars[code] = monthly_ohlc(df)
             print(f"  {code} {name}: 월봉 {len(m)}개 ({m.index[0].date()}~{m.index[-1].date()})", flush=True)
         except Exception as exc:  # noqa: BLE001 — 한 종목 실패가 전체를 멈추면 안 된다
             print(f"  {code} {name}: 실패 {type(exc).__name__}: {exc}", flush=True)
         time.sleep(0.2)
-    return out
+    return out, bars
 
 
 def fetch_us() -> dict[str, pd.Series]:
@@ -239,10 +260,58 @@ def _part4_block(label: str, rows: list[dict]) -> None:
     )
     print(f"      그냥 들고: 12개월 중간값 {q(u12,0.5):+.1f}% · 24개월 {q(u24,0.5):+.1f}%")
 
+
+# 5부에서 맞대 볼 사다리들. 화면(`frontend/lib/averageDownPlan.ts`)의 다섯 모양과
+# **같은 숫자**이고, 거기에 비교 기준 둘(지금 다 사기 / 앞에 싣고 꼬리 얕게)을 더했다.
+# 포팅본이 아니라 비교용 복제라 어긋나면 이 파일만 틀린다 — 그래서 아래 테스트가 아니라
+# 출력 머리에 숫자를 그대로 찍어 눈으로 대조하게 한다.
+LADDER_CANDIDATES: dict[str, list[tuple[float, float]]] = {
+    "지금 다 사기(비교기준)": [(0.00, 1.00)],
+    "저점다지기형": [(0.00, 0.35), (-0.14, 0.30), (-0.35, 0.20), (-0.49, 0.15)],
+    "사이클 실측형": [(0.00, 0.40), (-0.09, 0.25), (-0.20, 0.20), (-0.33, 0.15)],
+    "바닥권 확신형": [(0.00, 0.35), (-0.12, 0.25), (-0.24, 0.20), (-0.36, 0.20)],
+    "더 빠질 때 싣기": [(0.00, 0.18), (-0.11, 0.20), (-0.22, 0.25), (-0.34, 0.37)],
+    "반등에 싣기": [(0.00, 0.25), (-0.12, 0.20), (0.08, 0.22), (0.23, 0.33)],
+    "앞에 싣고 꼬리 얕게": [(0.00, 0.50), (-0.09, 0.25), (-0.18, 0.15), (-0.30, 0.10)],
+    "3칸 앞싣기": [(0.00, 0.60), (-0.10, 0.25), (-0.20, 0.15)],
+}
+
+
+def replay_ladder(
+    steps: list[tuple[float, float]],
+    entry: float,
+    lows: list[float],
+    highs: list[float],
+    end: float,
+) -> tuple[float, float]:
+    """사다리 하나를 한 에피소드에 되돌려 돌린다 → (수익률 %, 집행률 %).
+
+    예산 1을 비중대로 나눠 두고, 0 차수는 즉시, 음수 차수는 **그 달 저가가** 그
+    가격 이하로 내려온 달에, 양수 차수는 **그 달 고가가** 그 가격 이상으로 올라온
+    달에 체결한다. 안 걸린 돈은 **현금 그대로 남는다(이자 0)** — 이게 깊은 사다리의
+    진짜 비용이고, 이걸 빼먹으면 "아래에 많이 깔수록 좋다"가 공짜로 나온다.
+    """
+    shares = 0.0
+    spent = 0.0
+    for off, w in steps:
+        price = entry * (1 + off)
+        if off == 0:
+            hit = True
+        elif off < 0:
+            hit = any(lo <= price for lo in lows)
+        else:
+            hit = any(hi >= price for hi in highs)
+        if hit:
+            shares += w / price
+            spent += w
+    value = shares * end + (1.0 - spent)
+    return (value - 1.0) * 100, spent * 100
+
+
 def main() -> None:
     print(f"국내 반도체 {len(KR_SEMI)}종목 · 미국 반도체 {len(US_SEMI)}종목 · {YEARS}년 월봉\n")
     print("국내 월봉 수집 (FinanceDataReader, 코스닥 포함)")
-    kr = fetch_kr()
+    kr, kr_bars = fetch_kr()
     print(f"\n미국 월봉 수집 (yfinance)")
     us = fetch_us()
     if not kr or not us:
@@ -430,6 +499,96 @@ def main() -> None:
             if not big and src is kr:
                 mem = [r for r in rows if r["code"] in ("005930", "000660")]
                 _part4_block("  └ 대형 메모리(삼성·하이닉스)", mem)
+
+    # 5부 — 사용자 질문: "지금이 거의 바닥이고 저점다지며 올라간다는데 4차가 왜
+    # -49%까지 가냐, 이게 맞냐." 의견으로 답할 일이 아니라 되돌려 보면 되는 질문이다.
+    # **4부가 고른 바로 그 표본**(= 전제가 맞았던 경우)에 사다리들을 그대로 돌린다.
+    print("\n" + "=" * 92)
+    print("5부 — 그 전제가 맞았던 과거에 **사다리들을 실제로 돌려 본다**")
+    print("  예산 100을 비중대로 나눠 두고, 안 걸린 돈은 현금 그대로 둔다(이자 0).")
+    print("  체결 판정은 월봉 **저가/고가**로 한다(종가로만 보면 아래 차수가 과소 체결된다).")
+    print("=" * 92)
+    for rise, tag in ((0.60, "+60%"),):
+        for horizon in (12, 24):
+            per: dict[str, list[float]] = {k: [] for k in LADDER_CANDIDATES}
+            fill: dict[str, list[float]] = {k: [] for k in LADDER_CANDIDATES}
+            n_ep = 0
+            for code, ser in kr.items():
+                bars = kr_bars.get(code)
+                if bars is None:
+                    continue
+                for r in post_trough_paths(ser, rise, fwd_m=horizon):
+                    at = pd.Timestamp(r["at"] + "-01")
+                    if at not in bars.index:
+                        continue
+                    i = bars.index.get_loc(at)
+                    fwd = bars.iloc[i + 1 : i + 1 + horizon]
+                    if len(fwd) < horizon:
+                        continue
+                    entry = float(bars["close"].iloc[i])
+                    lows = [float(x) for x in fwd["low"]]
+                    highs = [float(x) for x in fwd["high"]]
+                    end = float(fwd["close"].iloc[-1])
+                    n_ep += 1
+                    for name, steps in LADDER_CANDIDATES.items():
+                        ret, spent = replay_ladder(steps, entry, lows, highs, end)
+                        per[name].append(ret)
+                        fill[name].append(spent)
+
+            print(f"\n  [바닥에서 {tag} 올라온 자리에서 시작 · {horizon}개월 뒤 · {n_ep}건]")
+            rows = sorted(per.items(), key=lambda kv: -q(kv[1], 0.5))
+            for name, xs in rows:
+                if not xs:
+                    continue
+                f = fill[name]
+                wins = sum(1 for x in xs if x > 0) / len(xs) * 100
+                print(
+                    f"    {name:<22} 중간값 {q(xs,0.5):+6.1f}%"
+                    f" · 25%분위 {q(xs,0.25):+6.1f}% · 75%분위 {q(xs,0.75):+7.1f}%"
+                    f" · 플러스 {wins:4.0f}%"
+                    f" · 예산집행 {sum(f)/len(f):4.0f}%"
+                )
+
+    # 같은 비교를 **전제가 틀린 쪽**에서도 한 번. 4부 표본은 바닥이 맞았던 경우만
+    # 모은 것이라 깊은 사다리에 구조적으로 불리하다 — 한쪽만 보고 꼬리를 자르면
+    # 정확히 그 편향에 속는 것이다.
+    print("\n  [대조군] 바닥인지 모르는 채 **고점 대비 -45% 아래**에서 산 경우")
+    for horizon in (24,):
+        per2: dict[str, list[float]] = {k: [] for k in LADDER_CANDIDATES}
+        n2 = 0
+        for code, ser in kr.items():
+            bars = kr_bars.get(code)
+            if bars is None:
+                continue
+            c = ser.to_list()
+            for i in range(HIGH_W, len(c) - horizon):
+                hi = max(c[i - HIGH_W : i + 1])
+                if hi <= 0 or (c[i] - hi) / hi * 100 > -45.0:
+                    continue
+                at = ser.index[i]
+                if at not in bars.index:
+                    continue
+                j = bars.index.get_loc(at)
+                fwd = bars.iloc[j + 1 : j + 1 + horizon]
+                if len(fwd) < horizon:
+                    continue
+                entry = float(bars["close"].iloc[j])
+                lows = [float(x) for x in fwd["low"]]
+                highs = [float(x) for x in fwd["high"]]
+                end = float(fwd["close"].iloc[-1])
+                n2 += 1
+                for name, steps in LADDER_CANDIDATES.items():
+                    ret, _ = replay_ladder(steps, entry, lows, highs, end)
+                    per2[name].append(ret)
+        print(f"    ({n2}개월 · {horizon}개월 뒤)")
+        for name, xs in sorted(per2.items(), key=lambda kv: -q(kv[1], 0.5)):
+            if not xs:
+                continue
+            wins = sum(1 for x in xs if x > 0) / len(xs) * 100
+            print(
+                f"    {name:<22} 중간값 {q(xs,0.5):+6.1f}%"
+                f" · 25%분위 {q(xs,0.25):+6.1f}% · 플러스 {wins:4.0f}%"
+            )
 
     print("\n" + "=" * 92)
     print("※ 상관계수는 '같이 움직인다'까지만 말한다 — 어느 쪽이 원인인지는 말하지 않는다.")
