@@ -1,0 +1,37 @@
+name: Semi Cycle Probe
+
+# 국내 반도체를 **유니버스 밖(코스닥 소부장)까지 직접 받아** 사이클을 재고,
+# 미국 반도체와의 동조를 잰다. DB를 읽지도 쓰지도 않는다 — FDR·야후에서 바로 받는다.
+#
+# 왜 DB를 안 쓰나: universe_kr이 코스피만 받아서 원익IPS·리노공업·이오테크닉스·HPSP가
+# 애초에 없다. 그래서 stock_long_monthly에도 없다. 저장하지 않고 분석만 하므로
+# 파이프라인·용량에 영향이 없다.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'pipeline/research/semi_cycle_probe.py'
+      - '.github/workflows/semi_cycle_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install pipeline dependencies
+        working-directory: pipeline
+        run: pip install -r requirements.txt
+
+      - name: Measure the Korean semiconductor cycle
+        working-directory: pipeline
+        run: python research/semi_cycle_probe.py
