@@ -250,6 +250,87 @@ def main() -> None:
         print(f"      {y}: 국내 최저 {g['kr'].min():+.1f}% · 미국 최저 {g['us'].min():+.1f}%"
               f"   (국내 -15%이하 {int((g['kr']<=-GATE).sum())}개월 · 미국 {int((g['us']<=-GATE).sum())}개월)")
 
+    # ── 3부 — **이미 깊이 빠진 상태**에서 추가로 얼마나 더 빠졌나 ────────
+    #
+    # 1·2부의 "추가 하락폭"은 전부 **고점 대비 -15% 지점에서 출발한** 값이다.
+    # 그런데 실제 사용자는 -56%에 와 있다. 출발점이 다른 숫자를 그대로 갖다 쓰면
+    # 사다리 간격이 통째로 틀어진다 — 그래서 **깊이 구간별로 따로** 잰다.
+    #
+    # 이건 '물타기 계획을 세우는 사람이 실제로 서 있는 자리'를 묻는 것이고,
+    # 앞선 측정이 답하지 못한 유일한 질문이다.
+    print("\n" + "=" * 92)
+    print("3부 — 이미 X% 빠진 상태에서 **추가로** 얼마나 더 빠졌나 (국내 반도체)")
+    print("  1·2부의 추가 하락폭은 -15% 지점 출발이라 깊이 빠진 종목엔 못 쓴다.")
+    print("=" * 92)
+    buckets: list[tuple[str, float, float]] = [
+        ("-15 ~ -30%", -15.0, -30.0),
+        ("-30 ~ -45%", -30.0, -45.0),
+        ("-45 ~ -60%", -45.0, -60.0),
+        ("-60% 이하 ", -60.0, -200.0),
+    ]
+    rows_by_bucket: dict[str, list[dict]] = {b[0]: [] for b in buckets}
+    for code, ser in kr.items():
+        c = ser.to_list()
+        for i in range(HIGH_W, len(c) - FORWARD_M):
+            hi = max(c[i - HIGH_W : i + 1])
+            if hi <= 0:
+                continue
+            dd = (c[i] - hi) / hi * 100
+            label = next((b[0] for b in buckets if b[2] < dd <= b[1]), None)
+            if label is None:
+                continue
+            start = c[i]
+            fwd = c[i + 1 : i + 1 + FORWARD_M]
+            trough = min(fwd)
+            rec = next((k for k in range(len(fwd)) if fwd[k] >= start), None)
+            rows_by_bucket[label].append({
+                "code": code,
+                "further": (trough - start) / start * 100,
+                "m12": (fwd[11] - start) / start * 100 if len(fwd) > 11 else float("nan"),
+                "m24": (fwd[23] - start) / start * 100 if len(fwd) > 23 else float("nan"),
+                "rec": rec,
+            })
+
+    for label, _, _ in buckets:
+        rs = rows_by_bucket[label]
+        if not rs:
+            print(f"\n  {label}: 0건")
+            continue
+        f = [r["further"] for r in rs]
+        m12 = [r["m12"] for r in rs if r["m12"] == r["m12"]]
+        m24 = [r["m24"] for r in rs if r["m24"] == r["m24"]]
+        rec = [r["rec"] for r in rs if r["rec"] is not None]
+        print(
+            f"\n  {label} — {len(rs)}개월 ({len({r['code'] for r in rs})}종목)"
+            + ("  ⚠ 표본 부족" if len(rs) < 30 else "")
+        )
+        print(
+            f"    추가 하락폭: 중간값 {q(f,0.5):+.1f}% · 25%분위 {q(f,0.25):+.1f}%"
+            f" · 10%분위 {q(f,0.10):+.1f}% · 최악 {min(f):+.1f}%"
+        )
+        print(f"    그냥 들고: 12개월 {q(m12,0.5):+.1f}% · 24개월 {q(m24,0.5):+.1f}%")
+        print(
+            f"    24개월 안에 그 가격 회복 {len(rec)/len(rs)*100:.0f}%"
+            f" · 중간값 {q([float(x) for x in rec],0.5):.0f}개월" if rec else "    회복 0건"
+        )
+
+    # SK하이닉스·삼성전자만 따로 — 사용자가 든 종목은 대형 메모리다.
+    print("\n  [대형 메모리만: 삼성전자 + SK하이닉스]")
+    for label, loB, hiB in buckets:
+        rs = [r for r in rows_by_bucket[label] if r["code"] in ("005930", "000660")]
+        if not rs:
+            print(f"    {label}: 0건")
+            continue
+        f = [r["further"] for r in rs]
+        m24 = [r["m24"] for r in rs if r["m24"] == r["m24"]]
+        rec = [r["rec"] for r in rs if r["rec"] is not None]
+        print(
+            f"    {label}: {len(rs)}개월 · 추가 중간값 {q(f,0.5):+.1f}%"
+            f" · 25%분위 {q(f,0.25):+.1f}% · 최악 {min(f):+.1f}%"
+            f" · 24개월 {q(m24,0.5):+.1f}%"
+            f" · 회복 {len(rec)/len(rs)*100:.0f}%"
+        )
+
     print("\n" + "=" * 92)
     print("※ 상관계수는 '같이 움직인다'까지만 말한다 — 어느 쪽이 원인인지는 말하지 않는다.")
     print("※ 지금 살아 있는 종목만 받았으므로 생존 편향이 있다.")
