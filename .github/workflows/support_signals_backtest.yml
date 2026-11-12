@@ -1,0 +1,61 @@
+name: Support Signals Backtest
+
+# 포지션 관리 카드의 지지신호 5개를 과거로 되돌려 재는 **리서치 전용** 워크플로.
+# 읽기만 한다 — DB·사이트에 아무것도 쓰지 않고 결과를 로그로 찍는다.
+#
+# 조건을 고칠 근거가 필요할 때만 돌린다. 느낌으로 조건을 고쳤다가 되돌린 전례가
+# 두 번 있어서(pattern_discovery.py의 거래량 점수, backtestEtfStage.ts의 조건 2개)
+# 손대기 전에 숫자를 보려는 것이다.
+#
+# 작업 컨테이너에는 Supabase 자격증명이 없어서 거기서는 못 돌린다 — db_probe와 같은 이유.
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: '시장'
+        required: false
+        type: choice
+        default: 'KR'
+        options:
+          - KR
+          - US
+      step:
+        description: '샘플 간격 (거래일)'
+        required: false
+        default: '10'
+  # 스크립트를 고치면 바로 한 번 돌려 본다 — 기본 브랜치 병합 전에는 이 경로로만 돈다
+  # (workflow_dispatch는 기본 브랜치의 워크플로 파일만 본다).
+  push:
+    paths:
+      - 'frontend/research/backtestSupportSignals.ts'
+      - '.github/workflows/support_signals_backtest.yml'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Node 22는 .ts를 타입만 벗겨 그대로 실행한다 — 화면이 쓰는
+      # assessSupportSignals를 포팅 없이 그대로 돌리려는 것이다.
+      - name: Backtest support signals (KR)
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MARKET: ${{ inputs.market || 'KR' }}
+          STEP: ${{ inputs.step || '10' }}
+        run: node --import ./research/resolveTsImports.mjs research/backtestSupportSignals.ts

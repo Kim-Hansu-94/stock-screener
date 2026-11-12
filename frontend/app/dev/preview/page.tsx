@@ -187,6 +187,10 @@ const POSITION_TICKERS: WatchlistTickerRow[] = [
     category: 'position', avg_cost: null },
   { market: 'US', ticker: 'IONQ', name: '아이온큐', added_at: '2026-08-19T00:00:00Z',
     category: 'position', avg_cost: 40 },
+  // (5) 폭락 중 — 지지 3개 전부 깨지고 RSI만 올라온 상태. 평단을 고점 근처로 둬서
+  // 손실률도 크게 찍히게 한다(실제 사례가 평단 대비 -40%였다).
+  { market: 'KR', ticker: '000270', name: '폭락중종목(픽스처)', added_at: '2026-04-01T00:00:00Z',
+    category: 'position', avg_cost: 280 },
 ]
 
 // SK하이닉스·현대차는 차트가 있는 경우, 삼성전자·아이온큐는 없는 경우(데이터
@@ -196,6 +200,45 @@ const WATCHLIST_HISTORY: Record<string, PriceHistoryRow[]> = {
   // 005380은 일부러 짧은 픽스처(108봉)를 써서, 120일선·일목구름도가 데이터
   // 부족으로 부분적으로만(또는 전혀) 안 그려지는 경우도 깨지지 않는지 함께 본다.
   'KR-005380': resistanceTargetHistory('005380'),
+  'KR-000270': waterfallHistory('000270'),
+}
+
+/**
+ * **폭락 중** 픽스처 — 지지 3개가 전부 깨지고 RSI만 과매도에서 올라온 상태.
+ *
+ * 실제 데이터로는 좀처럼 안 나오는데(보통 지지 하나쯤은 걸린다) 바로 그 상태에서
+ * 카드가 "단기 반등 조짐"이라고 말해 버린 적이 있다(2026-11-11 SK하이닉스).
+ * AGENTS.md가 "표본/값이 없을 때와 부호가 반대일 때를 preview에 둘 것"이라고 한
+ * 이유가 이것이라, 고친 문구가 실제로 어떻게 보이는지 여기서 눈으로 확인한다.
+ */
+function waterfallHistory(ticker: string): PriceHistoryRow[] {
+  const startDate = new Date('2026-04-01')
+  const rows: PriceHistoryRow[] = []
+  for (let i = 0; i < 150; i += 1) {
+    // 300 → 100으로 꾸준히 흘러내리다 마지막 3봉만 살짝 반등(RSI만 올라오는 모양).
+    // 이따가 한 번씩 반등하는 날을 끼운다 — 한 방향으로만 떨어지면 상승한 날이 아예
+    // 없어서 RSI가 정확히 0이 되고, preview에 '과매도(0)'라는 비현실적인 숫자가 뜬다.
+    // 반등은 7봉에 한 번만, 추세 하락(봉당 1.34)보다 작은 폭으로 둔다 — 잔물결을
+    // 크게 주면 20일 저점이 올라가 '저점 높이기'가 충족돼 이 픽스처의 목적(지지 0개)을
+    // 벗어난다(처음에 사인파를 넣었다가 실제로 그렇게 됐다).
+    const base = 300 - (200 * i) / 149
+    const close = i >= 147 ? base + (i - 146) * 5 : base + (i % 7 === 0 ? 4 : 0)
+    const date = new Date(startDate)
+    date.setDate(date.getDate() + i)
+    rows.push({
+      ticker,
+      market: 'KR',
+      date: date.toISOString().slice(0, 10),
+      // 내리는 구간은 음봉(시가 > 종가), 마지막 반등 구간만 양봉.
+      open: i >= 147 ? close - 2 : close + 2,
+      high: close + 3,
+      low: close - 3,
+      close,
+      // 하락 막판에 거래량이 늘어난다 — "거래량은 늘었지만 주가는 내렸다" 경우.
+      volume: 1_000_000 + (i > 130 ? 900_000 : 0),
+    })
+  }
+  return rows
 }
 
 // 손익비 카드용 일봉 픽스처 — lib/risk.test.ts의 두 시나리오를 그대로 재현한다.
@@ -723,7 +766,7 @@ export default function PreviewPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          포지션 관리 카드 (손실/수익/평단가 없음/시세 없음 4가지)
+          포지션 관리 카드 (손실/수익/평단가 없음/시세 없음/폭락 중 5가지)
         </h2>
         <PositionCard tickers={POSITION_TICKERS} history={WATCHLIST_HISTORY} />
       </section>

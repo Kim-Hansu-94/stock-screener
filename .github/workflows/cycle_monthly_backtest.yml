@@ -1,0 +1,58 @@
+name: Cycle Monthly Backtest
+
+# 월봉 10년으로 "사이클 한 주기"를 재고, 왜 일봉으로는 못 쟀는지를 같은 실행에서
+# 숫자로 보여 준다. 읽기만 한다 — DB·사이트에 아무것도 쓰지 않는다.
+#
+# 일봉(stock_price_history)은 600일만 보관해 종목당 약 400봉이고, 워밍업 130봉 +
+# 선행 250거래일을 빼면 에피소드 시작 구간이 20봉쯤밖에 안 남는다. 반도체 하강
+# 사이클(2018~19·2022)이 창에 아예 들어오지 않는다.
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: '시장'
+        required: false
+        type: choice
+        default: 'KR'
+        options: [KR, US]
+      drawdown_gate:
+        description: '하락 국면 판정 (12개월 고점 대비 %)'
+        required: false
+        default: '15'
+      forward_m:
+        description: '앞으로 추적할 개월 수'
+        required: false
+        default: '24'
+  push:
+    paths:
+      - 'frontend/research/backtestCycleMonthly.ts'
+      - '.github/workflows/cycle_monthly_backtest.yml'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Measure the cycle on monthly bars
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MARKET: ${{ inputs.market || 'KR' }}
+          DRAWDOWN_GATE: ${{ inputs.drawdown_gate || '15' }}
+          FORWARD_M: ${{ inputs.forward_m || '24' }}
+        run: node --import ./research/resolveTsImports.mjs research/backtestCycleMonthly.ts

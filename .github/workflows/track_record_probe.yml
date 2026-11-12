@@ -1,0 +1,46 @@
+name: Real Track Record Probe
+
+# 사이트가 실제로 "사라"고 말한 것들(눌림목 스크리너 · 저점 매집 후보)의 **실전 성적**을
+# 그대로 찍는 진단. 백테스트 가정이 아니라 실제로 추천했던 종목의 실제 결과다.
+# 읽기만 한다 — DB·사이트에 아무것도 쓰지 않는다.
+#
+# 화면(`app/history/page.tsx`)이 쓰는 쿼리·집계 함수를 **그대로** 돌리므로 출력이
+# `/history` 탭과 같아야 한다. 작업 컨테이너에는 Supabase 자격증명이 없어 거기서는 못 돈다.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'frontend/research/checkRealTrackRecord.ts'
+      - 'frontend/research/stubNextCache.mjs'
+      - '.github/workflows/track_record_probe.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Node 22가 .ts를 타입만 벗겨 실행한다. 훅 두 개로 확장자 해석과
+      # next/cache·server-only 대체를 거들어, 화면이 쓰는 쿼리를 그대로 돌린다.
+      - name: Probe real track record
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          node --import ./research/resolveTsImports.mjs \
+               --import ./research/stubNextCache.mjs \
+               research/checkRealTrackRecord.ts

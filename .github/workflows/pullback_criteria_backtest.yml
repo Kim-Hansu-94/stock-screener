@@ -1,0 +1,122 @@
+name: Pullback Criteria Backtest
+
+# 눌림목 스크리너가 왜 마이너스인지 **조건별로 쪼개서** 찾는다.
+# 읽기만 한다 — DB·사이트에 아무것도 쓰지 않는다.
+#
+# 임계값을 돌려 보지 않는다: 같은 데이터에 수십 개 파라미터를 맞춰 승률 50%를 만드는 건
+# 발견이 아니라 과최적화다(docs/backtest-guide.md). 묻는 것은 "각 조건이 성과와 같은
+# 방향인가" 하나이고, 미달 쪽이 더 좋은 조건이 있으면 그게 거꾸로 박힌 것이다.
+#
+# 2단계로 돈다:
+#   1) 파이썬이 **실제 evaluate_pullback()**으로 과거 전 거래일을 재평가해 NDJSON으로 덤프
+#      (기존 backtest_pullback.py는 8개 조건 중 4개만 구현해 화면을 설명하지 못한다)
+#   2) TS가 화면이 쓰는 computeStopTarget·resolveTrade·summarize로 성적을 재고 조건별로 쪼갠다
+# 어느 쪽도 포팅본을 만들지 않으려고 이렇게 나눴다.
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: '시장'
+        required: false
+        type: choice
+        default: 'KR'
+        options:
+          - KR
+          - US
+      max_miss:
+        description: "추천으로 볼 미달 조건 개수 상한 (화면이 보여주는 범위)"
+        required: false
+        default: '3'
+      max_tickers:
+        description: '종목 수 상한 (0 = 전체, 시험용으로 줄일 때만)'
+        required: false
+        default: '0'
+      reuse_dump_from_run:
+        description: '덤프를 다시 뽑지 않고 이 실행(run id)의 결과를 쓴다. 집계만 바꿔 다시 잴 때.'
+        required: false
+        default: ''
+  push:
+    paths:
+      - 'pipeline/research/dump_pullback_signals.py'
+      - 'frontend/research/backtestPullbackCriteria.ts'
+      - '.github/workflows/pullback_criteria_backtest.yml'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    # 다른 실행의 아티팩트(이전 덤프)를 내려받으려면 actions:read가 있어야 한다.
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install pipeline dependencies
+        working-directory: pipeline
+        run: pip install -r requirements.txt
+
+      # 1단계 — 실제 스크리너 조건을 과거 날짜마다 재평가해 파일로 떨어뜨린다.
+      #
+      # 덤프는 종목당 600봉을 전부 읽어 30분 넘게 걸린다. 집계(2단계)만 바꿔 다시 재는
+      # 일이 잦은데 그때마다 같은 덤프를 다시 뽑는 건 낭비이고, 두 실행이 겹치면 서로
+      # 느려지기까지 한다(실측: 단독 31분 → 둘이 겹치니 27분+). 그래서 덤프를 아티팩트로
+      # 올려 두고, `reuse_dump_from_run`에 이전 실행 id를 주면 그걸 내려받아 쓴다.
+      # **덤프 코드나 스크리너 조건을 고쳤다면 재사용하면 안 된다** — 옛 판정으로 재게 된다.
+      - name: Reuse previous dump
+        if: inputs.reuse_dump_from_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: pullback-signals
+          run-id: ${{ inputs.reuse_dump_from_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ github.workspace }}
+
+      - name: Dump pullback signals (real evaluate_pullback)
+        if: inputs.reuse_dump_from_run == ''
+        working-directory: pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MARKET: ${{ inputs.market || 'KR' }}
+          MAX_TICKERS: ${{ inputs.max_tickers || '0' }}
+          OUT: ${{ github.workspace }}/pullback_signals.ndjson
+        run: python research/dump_pullback_signals.py
+
+      - name: Keep the dump for re-measuring
+        if: inputs.reuse_dump_from_run == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pullback-signals
+          path: ${{ github.workspace }}/pullback_signals.ndjson
+          retention-days: 7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # 2단계 — 화면이 쓰는 손절·목표·R 집계를 그대로 돌려 조건별 방향을 본다.
+      - name: Measure per-criterion direction
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SIGNALS: ${{ github.workspace }}/pullback_signals.ndjson
+          MARKET: ${{ inputs.market || 'KR' }}
+          MAX_MISS: ${{ inputs.max_miss || '3' }}
+        run: node --import ./research/resolveTsImports.mjs research/backtestPullbackCriteria.ts

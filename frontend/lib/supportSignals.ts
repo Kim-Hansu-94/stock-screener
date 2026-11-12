@@ -11,6 +11,41 @@
 // 안 겹쳐도 반등할 수 있다. 그래서 단일 "매수 등급"으로 합치지 않고(buySignal.ts의
 // buyGrade와 다른 점) 조건별 충족 여부와 실제 숫자를 그대로 나열만 한다 —
 // 판단 근거를 숨기지 않고 사용자가 직접 보게 하려는 것이다.
+//
+// ── 백테스트로 실제로 재봤다 (2026-11-11) ──────────────────────────────────
+// `research/backtestSupportSignals.ts`로 국장 946종목 16,832건(물타기 상황만 보면
+// 814종목 7,584건)을 재생해, 조건을 충족한 날과 미충족한 날의 그 뒤 수익률을 비교했다.
+// **날짜별 중앙값을 빼 시장 효과를 제거한 값**(이게 진짜 우위다)의 중앙값 차이:
+//
+//   조건                전체20일  전체60일  물타기20일  물타기60일
+//   120일선 근접          +0.26%    +0.52%     +0.30%     +1.20%
+//   일목구름 지지         -0.14%    +0.97%     -1.81%     -1.96%
+//   RSI 과매도 후 반등    +0.00%    -1.04%     +0.57%     +0.58%
+//   저점 높이기           -0.07%    +0.99%     -1.10%     -1.50%
+//   거래량 실린 상승      +0.22%    +0.00%     -0.13%     -1.26%
+//
+// 읽어야 할 세 가지.
+//
+// **(1) 임계값을 손볼 근거가 없다.** 차이가 전부 ±2% 안이고 **부호가 표본과
+// 지평선에 따라 뒤집힌다**(일목구름 +0.97% ↔ -1.96%, 저점 높이기 +0.99% ↔ -1.50%,
+// RSI -1.04% ↔ +0.57%). `backtestEtfStage.ts`가 490590에서 얻은 결론과 똑같다 —
+// 부호가 안 고정되는 건 구조가 아니라 잡음이거나 상황 의존이라는 뜻이다. 그래서
+// 2026-11-11 재검토에서 **조건·임계값은 하나도 바꾸지 않았다**(바꾼 건 문구와
+// 일봉 창뿐이다). MA_NEAR_PCT를 비대칭으로 바꾸거나 RSI 반등 강도를 요구하거나
+// 거래량에 buyingVolumeShare를 넣는 안을 세워 봤지만, 전부 이 숫자가 받쳐 주지 않는다.
+//
+// **(2) 깊이 빠진 종목에서는 지지 조건이 오히려 거꾸로다.** 일목구름·저점 높이기는
+// 전체 표본 60일에서 +1%쯤인데 물타기 상황에서는 두 지평선 모두 -1.5~-2%다.
+// 네 칸 모두 양수인 건 **120일선 근접 하나뿐**이다.
+//
+// **(3) 개수를 세는 것이 물타기 상황에서는 근거가 없다.** 충족 개수별 60일
+// 중앙값(물타기, 시장효과 제거)이 0개 -0.43% · 1개 -1.47% · 2개 -2.57% ·
+// 3개 -1.79% · 4개 +0.15%(132건)로 **단조롭지 않고 2개가 최악**이다. 전체 표본에서도
+// 0개 -0.17% · 1개 -0.65% · 2개 0.00% · 3개 +0.90% · 4개 +0.07%로 들쭉날쭉하다.
+// 그래서 화면은 "N/5 충족"을 **많을수록 좋다는 뜻으로 읽히지 않게** 적어야 한다.
+//
+// 한계: 생존 편향을 못 뺐고(유니버스가 오늘 기준), 60일 성과를 10일 간격으로 봐서
+// 연속한 표본이 서로 겹친다. 믿을 숫자는 건수가 아니라 종목 수다.
 
 import { ichimokuLines, relativeStrengthIndex, simpleMovingAverage } from './calculations'
 import type { PriceHistoryRow } from './types'
@@ -262,17 +297,42 @@ export interface SupportSummary {
   verdict: string
 }
 
-function verdictFor(supportStrong: boolean, demandStrong: boolean): string {
-  if (supportStrong && demandStrong) {
-    return '바닥이 받쳐주는 데다 매수세도 들어오는 중이라, 5개 조건 중에서는 가장 좋은 조합입니다.'
+/**
+ * 지지 계열이 **하나도** 충족되지 않은 상태를 따로 가른다.
+ *
+ * 왜 따로 가르나 (2026-11-11, SK하이닉스 실측으로 드러났다)
+ * ---------------------------------------------------------
+ * 예전에는 지지 계열을 `supportStrong` 하나(과반인가)로만 봤다. 그래서 지지 3개가
+ * **전부** 깨져도 수요 조건 하나만 걸리면 "지지선 위로는 아직 못 올라왔지만, 단기
+ * 반등 조짐은 보이는 그림"이라는 결론이 나왔다. 실제로 그렇게 떴다:
+ *
+ *   120일선 대비 -33.5% · 일목구름 하단 대비 -25.3% · 저점 계속 낮아지는 중 ·
+ *   거래량 1.3배인데 주가 -14.1% · 평단 대비 -40.2% · 구간 고점 대비 -59.3%
+ *   → 그런데 RSI가 32에서 40으로 올라온 것 하나로 "단기 반등 조짐"
+ *
+ * 59% 빠지는 중인 종목에서 RSI가 8포인트 올라온 건 하루하루의 잡음이고, 그걸
+ * "조짐"이라고 부르면 **물타기를 권하는 것처럼 읽힌다.** 과반(1.5개)과 0개는
+ * 질적으로 다른 상태라, 0개를 따로 본다.
+ *
+ * 문구만 바꾼 것이지 **판정(met)은 건드리지 않았다** — 어느 조건이 충족인지는 그대로다.
+ */
+type SupportLevel = 'none' | 'partial' | 'strong'
+
+function verdictFor(support: SupportLevel, demandStrong: boolean): string {
+  if (support === 'none') {
+    // 받쳐 줄 자리가 없을 때는 수요 조건이 걸려도 "조짐"으로 부르지 않는다.
+    return demandStrong
+      ? '바닥을 받쳐 주는 신호는 하나도 없습니다. 단기 반등 움직임은 있지만 아래를 받쳐 줄 자리가 없어, 아직 하락이 진행 중인 그림으로 보는 편이 안전합니다.'
+      : '바닥을 받쳐 주는 신호가 하나도 없고 매수세도 안 보여, 하락이 그대로 진행 중인 그림입니다.'
   }
-  if (supportStrong) {
-    return '바닥은 다지는 듯하지만 아직 올라갈 힘은 안 보이는 그림입니다.'
+  if (support === 'strong') {
+    return demandStrong
+      ? '바닥이 받쳐주는 데다 매수세도 들어오는 중이라, 5개 조건 중에서는 가장 좋은 조합입니다.'
+      : '바닥은 다지는 듯하지만 아직 올라갈 힘은 안 보이는 그림입니다.'
   }
-  if (demandStrong) {
-    return '지지선 위로는 아직 못 올라왔지만, 단기 반등 조짐은 보이는 그림입니다.'
-  }
-  return '지지선 아래인 데다 매수세도 없어, 아직 하락이 진행 중일 수 있는 그림입니다.'
+  return demandStrong
+    ? '지지선 위로는 아직 못 올라왔지만, 단기 반등 조짐은 보이는 그림입니다.'
+    : '지지선 아래인 데다 매수세도 없어, 아직 하락이 진행 중일 수 있는 그림입니다.'
 }
 
 /**
@@ -291,10 +351,18 @@ export function summarizeSupportSignals(assessment: SupportSignalAssessment): Su
   const countJudged = (ids: SupportSignalId[]) => judged.filter((s) => ids.includes(s.id)).length
   // 지지 계열은 과반, 수요 계열은 하나라도 충족이면 "있다"로 본다(수요 조건은 2개뿐이라
   // 과반을 요구하면 사실상 둘 다여야 해서 너무 빡빡하다).
-  const supportStrong = countMet(SUPPORT_IDS) * 2 >= countJudged(SUPPORT_IDS) && countMet(SUPPORT_IDS) > 0
+  // 단 지지 계열이 **0개**면 과반 여부와 별개로 따로 가른다 — verdictFor 주석 참고.
+  const supportMet = countMet(SUPPORT_IDS)
+  const supportJudged = countJudged(SUPPORT_IDS)
+  const support: SupportLevel =
+    supportJudged > 0 && supportMet === 0
+      ? 'none'
+      : supportMet * 2 >= supportJudged && supportMet > 0
+        ? 'strong'
+        : 'partial'
   const demandStrong = countMet(DEMAND_IDS) > 0
 
-  const verdict = verdictFor(supportStrong, demandStrong)
+  const verdict = verdictFor(support, demandStrong)
   const parts: string[] = []
   if (met.length > 0) parts.push(`지금은 ${met.map((s) => s.phrase).join(', ')}입니다.`)
   if (unmet.length > 0) {

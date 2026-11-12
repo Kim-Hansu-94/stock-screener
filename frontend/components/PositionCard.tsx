@@ -13,6 +13,7 @@ import { changeTextClass } from '@/lib/marketColors'
 import { StockNewsFeed } from '@/components/StockNewsFeed'
 import { AddWatchlistForm, EditAvgCostButton, RemoveWatchlistButton } from '@/components/WatchlistActions'
 import { AverageCostCalculator } from '@/components/AverageCostCalculator'
+import { AverageDownPlanPanel } from '@/components/AverageDownPlanPanel'
 import { LazyStockChart } from '@/components/LazyStockChart'
 import { MarketExtrasPanel } from '@/components/MarketExtrasPanel'
 import { KrExtrasBadges } from '@/components/KrExtrasBadges'
@@ -193,9 +194,26 @@ export function PositionCard({
                   ))}
                 </ul>
 
+                {/*
+                  막연한 면피 문구가 아니라 **실제로 재본 숫자**를 적는다 (2026-11-11).
+                  research/backtestSupportSignals.ts로 국장 946종목을 재생해 보니 조건별
+                  우위가 전부 ±2% 안이고 부호가 표본·지평선마다 뒤집혔고, 특히 이미 깊이
+                  빠진 종목에서는 **충족 개수가 많을수록 좋다는 관계가 없었다**(60일 중앙값이
+                  0개 -0.43% · 1개 -1.47% · 2개 -2.57% · 3개 -1.79%). 그래서 위의 "N/M 충족"을
+                  점수처럼 읽으면 안 된다는 것을 숫자와 함께 밝힌다 — 근거를 감춘 초록불을
+                  만들지 않는다는 이 카드의 원칙이 문구에도 적용되는 것이다.
+                */}
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground/70">
                   이 점검은 매수 추천이 아닙니다. 조건이 다 겹쳐도 더 떨어질 수 있고, 하나도 안
                   겹쳐도 반등할 수 있습니다. 최종 판단은 직접 하세요.
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground/70">
+                  <span className="font-semibold">충족 개수를 점수로 읽지 마세요.</span> 국장
+                  946종목으로 과거를 재보니 조건별 우위가 모두 ±2% 안이고 기간에 따라 부호가
+                  뒤집혔습니다. 특히 <span className="font-semibold">이미 크게 빠진 종목</span>에서는
+                  많이 충족한 쪽이 더 낫지 않았습니다(60일 뒤 중앙값 0개 −0.4% · 1개 −1.5% ·
+                  2개 −2.6% · 3개 −1.8%). 조건은 <span className="font-semibold">지금 상태를
+                  설명하는 숫자</span>로만 보세요.
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground/70">기준일: {latest.date}</p>
               </>
@@ -216,6 +234,24 @@ export function PositionCard({
                       savedAvgCost={entry.avg_cost}
                     />
                   </div>
+                )}
+                {latest && (
+                  <AverageDownPlanPanel
+                    market={entry.market}
+                    ticker={entry.ticker}
+                    avgCost={entry.avg_cost}
+                    currentPrice={latest.close}
+                    /* 시나리오의 '구간 저가'는 지어낸 값이 아니라 **이 종목이 실제로
+                       찍었던 저가**다. 판정에 쓰는 것과 같은 일봉에서 낸다.
+                       **날짜도 같이 넘긴다** — 실행 계획이 "바닥에서 몇 개월차인가"를
+                       거기서 계산한다. 개월 수를 상수로 두면 시간이 지나는 것만으로
+                       화면이 조용히 틀린 말을 하게 된다. */
+                    periodLow={bars.reduce((lo, b) => (b.low < lo ? b.low : lo), Number.POSITIVE_INFINITY)}
+                    periodLowDate={
+                      bars.reduce((lo, b) => (b.low < lo.low ? b : lo), bars[0] ?? { low: 0, date: '' }).date
+                    }
+                    className="mt-3 border-t border-border pt-3"
+                  />
                 )}
                 <MarketExtrasPanel
                   market={entry.market}

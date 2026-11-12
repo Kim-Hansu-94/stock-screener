@@ -230,14 +230,32 @@ describe('summarizeSupportSignals', () => {
     expect(s?.verdict).toContain('가장 좋은 조합')
   })
 
-  it('calls out a bounce with no support underneath', () => {
-    const s = summarizeSupportSignals(assessment({ rsiBounce: true, volumeRise: true }))
+  it('still calls it 단기 반등 조짐 when some support is left (지지 1/3 + 수요)', () => {
+    // 지지가 **일부라도** 남아 있으면 예전 문구 그대로다 — 바뀐 건 0개인 경우뿐이다.
+    const s = summarizeSupportSignals(assessment({ nearMa: true, rsiBounce: true }))
     expect(s?.verdict).toContain('단기 반등 조짐')
   })
 
-  it('warns when neither support nor demand is present', () => {
+  it('does NOT call it 반등 조짐 when every support condition is broken', () => {
+    // 2026-11-11 SK하이닉스 실측 상태를 그대로 넣는다: 지지 3개 전부 깨졌고
+    // RSI만 과매도에서 올라온 상황. 예전에는 이걸 "단기 반등 조짐은 보이는 그림"이라고
+    // 불렀다 — 120일선 -33.5%, 구름 -25.3%, 저점 계속 낮아지는 중, 거래량 1.3배에
+    // 주가 -14.1%, 평단 대비 -40.2%인 종목에서 나온 문장이다. 물타기를 권하는
+    // 것처럼 읽히므로, 받쳐 줄 자리가 없을 때는 "조짐"이라고 부르지 않는다.
+    const s = summarizeSupportSignals(
+      assessment({ nearMa: false, cloud: false, higherLow: false, rsiBounce: true, volumeRise: false }),
+    )
+    expect(s?.verdict).toContain('하나도 없습니다')
+    expect(s?.verdict).toContain('하락이 진행 중인')
+    expect(s?.verdict).not.toContain('조짐')
+    // 사실 자체는 그대로 말한다 — RSI가 올라온 건 숨기지 않는다.
+    expect(s?.text).toContain('rsiBounce-구절')
+  })
+
+  it('warns most plainly when neither support nor demand is present', () => {
     const s = summarizeSupportSignals(assessment({}))
-    expect(s?.verdict).toContain('하락이 진행 중일 수 있는')
+    expect(s?.verdict).toContain('하나도 없고 매수세도 안 보여')
+    expect(s?.verdict).toContain('하락이 그대로 진행 중인')
     expect(s?.text).not.toContain('다만') // 충족된 게 없으면 "다만"으로 시작하지 않는다
   })
 
