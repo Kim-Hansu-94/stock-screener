@@ -25,6 +25,13 @@
       (b) 하락 국면 겹침 — 미국 반도체 지수가 하락 국면일 때 국내도 그랬던 달의 비율.
           상관계수는 평상시 잡음에 희석되므로 **하락기만 따로** 봐야 한다.
       (c) 에피소드 시작 월 대조 — 미국이 빠지기 시작한 달 전후로 국내가 빠졌나.
+3부 — **이미 X% 빠진 자리**에서 추가로 얼마나 더 빠졌나(깊이 구간별). 1·2부의 추가
+      하락폭은 전부 '-15% 지점 출발'이라 깊이 빠진 종목의 사다리 간격에 못 쓴다.
+4부 — **바닥이 이미 지났다고 칠 때** 그 뒤의 모양. 사용자 전제가 "저점은 나왔고
+      지금부터 다지며 올라간다"이고 실제 위치도 그렇다(8개월 전 바닥 807,000원 대비
+      현재 1,280,000원 = +58.6%). 바닥에서 +40%/+60% 올라온 자리에서 재서 ① 되돌림
+      깊이 ② **바닥 재이탈 확률**(= 전제가 틀어지는 빈도) ③ 그 뒤 상승폭을 낸다.
+      **바닥 판정에 후견지명이 들어 있다** — '전제가 맞았다면'까지만 말한다.
 
 한계
 ----
@@ -158,6 +165,79 @@ def q(xs: list[float], p: float) -> float:
     s = sorted(xs)
     return s[min(len(s) - 1, max(0, round((len(s) - 1) * p)))]
 
+
+
+def post_trough_paths(series, rise: float, fwd_m: int = 24) -> list[dict]:
+    """**바닥이 이미 지나갔다고 치고**, 거기서 +rise 올라온 자리의 그 뒤를 잰다.
+
+    사용자 전제가 "저점은 이미 나왔고 지금부터 저점다지며 올라간다"이고, 실제
+    위치도 그렇다 — SK하이닉스의 8개월 전 바닥 807,000원 대비 지금 1,280,000원은
+    **+58.6%**다. 즉 '바닥에 서 있는 사람'이 아니라 **'바닥에서 한참 올라온 자리에
+    서 있는 사람'**이다. 1~3부의 측정은 전부 '깊이 빠진 자리'를 묻고 있어서 이
+    질문에 답하지 못한다.
+
+    **이 표본은 전제가 맞았던 경우만 모은 것이다.** 바닥인지 아닌지는 지나고 나서야
+    아는 것이므로(±6개월 최저를 조건으로 쓴다) 여기엔 후견지명이 들어 있다. 그래서
+    "바닥이 맞다면 그 뒤가 어땠나"까지만 말하고, **전제가 틀렸을 때의 손실은
+    여기서 알 수 없다** — 그건 3부의 추가 하락폭이 맡는다.
+
+    바닥 정의: ±6개월 중 최저 **이고** 직전 12개월 고점 대비 -30% 이하(얕은 눌림 제외).
+    """
+    c = series.to_list()
+    months = [d.strftime("%Y-%m") for d in series.index]
+    n = len(c)
+    out: list[dict] = []
+    used = -10**9
+    for t in range(12, n - 6):
+        if c[t] != min(c[t - 6 : t + 7]):
+            continue
+        hi = max(c[t - 12 : t])
+        if hi <= 0 or (c[t] - hi) / hi > -0.30:
+            continue
+        if t - used < 12:          # 같은 바닥을 두 번 세지 않는다
+            continue
+        used = t
+        p = next((k for k in range(t + 1, min(n, t + 19)) if c[k] >= c[t] * (1 + rise)), None)
+        if p is None or p + 6 >= n:  # 앞으로 최소 6개월은 봐야 한다
+            continue
+        fwd = c[p + 1 : p + 1 + fwd_m]
+        lo, hiF = min(fwd), max(fwd)
+        out.append({
+            "trough": months[t], "at": months[p], "after": p - t,
+            "pull": (lo - c[p]) / c[p] * 100,
+            "revisit": lo <= c[t] * 1.05,
+            "maxup": (hiF - c[p]) / c[p] * 100,
+            "up12": (fwd[11] - c[p]) / c[p] * 100 if len(fwd) > 11 else float("nan"),
+            "up24": (fwd[23] - c[p]) / c[p] * 100 if len(fwd) > 23 else float("nan"),
+        })
+    return out
+
+
+def _part4_block(label: str, rows: list[dict]) -> None:
+    if not rows:
+        print(f"    {label}: 0건")
+        return
+    pull = [r["pull"] for r in rows]
+    mx = [r["maxup"] for r in rows]
+    u12 = [r["up12"] for r in rows if r["up12"] == r["up12"]]
+    u24 = [r["up24"] for r in rows if r["up24"] == r["up24"]]
+    rev = sum(1 for r in rows if r["revisit"])
+    after = [float(r["after"]) for r in rows]
+    print(
+        f"    {label}: {len(rows)}건 ({len({r['code'] for r in rows})}종목)"
+        + ("  ⚠ 표본 부족" if len(rows) < 20 else "")
+    )
+    print(f"      바닥에서 그 자리까지: 중간값 {q(after,0.5):.0f}개월")
+    print(
+        f"      그 뒤 되돌림(눌림): 중간값 {q(pull,0.5):+.1f}% · 25%분위 {q(pull,0.25):+.1f}%"
+        f" · 10%분위 {q(pull,0.10):+.1f}% · 최악 {min(pull):+.1f}%"
+    )
+    print(f"      **바닥 재이탈(저점 +5% 아래로 복귀) {rev}/{len(rows)}건 = {rev/len(rows)*100:.0f}%**")
+    print(
+        f"      그 뒤 최대 상승: 중간값 {q(mx,0.5):+.1f}% · 25%분위 {q(mx,0.25):+.1f}%"
+        f" · 75%분위 {q(mx,0.75):+.1f}%"
+    )
+    print(f"      그냥 들고: 12개월 중간값 {q(u12,0.5):+.1f}% · 24개월 {q(u24,0.5):+.1f}%")
 
 def main() -> None:
     print(f"국내 반도체 {len(KR_SEMI)}종목 · 미국 반도체 {len(US_SEMI)}종목 · {YEARS}년 월봉\n")
@@ -330,6 +410,26 @@ def main() -> None:
             f" · 24개월 {q(m24,0.5):+.1f}%"
             f" · 회복 {len(rec)/len(rs)*100:.0f}%"
         )
+
+    # 4부 — 사용자 전제("저점은 이미 나왔고 지금부터 다지며 올라간다")를 그대로 측정한다.
+    # 1~3부는 전부 '지금 깊이 빠진 자리'를 묻는다. 그런데 SK하이닉스는 8개월 전
+    # 바닥(807,000원)에서 이미 +58.6% 올라온 자리(1,280,000원)다 — 질문이 다르다.
+    print("\n" + "=" * 92)
+    print("4부 — **바닥이 이미 지났다고 칠 때** 그 뒤의 모양 (되돌림·재이탈·상승폭)")
+    print("  ※ 바닥 판정에 후견지명이 들어 있다 — '전제가 맞았다면'까지만 말한다.")
+    print("=" * 92)
+    for rise, tag in ((0.40, "+40%"), (0.60, "+60%")):
+        print(f"\n  [바닥에서 {tag} 올라온 자리에서 샀다면]  (SK하이닉스 현재: +58.6%)")
+        for name, src, big in (("국내 반도체", kr, False), ("미국 반도체", us, False)):
+            rows: list[dict] = []
+            for code, ser in src.items():
+                for r in post_trough_paths(ser, rise):
+                    r["code"] = code
+                    rows.append(r)
+            _part4_block(name, rows)
+            if not big and src is kr:
+                mem = [r for r in rows if r["code"] in ("005930", "000660")]
+                _part4_block("  └ 대형 메모리(삼성·하이닉스)", mem)
 
     print("\n" + "=" * 92)
     print("※ 상관계수는 '같이 움직인다'까지만 말한다 — 어느 쪽이 원인인지는 말하지 않는다.")
