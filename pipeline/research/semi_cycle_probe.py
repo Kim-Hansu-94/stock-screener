@@ -308,6 +308,45 @@ def replay_ladder(
     return (value - 1.0) * 100, spent * 100
 
 
+# 이 종목이 지금 서 있는 자리. 6부는 과거 사이클을 **이 자리에 겹쳐서** 본다.
+NOW_TROUGH_PRICE = 807_000.0    # 8개월 전 바닥 (사용자 증권사 앱 · 앞선 작업에서 확인)
+NOW_PRICE = 1_280_000.0
+NOW_MONTHS_AFTER_TROUGH = 8
+
+
+def trough_paths(series, horizon: int = 30) -> list[list[float]]:
+    """**바닥을 0개월로 맞춘** 이후 경로들. 각 원소는 바닥 종가를 1.0으로 한 배수 배열.
+
+    4부와 **같은 바닥 정의**를 쓴다(±6개월 최저 + 직전 12개월 고점 대비 -30% 이하,
+    같은 바닥을 두 번 세지 않게 12개월 쿨다운). 4부가 "+60% 올라온 한 지점"만
+    봤다면, 여기서는 **바닥 이후 전 구간을 통째로** 포개어 평균 회복 경로를 만든다.
+
+    사용자 질문이 "몇 개월 뒤에 사야 하나"라 **시간축이 필요**한데, 지금까지의
+    측정은 전부 가격축(분위수)이었다 — 그래서 '언제'에 답하지 못했다.
+    """
+    c = series.to_list()
+    n = len(c)
+    out: list[list[float]] = []
+    used = -10**9
+    for t in range(12, n - 6):
+        if c[t] != min(c[t - 6 : t + 7]):
+            continue
+        hi = max(c[t - 12 : t])
+        if hi <= 0 or (c[t] - hi) / hi > -0.30:
+            continue
+        if t - used < 12:
+            continue
+        used = t
+        path = [c[k] / c[t] for k in range(t, min(n, t + horizon + 1))]
+        if len(path) >= NOW_MONTHS_AFTER_TROUGH + 13:   # 지금 자리 + 앞으로 1년은 봐야 한다
+            out.append(path)
+    return out
+
+
+def _at(paths: list[list[float]], m: int) -> list[float]:
+    return [p[m] for p in paths if len(p) > m]
+
+
 def main() -> None:
     print(f"국내 반도체 {len(KR_SEMI)}종목 · 미국 반도체 {len(US_SEMI)}종목 · {YEARS}년 월봉\n")
     print("국내 월봉 수집 (FinanceDataReader, 코스닥 포함)")
@@ -589,6 +628,77 @@ def main() -> None:
                 f"    {name:<22} 중간값 {q(xs,0.5):+6.1f}%"
                 f" · 25%분위 {q(xs,0.25):+6.1f}% · 플러스 {wins:4.0f}%"
             )
+
+    # 6부 — 사용자 질문: "과거 사이클의 바닥 이후 흐름에 지금을 겹쳐서, 내가 언제
+    # 사는 게 좋을지." 1~5부는 전부 **가격축**(분위수)이라 '언제'에 답하지 못했다.
+    print("\n" + "=" * 92)
+    print("6부 — 바닥을 0개월로 맞춰 **겹쳐 본 회복 경로** (시간축)")
+    print(f"  지금 자리: 바닥 {NOW_TROUGH_PRICE:,.0f}원 → 현재 {NOW_PRICE:,.0f}원"
+          f" = {NOW_PRICE/NOW_TROUGH_PRICE:.3f}배 · 바닥에서 {NOW_MONTHS_AFTER_TROUGH}개월차")
+    print("=" * 92)
+    NOW_X = NOW_PRICE / NOW_TROUGH_PRICE
+
+    groups: list[tuple[str, dict]] = [("국내 반도체", kr), ("미국 반도체", us)]
+    for gname, src in groups:
+        paths: list[list[float]] = []
+        for ser in src.values():
+            paths.extend(trough_paths(ser))
+        if not paths:
+            print(f"\n  [{gname}] 표본 0건")
+            continue
+        print(f"\n  [{gname}] 바닥 사례 {len(paths)}건")
+
+        print("    개월:  " + " ".join(f"{m:>6}" for m in (0, 3, 6, 8, 12, 15, 18, 21, 24)))
+        for label, pq in (("중간값", 0.5), ("25%분위", 0.25), ("75%분위", 0.75)):
+            cells = []
+            for m in (0, 3, 6, 8, 12, 15, 18, 21, 24):
+                xs = _at(paths, m)
+                cells.append(f"{q(xs,pq):6.2f}" if xs else "     -")
+            print(f"    {label:<7}" + " ".join(cells) + "   (바닥=1.00 배수)")
+
+        at8 = _at(paths, NOW_MONTHS_AFTER_TROUGH)
+        faster = sum(1 for x in at8 if x < NOW_X) / len(at8) * 100
+        print(
+            f"    → 8개월차 과거 중간값 {q(at8,0.5):.2f}배 vs 지금 {NOW_X:.2f}배"
+            f" — 과거 {faster:.0f}%보다 많이 올라와 있다"
+        )
+
+        # 8개월차에 서 있는 사람에게 중요한 것: 앞으로 어느 달이 싼가.
+        base = NOW_MONTHS_AFTER_TROUGH
+        rel = [[p[m] / p[base] for m in range(base, len(p))] for p in paths if len(p) > base]
+        print(f"\n    [지금({base}개월차)을 1.00으로 놓은 앞으로의 경로]")
+        print("    개월:  " + " ".join(f"{base+k:>6}" for k in (1, 2, 3, 4, 6, 9, 12, 16)))
+        for label, pq in (("중간값", 0.5), ("25%분위", 0.25)):
+            cells = []
+            for k in (1, 2, 3, 4, 6, 9, 12, 16):
+                xs = [r[k] for r in rel if len(r) > k]
+                cells.append(f"{q(xs,pq):6.2f}" if xs else "     -")
+            print(f"    {label:<7}" + " ".join(cells))
+
+        # "앞으로 12개월 안에서 가장 싼 달이 몇 개월 뒤였나"
+        lowm = [min(range(1, min(13, len(r))), key=lambda k: r[k]) for r in rel if len(r) > 2]
+        cheaper = [k for r, k in zip(rel, lowm) if len(r) > k and r[k] < 1.0]
+        print(
+            f"    앞으로 12개월 중 **가장 싼 달**: 중간값 {q([float(x) for x in lowm],0.5):.0f}개월 뒤"
+            f" · 25~75% {q([float(x) for x in lowm],0.25):.0f}~{q([float(x) for x in lowm],0.75):.0f}개월 뒤"
+        )
+        lows = [min(r[1 : 13]) for r in rel if len(r) > 3]
+        below = sum(1 for x in lows if x < 1.0) / len(lows) * 100
+        cheap = [x for x in lows if x < 1.0]
+        depth = f"쌀 때의 깊이 중간값 {(q(cheap,0.5)-1)*100:+.1f}%" if cheap else "더 싼 적이 없었다"
+        print(f"    그 최저가가 지금보다 **쌌던 비율 {below:.0f}%** · {depth}")
+
+        # 직접적인 답: 몇 개월차에 샀으면 좋았나 (그 달 종가 → 24개월차)
+        print(f"\n    [어느 달에 샀으면 좋았나 — 그 달에 사서 24개월차까지]")
+        best = []
+        for k in (0, 1, 2, 3, 4, 6, 8, 10, 12):
+            xs = [p[24] / p[base + k] - 1 for p in paths if len(p) > 24]
+            if not xs:
+                continue
+            best.append((base + k, q(xs, 0.5) * 100, q(xs, 0.25) * 100, len(xs)))
+        for m, med, p25, n in best:
+            mark = "  ← 지금" if m == base else ""
+            print(f"      {m:>2}개월차 매수 → 중간값 {med:+6.1f}% · 25%분위 {p25:+6.1f}% ({n}건){mark}")
 
     print("\n" + "=" * 92)
     print("※ 상관계수는 '같이 움직인다'까지만 말한다 — 어느 쪽이 원인인지는 말하지 않는다.")
