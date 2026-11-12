@@ -102,6 +102,29 @@ async function main() {
     console.log(`  현재가 ${won(latest.close)}원 · 평단 대비 ${pl === null ? '—' : pl.toFixed(2) + '%'}`)
     console.log(`  구간 최고가 대비 ${dd === null ? '—' : dd.toFixed(2) + '%'}`)
 
+    // **저가와 고가 중 어느 쪽이 더 최근인가** — 화면의 '추가 매수 분할 계획'이
+    // 구간 저가를 "바닥"으로 보고 "바닥에서 N개월차"를 센다. 그런데 저가 뒤에
+    // 신고가를 찍고 다시 내려온 종목이면 그 저가는 더 이상 바닥이 아니고,
+    // "바닥에서 회복 중"이라는 전제 자체가 틀린다(2026-11-12 사용자 지적).
+    // 어느 쪽인지는 날짜를 찍어 봐야만 알 수 있어서 여기서 가른다.
+    const lowBar = rows.reduce((a, b) => (b.low < a.low ? b : a), rows[0])
+    const highBar = rows.reduce((a, b) => (b.high > a.high ? b : a), rows[0])
+    const months = (d: string) => {
+      const x = new Date(`${d}T00:00:00`)
+      const n = new Date(`${latest.date}T00:00:00`)
+      return (n.getFullYear() - x.getFullYear()) * 12 + (n.getMonth() - x.getMonth())
+    }
+    console.log(
+      `  구간 저가 ${won(lowBar.low)} (${lowBar.date}, ${months(lowBar.date)}개월 전)` +
+        ` · 구간 고가 ${won(highBar.high)} (${highBar.date}, ${months(highBar.date)}개월 전)`,
+    )
+    console.log(
+      highBar.date > lowBar.date
+        ? `  ⚠ **고가가 저가보다 나중이다** — 저가는 이미 지나간 바닥이고 지금은 그 뒤 고점에서 내려온 자리다.` +
+            ` '바닥에서 ${months(lowBar.date)}개월차 회복 중'이라는 전제는 성립하지 않는다.`
+        : `  저가가 고가보다 나중이다 — 고점에서 내려와 저점을 찍고 올라오는 중(= 바닥 이후 회복) 전제가 성립할 수 있다.`,
+    )
+
     const assessment = assessSupportSignals(rows)
     console.log(`\n  지지신호 ${assessment.metCount}/${assessment.evaluatedCount} 충족:`)
     for (const s of assessment.signals) {

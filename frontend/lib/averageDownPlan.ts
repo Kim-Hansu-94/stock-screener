@@ -255,13 +255,14 @@ export const LADDER_INFO: Record<LadderStyle, LadderInfo> = {
     basis: 'measured',
     headline: '바닥이 맞았던 과거에 사다리들을 되돌려 돌려서 고른 모양입니다',
     body:
-      '— 과거 사이클에서 바닥을 확정해 놓고 거기서 +60% 올라온 자리(= 지금 이 종목이 선 자리, ' +
-      '바닥에서 8개월)에 사다리를 그대로 돌려 봤습니다. 아래로 깊게 깐 모양은 그 칸이 거의 ' +
-      '안 걸려 예산의 27~40%가 현금으로 놀았고, 세 표본 전부에서 앞에 많이 싣는 쪽이 ' +
-      '중간값이 높았습니다(24개월 +51.6% vs 한 번에 사기 +50.3%). 그래도 한 번에 다 사지 ' +
-      '않는 이유는 나쁜 25%입니다 — 한 번에 사기는 24개월 25%분위가 −9.9%인데 나눠 사면 ' +
-      '−0.8%였습니다. 대신 4차가 896,000원이라 8개월 전 바닥 아래는 더 받지 않습니다. ' +
-      '바닥 판정에 후견지명이 있어 "바닥이 맞았다면"까지만 말하는 숫자입니다.',
+      '— 과거 사이클에서 바닥을 확정해 놓고 거기서 +60% 올라온 자리에 사다리를 그대로 돌려 ' +
+      '봤습니다. 아래로 깊게 깐 모양은 그 칸이 거의 안 걸려 예산의 27~40%가 현금으로 놀았고, ' +
+      '세 표본 전부에서 앞에 많이 싣는 쪽이 중간값이 높았습니다(24개월 +51.6% vs 한 번에 사기 ' +
+      '+50.3%). 그래도 한 번에 다 사지 않는 이유는 나쁜 25%입니다 — 한 번에 사기는 24개월 ' +
+      '25%분위가 −9.9%인데 나눠 사면 −0.8%였습니다. 꼬리가 얕아 구간 저가 아래는 받지 ' +
+      '않으므로, 거기서 더 내려가면 계획을 멈추고 더 깊은 사다리로 다시 짜야 합니다. ' +
+      '바닥 판정에 후견지명이 있어 "바닥이 맞았다면"까지만 말하는 숫자이고, 이 종목이 정말 ' +
+      '바닥을 지났는지는 위 안내가 따로 가립니다.',
   },
   cycle: {
     label: '사이클 실측형',
@@ -670,22 +671,56 @@ export function monthsSince(troughDate: string | undefined, today: Date): number
   return Math.max(0, today.getDate() >= d.getDate() ? m : m - 1)
 }
 
+/**
+ * **그 저가를 아직 "바닥"이라고 불러도 되는가.**
+ *
+ * `CYCLE_TIMELINE`과 `basing` 사다리는 전부 *"바닥을 지나 회복하는 중"*을 전제로 한다.
+ * 그런데 구간 저가 **뒤에 고가를 찍고 다시 내려온** 종목이라면 그 저가는 이미 지나간
+ * 바닥이고, 지금 자리는 "바닥에서 N개월차"가 아니라 **"새 고점에서 내려온 자리"**다.
+ * 전혀 다른 상황인데 화면은 둘을 구분하지 못하고 있었다.
+ *
+ * 실제로 SK하이닉스가 그랬다(2026-11-12 사용자 지적, position_signals_probe 실측):
+ *
+ *   구간 저가 806,000 (2026-03-31) → 구간 고가 2,987,000 (2026-06-25) → 현재 1,251,000
+ *
+ * 저가에서 +55% 위인 건 맞지만 그 사이에 **+271% 올랐다가 −58% 빠진** 것이라
+ * "바닥에서 8개월차 회복 중"은 이 종목을 전혀 설명하지 못한다. 그런데도 화면은
+ * "늦지도 이르지도 않습니다"라고 적고 있었다 — **조용히 틀린 게 아니라 큰 소리로
+ * 틀린 말**이었다.
+ *
+ * 날짜를 비교하면 가려낼 수 있으므로, 전제가 성립하는지를 화면이 직접 판정한다.
+ */
+export type TroughStatus = 'confirmed' | 'superseded' | 'unknown'
+
+export function troughStatus(lowDate?: string, highDate?: string): TroughStatus {
+  if (!lowDate || !highDate) return 'unknown'
+  // 같은 날이면 가릴 수 없다 — 모르는 것을 '성립한다'로 밀지 않는다.
+  if (lowDate === highDate) return 'unknown'
+  return highDate > lowDate ? 'superseded' : 'confirmed'
+}
+
 export function buildActionPlan(
   plan: AverageDownPlan,
   today: Date,
-  /** 전제로 삼은 바닥 가격. 이걸 깨면 전제가 틀어진 것이다. */
+  /** 구간 저가. 이걸 깨면 참고할 자리가 없어진다. */
   troughPrice: number,
-  /** 그 바닥을 찍은 날. 없으면 측정 시점의 개월 수를 쓴다. */
+  /** 그 저가를 찍은 날. 없으면 측정 시점의 개월 수를 쓴다. */
   troughDate?: string,
+  /** 그 저가가 아직 '바닥'인지 — 뒤에 고가를 찍었으면 'superseded'다. */
+  status: TroughStatus = 'confirmed',
   timeline: CycleTimeline = CYCLE_TIMELINE,
 ): ActionStep[] {
   const monthsAfter = monthsSince(troughDate, today) ?? timeline.monthsAfterTrough
   // 시한은 "바닥에서 12개월차"다 — 측정이 그 지점을 가리킨다. 지금이 이미 그보다
   // 뒤라면 더 기다릴 근거가 없으므로 0개월(= 오늘)이 된다.
-  const deadlineMonths = Math.max(
-    0,
-    timeline.monthsAfterTrough + timeline.deadlineMonthsAhead - monthsAfter,
-  )
+  //
+  // **전제가 깨진 종목에는 그 기준점이 없다.** 저가 뒤에 고가를 찍고 내려온
+  // 자리라면 "바닥에서 12개월차"가 가리키는 날이 아무 의미가 없으므로, 측정에서
+  // 날짜를 끌어오지 않고 **오늘부터 같은 기간**을 스스로 정한 기한으로 둔다.
+  const deadlineMonths =
+    status === 'confirmed'
+      ? Math.max(0, timeline.monthsAfterTrough + timeline.deadlineMonthsAhead - monthsAfter)
+      : timeline.deadlineMonthsAhead
   const w = (n: number) => Math.round(n).toLocaleString('ko-KR')
   const first = plan.tranches[0]
   const rest = plan.tranches.slice(1)
@@ -697,8 +732,12 @@ export function buildActionPlan(
       kind: 'now',
       title: `오늘 ${first.qty}주 매수 (${w(first.triggerPrice)}원 · ${w(first.cost)}원)`,
       why:
-        `바닥에서 ${monthsAfter}개월차인 지금이 과거 평균 경로 위이고, ` +
-        `그 자리에서 산 경우가 더 미룬 경우보다 꾸준히 나았다. 미룰 근거가 측정에 없다.`,
+        status === 'confirmed'
+          ? `바닥에서 ${monthsAfter}개월차인 지금이 과거 평균 경로 위이고, ` +
+            `그 자리에서 산 경우가 더 미룬 경우보다 꾸준히 나았다. 미룰 근거가 측정에 없다.`
+          : `이 종목은 구간 저가 뒤에 고가를 찍고 다시 내려온 자리라 "바닥을 지나 회복 중"이 ` +
+            `아니다 — 지금 사는 근거는 측정이 아니라 당신의 판단이다. 1차를 절반으로 둔 것은 ` +
+            `그 판단이 틀렸을 때를 위해 나머지를 남겨 두려는 것이다.`,
       by: iso(today),
     },
   ]
@@ -718,9 +757,13 @@ export function buildActionPlan(
       kind: 'deadline',
       title: `${iso(deadline)}까지 안 걸린 칸은 그날 시세로 그냥 산다`,
       why:
-        `기다리는 것 자체가 비용이다. 같은 종목이라도 바닥에서 멀어질수록 남는 게 줄었다` +
-        `(국내 ${timeline.entryByMonth[0].month}개월차 +${timeline.entryByMonth[0].kr}% → ` +
-        `${timeline.entryByMonth[2].month}개월차 +${timeline.entryByMonth[2].kr}%).`,
+        status === 'confirmed'
+          ? `기다리는 것 자체가 비용이다. 같은 종목이라도 바닥에서 멀어질수록 남는 게 줄었다` +
+            `(국내 ${timeline.entryByMonth[0].month}개월차 +${timeline.entryByMonth[0].kr}% → ` +
+            `${timeline.entryByMonth[2].month}개월차 +${timeline.entryByMonth[2].kr}%).`
+          : `이 날짜는 측정에서 나온 것이 아니라 **스스로 정한 기한**이다 — 이 종목은 ` +
+            `"바닥 이후" 표본에 해당하지 않아 기준점이 없다. 그래도 기한을 두는 이유는, ` +
+            `안 걸린 돈이 계획에서 조용히 사라지지 않게 하려는 것이다.`,
       by: iso(deadline),
     })
   }
@@ -729,9 +772,9 @@ export function buildActionPlan(
     kind: 'stop',
     title: `종가가 ${w(troughPrice)}원을 깨면 남은 주문을 취소하고 멈춘다`,
     why:
-      `그 가격이 전제로 삼은 바닥이다. 깨지면 "바닥은 지났다"가 틀린 것이고, 과거에도 ` +
-      `18%는 바닥 아래로 되돌아갔다. 그때는 이 사다리가 아니라 더 깊은 사다리(사이클 실측형·` +
-      `더 빠질 때 싣기)로 다시 짜야 한다.`,
+      `이 구간에서 실제로 찍었던 가장 낮은 가격이다. 그 아래로 내려가면 참고할 자리가 ` +
+      `없어지므로 계획을 이어가지 말고, 더 깊은 사다리(사이클 실측형·더 빠질 때 싣기)로 ` +
+      `다시 짜야 한다.`,
   })
 
   steps.push({
