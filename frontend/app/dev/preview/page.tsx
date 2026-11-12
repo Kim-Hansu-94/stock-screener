@@ -191,6 +191,14 @@ const POSITION_TICKERS: WatchlistTickerRow[] = [
   // 손실률도 크게 찍히게 한다(실제 사례가 평단 대비 -40%였다).
   { market: 'KR', ticker: '000270', name: '폭락중종목(픽스처)', added_at: '2026-04-01T00:00:00Z',
     category: 'position', avg_cost: 280 },
+  // (6) **저가 → 고가 → 하락** — 구간 저가 뒤에 고가를 찍고 내려온 모양. 이러면
+  // 그 저가는 이미 지나간 바닥이라 '추가 매수 분할 계획'의 "바닥에서 N개월차
+  // 회복 중" 전제가 성립하지 않는다. 실제 SK하이닉스가 이 모양인데(806,000
+  // 2026-03-31 → 2,987,000 2026-06-25 → 1,251,000) 다른 픽스처는 전부 반대
+  // 순서라 그 분기를 한 번도 안 지나갔다 — 화면이 큰 소리로 틀린 말을 하는 걸
+  // 눈으로 확인할 데가 없었다는 뜻이다(2026-11-12 사용자가 화면에서 발견).
+  { market: 'KR', ticker: '000100', name: '고점후하락(픽스처)', added_at: '2026-03-01T00:00:00Z',
+    category: 'position', avg_cost: 200 },
 ]
 
 // SK하이닉스·현대차는 차트가 있는 경우, 삼성전자·아이온큐는 없는 경우(데이터
@@ -201,6 +209,45 @@ const WATCHLIST_HISTORY: Record<string, PriceHistoryRow[]> = {
   // 부족으로 부분적으로만(또는 전혀) 안 그려지는 경우도 깨지지 않는지 함께 본다.
   'KR-005380': resistanceTargetHistory('005380'),
   'KR-000270': waterfallHistory('000270'),
+  'KR-000100': lowThenHighHistory('000100'),
+}
+
+/**
+ * **저가 → 고가 → 하락** 픽스처. 구간 저가가 **고가보다 먼저** 나오는 모양이다.
+ *
+ * 왜 필요한가: `troughStatus`가 'superseded'를 돌려주는 경로를 preview에서 한 번도
+ * 지나가지 않았다. 다른 픽스처는 전부 "고점에서 내려와 저점" 순서라 늘 'confirmed'로
+ * 떨어졌고, 그래서 화면이 **고점을 찍고 내려온 종목에도 "바닥에서 8개월차, 늦지도
+ * 이르지도 않습니다"라고 적고 있는 것을 아무도 못 봤다**(2026-11-12 사용자가 발견).
+ *
+ * 실제 SK하이닉스 모양을 축소해 옮긴다: 저가(앞) → 약 3.7배 고점 → 거기서 −58%.
+ */
+function lowThenHighHistory(ticker: string): PriceHistoryRow[] {
+  const startDate = new Date('2026-03-01')
+  const rows: PriceHistoryRow[] = []
+  // 0~20봉: 80까지 흘러내려 **구간 저가**를 먼저 만든다.
+  // 21~80봉: 300까지 급등(구간 고가).  81~180봉: 125까지 −58% 하락.
+  for (let i = 0; i < 181; i += 1) {
+    const close =
+      i <= 20
+        ? 110 - (30 * i) / 20
+        : i <= 80
+          ? 80 + (220 * (i - 20)) / 60
+          : 300 - (175 * (i - 80)) / 100
+    const date = new Date(startDate)
+    date.setDate(date.getDate() + i)
+    rows.push({
+      ticker,
+      market: 'KR',
+      date: date.toISOString().slice(0, 10),
+      open: i <= 80 ? close - 1 : close + 1,
+      high: close + 2,
+      low: close - 2,
+      close: Math.round(close * 100) / 100,
+      volume: 800_000,
+    })
+  }
+  return rows
 }
 
 /**

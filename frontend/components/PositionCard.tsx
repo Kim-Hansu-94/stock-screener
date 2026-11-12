@@ -250,6 +250,13 @@ export function PositionCard({
                     periodLowDate={
                       bars.reduce((lo, b) => (b.low < lo.low ? b : lo), bars[0] ?? { low: 0, date: '' }).date
                     }
+                    /* **고가 날짜도 넘긴다** — 저가 뒤에 고가를 찍었으면 그 저가는
+                       이미 지나간 바닥이라 "바닥에서 N개월차 회복 중"이 성립하지
+                       않는다. 날짜를 비교해야만 가릴 수 있다. */
+                    periodHighDate={
+                      bars.reduce((hi, b) => (b.high > hi.high ? b : hi), bars[0] ?? { high: 0, date: '' })
+                        .date
+                    }
                     className="mt-3 border-t border-border pt-3"
                   />
                 )}

@@ -7,12 +7,14 @@ import {
   CYCLE_TIMELINE,
   buildActionPlan,
   monthsSince,
+  troughStatus,
   LADDER_INFO,
   LADDER_ORDER,
   buildAverageDownPlan,
   defaultScenarios,
   roundTrigger,
   type AverageDownPlan,
+  type TroughStatus,
   type LadderStyle,
 } from '@/lib/averageDownPlan'
 import type { Market } from '@/lib/types'
@@ -40,6 +42,7 @@ export function AverageDownPlanPanel({
   currentPrice,
   periodLow,
   periodLowDate,
+  periodHighDate,
   className = '',
 }: {
   market: Market
@@ -49,6 +52,8 @@ export function AverageDownPlanPanel({
   periodLow: number
   /** 그 저가를 찍은 날('YYYY-MM-DD'). 실행 계획이 '바닥에서 몇 개월차'를 여기서 센다. */
   periodLowDate?: string
+  /** 구간 고가를 찍은 날. 저가보다 나중이면 '바닥 지남' 전제가 깨진다. */
+  periodHighDate?: string
   className?: string
 }) {
   const key = `avgdownbudget:${market}:${ticker}`
@@ -238,6 +243,7 @@ export function AverageDownPlanPanel({
           currentPrice={currentPrice}
           periodLow={periodLow}
           periodLowDate={periodLowDate}
+          periodHighDate={periodHighDate}
           shares={shares}
           budget={budget}
           market={market}
@@ -412,6 +418,7 @@ function PlanBody({
   currentPrice,
   periodLow,
   periodLowDate,
+  periodHighDate,
   shares,
   budget,
   market,
@@ -425,6 +432,8 @@ function PlanBody({
   periodLow: number
   /** 그 저가를 찍은 날('YYYY-MM-DD'). 실행 계획이 '바닥에서 몇 개월차'를 여기서 센다. */
   periodLowDate?: string
+  /** 구간 고가를 찍은 날. 저가보다 나중이면 '바닥 지남' 전제가 깨진다. */
+  periodHighDate?: string
   /** 지금 보유 수량. 0이면 부모가 애초에 plan을 만들지 않는다. */
   shares: number
   budget: number
@@ -433,6 +442,9 @@ function PlanBody({
   won: (v: number) => string
   pct: (v: number) => string
 }) {
+  // 구간 저가가 아직 '바닥'인지 — 뒤에 고가를 찍었으면 아니다.
+  const status = troughStatus(periodLowDate, periodHighDate)
+
   const scenarios = useMemo(() => {
     if (shares <= 0) return null
     const input = {
@@ -498,9 +510,17 @@ function PlanBody({
       </p>
 
       {plan.style === 'basing' && (
-        <ActionPlanBox plan={plan} won={won} troughPrice={periodLow} troughDate={periodLowDate} />
+        <ActionPlanBox
+          plan={plan}
+          won={won}
+          troughPrice={periodLow}
+          troughDate={periodLowDate}
+          status={status}
+        />
       )}
-      {plan.style === 'basing' && <CycleTimelineBox won={won} troughDate={periodLowDate} />}
+      {plan.style === 'basing' && (
+        <CycleTimelineBox won={won} troughDate={periodLowDate} status={status} />
+      )}
 
       <p className="mt-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-secondary-foreground">
         차수 가격은 현재가에서{' '}
@@ -565,8 +585,41 @@ function PlanBody({
  * 눌림을 기다리는 기간에 **시한**을 붙이고, 미룰수록 나빠진다는 측정을 같이 적는다
  * (`CYCLE_TIMELINE` 주석 참조). 전제가 "바닥은 이미 지났다"이므로 `basing`에서만 뜬다.
  */
-function CycleTimelineBox({ won, troughDate }: { won: (n: number) => string; troughDate?: string }) {
+function CycleTimelineBox({
+  won,
+  troughDate,
+  status,
+}: {
+  won: (n: number) => string
+  troughDate?: string
+  status: TroughStatus
+}) {
   const t = CYCLE_TIMELINE
+  // **전제가 깨졌으면 회복 경로 표를 아예 보여 주지 않는다.** 저가 뒤에 고가를 찍고
+  // 내려온 종목에 "바닥에서 N개월차, 늦지도 이르지도 않습니다"를 띄우는 것은 조용히
+  // 틀린 게 아니라 큰 소리로 틀린 말이다(2026-11-12 사용자 지적).
+  if (status !== 'confirmed') {
+    return (
+      <div className="mt-2 rounded-md border-l-4 border-destructive bg-destructive/5 p-2.5">
+        <p className="text-xs font-bold">&ldquo;언제 사야 하나&rdquo; 표는 이 종목에 못 씁니다</p>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          그 표는 <span className="font-semibold">바닥을 지나 회복하는 중</span>인 종목을 과거
+          사이클에 겹쳐 본 것입니다. 그런데 이 종목은{' '}
+          <span className="font-semibold">구간 저가 뒤에 구간 고가를 찍고 다시 내려온 자리</span>라,
+          그 저가는 이미 지나간 바닥이고 지금은 <span className="font-semibold">새 고점에서 내려온
+          국면</span>입니다 — 전혀 다른 상황이라 그 숫자를 갖다 대면 틀립니다.
+          {status === 'unknown' && ' (저가·고가 날짜를 가릴 수 없어 보수적으로 막았습니다.)'}
+        </p>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          <span className="font-semibold">그래도 저점다지기형 사다리는 쓸 수 있습니다</span> — 다만
+          근거가 측정이 아니라 <span className="font-semibold">&ldquo;여기가 바닥권&rdquo;이라는 당신의
+          판단</span>이라는 점만 분명히 해 둡니다. 판단 없이 측정만 따르겠다면{' '}
+          <span className="font-semibold">사이클 실측형</span>이나{' '}
+          <span className="font-semibold">더 빠질 때 싣기</span>가 지금 상황에 맞습니다.
+        </p>
+      </div>
+    )
+  }
   // 개월 수는 일봉의 저가 날짜에서 센다 — 상수로 두면 시간이 지나는 것만으로 틀려진다.
   const now = monthsSince(troughDate, new Date()) ?? t.monthsAfterTrough
   // now가 표에 없는 달이면 표식이 통째로 사라진다 — 가장 가까운 줄에 붙인다.
@@ -671,15 +724,17 @@ function ActionPlanBox({
   won,
   troughPrice,
   troughDate,
+  status,
 }: {
   plan: AverageDownPlan
   won: (n: number) => string
   troughPrice: number
   troughDate?: string
+  status: TroughStatus
 }) {
   const steps = useMemo(
-    () => buildActionPlan(plan, new Date(), troughPrice, troughDate),
-    [plan, troughPrice, troughDate],
+    () => buildActionPlan(plan, new Date(), troughPrice, troughDate, status),
+    [plan, troughPrice, troughDate, status],
   )
   const STYLE: Record<string, { tag: string; cls: string }> = {
     now: { tag: '오늘', cls: 'bg-primary/10 text-primary' },

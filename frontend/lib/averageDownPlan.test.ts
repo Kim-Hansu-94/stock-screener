@@ -13,6 +13,7 @@ import {
   defaultScenarios,
   evaluateScenario,
   roundTrigger,
+  troughStatus,
   type PlanInput,
 } from './averageDownPlan'
 
@@ -554,9 +555,13 @@ describe('buildActionPlan — 실행 계획', () => {
     expect(steps[2].title).toContain('2027-03-12')
   })
 
-  it('**중단선이 전제로 삼은 바닥가다** — 이게 깨지면 사다리를 바꿔야 한다', () => {
+  it('**중단선이 구간 저가다** — 이게 깨지면 사다리를 바꿔야 한다', () => {
+    // 예전엔 이 줄이 "전제로 삼은 바닥이다 … 18%는 바닥 아래로 되돌아갔다"였다.
+    // 그런데 저가 뒤에 고가를 찍은 종목에는 그 '18%'(바닥 이후 표본)가 해당하지
+    // 않는다 — 안 맞는 근거를 붙이느니 구간 저가라고만 말한다.
     expect(steps[3].title).toContain('807,000')
-    expect(steps[3].why).toContain('18%')
+    expect(steps[3].why).toContain('가장 낮은 가격')
+    expect(steps[3].why).not.toContain('18%')
   })
 
   it('평단 위에서는 사지 않는다고 못 박는다', () => {
@@ -661,5 +666,85 @@ describe('**집행 후 평단은 기존 보유분과 섞은 값이다** (2026-11
 
   it('수량이 0이면 계획을 만들지 않는다 — 틀린 평단을 내느니 안 낸다', () => {
     expect(buildAverageDownPlan({ ...HYNIX, shares: 0 })).toBeNull()
+  })
+})
+
+describe('troughStatus — 그 저가를 아직 "바닥"이라고 불러도 되는가', () => {
+  it('**저가 뒤에 고가를 찍었으면 바닥이 아니다** (SK하이닉스 실측)', () => {
+    // position_signals_probe 실측: 806,000(2026-03-31) → 2,987,000(2026-06-25) → 1,251,000
+    expect(troughStatus('2026-03-31', '2026-06-25')).toBe('superseded')
+  })
+
+  it('고가가 먼저이고 저가가 나중이면 "바닥 이후"가 성립할 수 있다', () => {
+    expect(troughStatus('2026-06-25', '2026-03-31')).toBe('confirmed')
+  })
+
+  it('날짜를 모르거나 같은 날이면 confirmed로 밀지 않는다', () => {
+    expect(troughStatus(undefined, '2026-06-25')).toBe('unknown')
+    expect(troughStatus('2026-03-31', undefined)).toBe('unknown')
+    expect(troughStatus('2026-03-31', '2026-03-31')).toBe('unknown')
+  })
+
+  it('**전제가 깨지면 실행 계획이 "과거 평균 경로 위"라고 말하지 않는다**', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const now = (st: Parameters<typeof buildActionPlan>[4]) =>
+      buildActionPlan(plan, new Date(2026, 10, 12), 807_000, '2026-03-31', st).find(
+        (s) => s.kind === 'now',
+      )!.why
+    expect(now('confirmed')).toContain('과거 평균 경로 위')
+    expect(now('superseded')).not.toContain('과거 평균 경로 위')
+    expect(now('superseded')).toContain('당신의 판단')
+  })
+
+  it('**전제가 깨지면 시한도 측정을 근거로 대지 않는다**', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const why = (st: Parameters<typeof buildActionPlan>[4]) =>
+      buildActionPlan(plan, new Date(2026, 10, 12), 807_000, '2026-03-31', st).find(
+        (s) => s.kind === 'deadline',
+      )!.why
+    expect(why('confirmed')).toContain('+50.4%')
+    expect(why('superseded')).not.toContain('+50.4%')
+    expect(why('superseded')).toContain('스스로 정한 기한')
+  })
+
+  it('전제가 깨지면 시한을 "오늘부터 4개월"로 잡는다 — 바닥 기준점이 없다', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const by = (st: Parameters<typeof buildActionPlan>[4]) =>
+      buildActionPlan(plan, new Date(2026, 10, 12), 807_000, '2026-03-31', st).find(
+        (s) => s.kind === 'deadline',
+      )!.by
+    // 바닥 2026-03-31 기준 7개월차 → 12개월차까지 5개월 남음 → 2027-04-12
+    expect(by('confirmed')).toBe('2027-04-12')
+    // 전제가 깨졌으면 바닥을 기준점으로 쓰지 않는다 → 오늘(2026-11-12) + 4개월
+    expect(by('superseded')).toBe('2027-03-12')
+
+    // **바닥 날짜를 옮기면 confirmed만 따라 움직인다** — 이게 둘의 차이다.
+    const moved = (st: Parameters<typeof buildActionPlan>[4]) =>
+      buildActionPlan(plan, new Date(2026, 10, 12), 807_000, '2026-01-31', st).find(
+        (s) => s.kind === 'deadline',
+      )!.by
+    expect(moved('confirmed')).toBe('2027-02-12')
+    expect(moved('superseded')).toBe('2027-03-12')
+  })
+
+  it('중단선 설명이 "전제로 삼은 바닥"이라고 단정하지 않는다', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const stop = buildActionPlan(plan, new Date(2026, 10, 12), 807_000, '2026-03-31', 'superseded')
+      .find((s) => s.kind === 'stop')!
+    expect(stop.why).toContain('가장 낮은 가격')
+    expect(stop.why).not.toContain('전제로 삼은 바닥')
+  })
+})
+
+describe('사다리 설명에 한 종목 전용 숫자를 박지 않는다', () => {
+  it('**설명문에 특정 종목의 가격·개월 수가 들어가면 안 된다**', () => {
+    // basing 설명에 "4차가 896,000원", "바닥에서 8개월"이 박혀 있었다. 그 패널은
+    // 어떤 보유 종목에도 뜨므로, 다른 종목을 보면 그대로 틀린 말이 된다.
+    // 측정 결과 수치(+51.6% 등)는 종목과 무관하므로 그대로 둔다.
+    for (const [style, info] of Object.entries(LADDER_INFO)) {
+      const t = `${info.gist} ${info.headline} ${info.body}`
+      expect(t, `${style}에 원 단위 가격이 박혀 있다`).not.toMatch(/\d{3},\d{3}원/)
+      expect(t, `${style}에 '바닥에서 N개월'이 박혀 있다`).not.toMatch(/바닥에서 \d+개월/)
+    }
   })
 })
