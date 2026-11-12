@@ -233,7 +233,7 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
         "watchlist_tickers",
         lambda: (
             db.client.table("watchlist_tickers")
-            .select("market, ticker, name, category, added_at")
+            .select("market, ticker, name, category, avg_cost, added_at")
             .order("added_at", desc=True)
             .execute()
         ).data
@@ -242,6 +242,17 @@ def _probe_watchlist_tickers(db: ScreenerDB) -> None:
     if rows is None:
         return
     print(f"  총 {len(rows)}행 · 최근 추가: {rows[0]['market']} {rows[0]['ticker']} ({rows[0]['added_at']})", flush=True)
+
+    # **포지션 관리 종목은 평단가가 있어야 화면이 그려진다.** 없으면 '추가 매수 분할
+    # 계획'이 사다리 대신 "평단가를 먼저 입력하면…" 한 줄로 바뀌는데, 화면에서는
+    # 그냥 "사다리가 안 나온다"로 보인다 — 목록에 있음 / 평단 없음 / 일봉 없음이
+    # 전부 다른 문제인데 증상이 같다는 이 파일의 원래 취지와 같은 이유로 찍는다.
+    positions = [r for r in rows if r.get("category") == "position"]
+    print(f"  포지션 관리(category='position') {len(positions)}종목", flush=True)
+    for r in positions:
+        cost = r.get("avg_cost")
+        mark = f"평단 {cost:,.0f}" if cost else "평단 없음 ← 사다리가 안 그려진다"
+        print(f"    {r['market']} {r['ticker']} {r['name']}: {mark}", flush=True)
 
     # 목록에 있는 것과 **차트가 그려지는 것은 다르다** — 감시 종목은 정규 유니버스
     # 수집 루프를 안 타서, main.py의 _backfill_missing_watchlist_history가 돌기
