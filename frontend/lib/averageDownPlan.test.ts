@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LADDER_STYLE,
+  CYCLE_TIMELINE,
   LADDERS,
   LADDER_INFO,
   LADDER_ORDER,
@@ -478,5 +479,42 @@ describe('LADDER_INFO — 모양별 설명', () => {
 
   it('LADDER_ORDER가 모든 모양을 정확히 한 번씩 담는다', () => {
     expect([...LADDER_ORDER].sort()).toEqual(Object.keys(LADDERS).sort())
+  })
+})
+
+describe('CYCLE_TIMELINE — 시간축 측정 (semi_cycle_probe 6부)', () => {
+  it('측정값이 그대로 들어 있다', () => {
+    // 국내 반도체 55건 · 미국 30건, 바닥을 0개월로 맞춰 포갠 결과.
+    expect(CYCLE_TIMELINE.monthsAfterTrough).toBe(8)
+    expect(CYCLE_TIMELINE.dipMonthsAhead).toBe(3)
+    expect(CYCLE_TIMELINE.dipRangeAhead).toEqual([1, 5])
+    expect(CYCLE_TIMELINE.dipProbabilityPct).toBe(64)
+    expect(CYCLE_TIMELINE.dipDepthPct).toBeCloseTo(-16.1, 5)
+  })
+
+  it('**미룰수록 나빠진다 — 이게 뒤집히면 시한의 근거가 사라진다**', () => {
+    // 이 단조성이 "기다리는 것 자체가 비용"의 유일한 근거다.
+    const kr = CYCLE_TIMELINE.entryByMonth.map((r) => r.kr)
+    const us = CYCLE_TIMELINE.entryByMonth.map((r) => r.us)
+    for (let i = 1; i < kr.length; i += 1) {
+      expect(kr[i]).toBeLessThan(kr[i - 1])
+      expect(us[i]).toBeLessThan(us[i - 1])
+    }
+  })
+
+  it('지금 자리가 표의 첫 줄이다 — 화면이 "(지금)"을 거기 붙인다', () => {
+    expect(CYCLE_TIMELINE.entryByMonth[0].month).toBe(CYCLE_TIMELINE.monthsAfterTrough)
+  })
+
+  it('시한이 눌림 구간보다 뒤다 — 기다리기 전에 시한이 끝나면 안 된다', () => {
+    expect(CYCLE_TIMELINE.deadlineMonthsAhead).toBeGreaterThanOrEqual(CYCLE_TIMELINE.dipMonthsAhead)
+  })
+
+  it('**사다리의 눌림 칸이 측정된 눌림 깊이를 감싼다**', () => {
+    // 쌀 때 깊이 중간값 -16.1% — 2차(-9%)와 3차(-18%) 사이에 들어와야
+    // "그 자리를 노린다"는 화면 문구가 참이 된다.
+    const offs = LADDERS.basing.map((d) => d.offset * 100)
+    expect(offs[1]).toBeGreaterThan(CYCLE_TIMELINE.dipDepthPct)
+    expect(offs[2]).toBeLessThan(CYCLE_TIMELINE.dipDepthPct)
   })
 })

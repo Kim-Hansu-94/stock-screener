@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_LADDER_STYLE,
   LADDERS,
+  CYCLE_TIMELINE,
   LADDER_INFO,
   LADDER_ORDER,
   buildAverageDownPlan,
@@ -440,6 +441,8 @@ function PlanBody({
         올라갑니다).
       </p>
 
+      {plan.style === 'basing' && <CycleTimelineBox won={won} />}
+
       <p className="mt-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-secondary-foreground">
         차수 가격은 현재가에서{' '}
         {LADDERS[plan.style]
@@ -504,5 +507,88 @@ function PlanBody({
         </>
       )}
     </>
+  )
+}
+
+/**
+ * **시간 계획** — "그래서 언제 사야 하나".
+ *
+ * 가격 사다리만 보여 주면 "얼마에"는 알아도 "언제까지 기다릴지"를 모른다. 그래서
+ * 눌림을 기다리는 기간에 **시한**을 붙이고, 미룰수록 나빠진다는 측정을 같이 적는다
+ * (`CYCLE_TIMELINE` 주석 참조). 전제가 "바닥은 이미 지났다"이므로 `basing`에서만 뜬다.
+ */
+function CycleTimelineBox({ won }: { won: (n: number) => string }) {
+  const t = CYCLE_TIMELINE
+  const now = t.monthsAfterTrough
+  return (
+    <div className="mt-2 rounded-md border border-input p-2">
+      <p className="text-xs font-bold">언제 사야 하나 — 과거 사이클에 지금을 겹쳐 보면</p>
+      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+        과거 반도체 바닥 85건(국내 55 · 미국 30)을 바닥=0개월로 맞춰 포갠 결과입니다. 이 종목은
+        바닥에서 <span className="font-semibold text-secondary-foreground">{now}개월차</span>이고,
+        그때의 과거 중간값이 바닥 대비 1.45배(국내)·1.56배(미국)인데{' '}
+        <span className="font-semibold text-secondary-foreground">지금 1.59배</span> —{' '}
+        <span className="font-semibold text-secondary-foreground">늦지도 이르지도 않습니다.</span>
+      </p>
+
+      <ol className="mt-1.5 flex flex-col gap-1">
+        <li className="rounded bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
+          <span className="font-semibold">지금 바로</span> — 1차를 집행합니다. 미룰 이유가 측정에
+          없습니다(아래 표).
+        </li>
+        <li className="rounded bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
+          <span className="font-semibold">
+            앞으로 {t.dipRangeAhead[0]}~{t.dipRangeAhead[1]}개월
+          </span>{' '}
+          — 가장 쌌던 달이 <span className="font-semibold">{t.dipMonthsAhead}개월 뒤</span>였습니다.
+          지금보다 싸진 경우가 <span className="font-semibold">{t.dipProbabilityPct}%</span>, 그때 깊이가
+          중간값 <span className="font-semibold text-down">{t.dipDepthPct}%</span> — 2·3차 자리가 바로
+          여기입니다.
+        </li>
+        <li className="rounded bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
+          <span className="font-semibold">{t.deadlineMonthsAhead}개월이 지나도 안 빠지면</span> — 남은
+          돈을 그냥 집행합니다. <span className="font-semibold">기다리는 것 자체가 비용</span>이기
+          때문입니다(아래 표).
+        </li>
+      </ol>
+
+      <p className="mt-2 text-[11px] font-semibold">바닥에서 N개월차에 사서 24개월차까지 (중간값)</p>
+      <div className="mt-1 overflow-x-auto">
+        <table className="w-full min-w-0 text-[11px] tabular-nums">
+          <thead>
+            <tr className="text-muted-foreground">
+              <th className="py-0.5 text-left font-medium">바닥 이후</th>
+              <th className="py-0.5 text-right font-medium">국내 반도체</th>
+              <th className="py-0.5 text-right font-medium">미국 반도체</th>
+            </tr>
+          </thead>
+          <tbody>
+            {t.entryByMonth.map((r) => (
+              <tr key={r.month} className={r.month === now ? 'font-bold text-primary' : ''}>
+                <td className="py-0.5">
+                  {r.month}개월차{r.month === now ? ' (지금)' : ''}
+                </td>
+                <td className={`py-0.5 text-right font-mono ${r.kr >= 0 ? 'text-up' : 'text-down'}`}>
+                  {r.kr >= 0 ? '+' : ''}
+                  {r.kr.toFixed(1)}%
+                </td>
+                <td className={`py-0.5 text-right font-mono ${r.us >= 0 ? 'text-up' : 'text-down'}`}>
+                  {r.us >= 0 ? '+' : ''}
+                  {r.us.toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+        <span className="font-semibold">표가 아래로 갈수록 나빠지는 것이 핵심입니다</span> — 바닥에서
+        멀어질수록 같은 종목을 사도 남는 게 줄었습니다. 다만 이 숫자들은{' '}
+        <span className="font-semibold">&ldquo;{won(807_000)}원이 진짜 바닥이었다&rdquo;</span>가 맞아야
+        뜻이 있고, 바닥인지는 지나고 나서야 알 수 있습니다. 지금 살아남은 종목만 세었으므로 수익률은
+        실제보다 높게 잡혀 있습니다.
+      </p>
+    </div>
   )
 }

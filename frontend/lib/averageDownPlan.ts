@@ -307,11 +307,64 @@ export const LADDER_INFO: Record<LadderStyle, LadderInfo> = {
 export const DEFAULT_LADDER_STYLE: LadderStyle = 'rebound'
 
 /**
- * 다음 차수가 이 거래일 수 동안 안 걸리면 사람을 부른다(자동 집행이 아니다).
- * 측정 지평선이 60거래일이므로 그 두 배를 기다려 본다 — 그만큼 안 빠졌다면
- * 이 사다리가 가정한 상황이 아니었다는 뜻이다.
+ * **시간 계획** — "그래서 몇 개월 뒤에 사야 하나"에 답하는 유일한 측정.
+ *
+ * 1~5부는 전부 **가격축**(얼마에 살까)이었다. 사용자가 물은 것은 **시간축**이었다:
+ * "과거 사이클의 바닥 이후 흐름에 지금을 겹쳐서, 내가 언제 사는 게 좋을지."
+ * `semi_cycle_probe.py` **6부**가 그걸 쟀다 — 과거 바닥들을 0개월에 맞춰 포개고
+ * (국내 반도체 55건 · 미국 반도체 30건), 이 종목이 선 자리(바닥에서 8개월,
+ * 807,000 → 1,280,000 = 1.59배)를 그 경로 위에 얹었다.
+ *
+ * 세 가지가 나왔다.
+ *
+ * 1. **지금 자리는 평균 경로 위다.** 8개월차 과거 중간값이 국내 1.45배 · 미국
+ *    1.56배인데 지금이 1.59배다 — 늦지도 이르지도 않다.
+ * 2. **앞으로 3개월쯤이 가장 쌌다**(국내 중간값 3개월 뒤, 25~75% 1~5개월 뒤).
+ *    그 최저가가 지금보다 쌌던 경우는 **64%**, 쌀 때의 깊이는 중간값 **-16.1%**다.
+ *    → 사다리의 -9%·-18% 칸이 노리는 자리가 정확히 여기다.
+ * 3. **미루면 나빠진다.** 그 달에 사서 24개월차까지의 중간값이 국내 기준
+ *    8개월차 +50.4% → 12개월차 +22.6% → 18개월차 +1.6% → 20개월차 -8.9%로
+ *    **단조롭게 떨어진다**(미국도 +66.1% → +46.3% → +26.1% → +7.3%).
+ *
+ * 그래서 사다리에 **시한**이 붙는다: 눌림을 기다리되 **바닥에서 12개월차
+ * (= 지금부터 4개월)**까지만 기다리고, 그때까지 안 걸린 돈은 그냥 집행한다.
+ * 기다리는 것 자체가 비용이라는 것이 3번의 뜻이다.
+ *
+ * **이 숫자들은 "바닥이 이미 지났다"는 전제 위에 있다** — 바닥 판정에 후견지명이
+ * 들어 있고(지나고 나서야 안다), 그래서 `basing` 사다리에서만 보여 준다.
  */
-export const STALE_TRADING_DAYS = 120
+export interface CycleTimeline {
+  /** 지금이 바닥에서 몇 개월차인가. */
+  monthsAfterTrough: number
+  /** 가장 쌌던 달이 몇 개월 뒤였나 — 중간값과 25~75% 구간. */
+  dipMonthsAhead: number
+  dipRangeAhead: readonly [number, number]
+  /** 그 최저가가 지금보다 쌌던 비율(%). */
+  dipProbabilityPct: number
+  /** 쌀 때의 깊이 중간값(%). */
+  dipDepthPct: number
+  /** 이 개월 수가 지나면 남은 돈을 그냥 집행한다(= 바닥에서 12개월차). */
+  deadlineMonthsAhead: number
+  /** 바닥에서 N개월차에 사서 24개월차까지의 중간 수익률(%). */
+  entryByMonth: readonly { readonly month: number; readonly kr: number; readonly us: number }[]
+}
+
+export const CYCLE_TIMELINE: CycleTimeline = {
+  monthsAfterTrough: 8,
+  dipMonthsAhead: 3,
+  dipRangeAhead: [1, 5],
+  dipProbabilityPct: 64,
+  dipDepthPct: -16.1,
+  deadlineMonthsAhead: 4,
+  entryByMonth: [
+    { month: 8, kr: 50.4, us: 66.1 },
+    { month: 10, kr: 36.7, us: 58.1 },
+    { month: 12, kr: 22.6, us: 46.3 },
+    { month: 14, kr: 3.4, us: 45.6 },
+    { month: 18, kr: 1.6, us: 26.1 },
+    { month: 20, kr: -8.9, us: 7.3 },
+  ],
+} as const
 
 export interface PlanInput {
   /** 지금 평단가(원). */
