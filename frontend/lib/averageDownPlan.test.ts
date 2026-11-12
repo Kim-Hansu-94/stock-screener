@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LADDER_STYLE,
   LADDERS,
-  LADDER_BASIS,
+  LADDER_INFO,
+  LADDER_ORDER,
   MEDIAN_FURTHER_DROP,
   buildAverageDownPlan,
   defaultScenarios,
@@ -429,29 +430,43 @@ describe('사다리 상수 — basing (바닥은 이미 지났다고 칠 때)', 
   })
 })
 
-describe('LADDER_BASIS — 근거 문단', () => {
-  it('모든 사다리가 자기 근거를 가진다 (새 모양을 추가하면 여기서 걸린다)', () => {
+describe('LADDER_INFO — 모양별 설명', () => {
+  it('모든 사다리가 자기 설명을 가진다 (새 모양을 추가하면 여기서 걸린다)', () => {
     for (const style of Object.keys(LADDERS) as (keyof typeof LADDERS)[]) {
-      expect(LADDER_BASIS[style].headline.length).toBeGreaterThan(10)
-      expect(LADDER_BASIS[style].body.length).toBeGreaterThan(30)
+      const i = LADDER_INFO[style]
+      expect(i.label.length).toBeGreaterThan(1)
+      expect(i.gist.length).toBeGreaterThan(10)
+      expect(i.headline.length).toBeGreaterThan(10)
+      expect(i.body.length).toBeGreaterThan(30)
     }
   })
 
-  it('**사다리마다 문구가 다르다** — 같은 근거를 돌려 쓰면 화면이 조용히 거짓말한다', () => {
+  it('**모양마다 문구가 다르다** — 같은 설명을 돌려 쓰면 화면이 조용히 거짓말한다', () => {
     // 실제로 cycle·basing을 추가한 뒤 화면이 둘 다 dip의 근거를 적고 있었다.
-    const all = Object.values(LADDER_BASIS).map((b) => b.headline + b.body)
-    expect(new Set(all).size).toBe(all.length)
+    for (const key of ['label', 'gist', 'headline'] as const) {
+      const all = Object.values(LADDER_INFO).map((i) => i[key])
+      expect(new Set(all).size).toBe(all.length)
+    }
   })
 
   it('마크다운 별표가 남아 있지 않다 — 평문으로 렌더된다', () => {
-    for (const b of Object.values(LADDER_BASIS)) {
-      expect(b.headline + b.body).not.toContain('**')
+    for (const i of Object.values(LADDER_INFO)) {
+      expect(i.label + i.gist + i.headline + i.body).not.toContain('**')
     }
   })
 
   it('basing의 근거가 측정값을 그대로 인용한다', () => {
-    const t = LADDER_BASIS.basing.headline + LADDER_BASIS.basing.body
+    const t = LADDER_INFO.basing.headline + LADDER_INFO.basing.body
     expect(t).toContain('−14.9%')
     expect(t).toContain('18%')
+  })
+
+  it('판단에서 나온 모양은 rebound 하나뿐이고, 그렇게 표시된다', () => {
+    const judged = LADDER_ORDER.filter((s) => LADDER_INFO[s].basis === 'judgement')
+    expect(judged).toEqual(['rebound'])
+  })
+
+  it('LADDER_ORDER가 모든 모양을 정확히 한 번씩 담는다', () => {
+    expect([...LADDER_ORDER].sort()).toEqual(Object.keys(LADDERS).sort())
   })
 })

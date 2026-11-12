@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_LADDER_STYLE,
   LADDERS,
-  LADDER_BASIS,
+  LADDER_INFO,
+  LADDER_ORDER,
   buildAverageDownPlan,
   defaultScenarios,
   type LadderStyle,
@@ -89,7 +90,14 @@ export function AverageDownPlanPanel({
   const plan = useMemo(
     () =>
       avgCost != null && avgCost > 0
-        ? buildAverageDownPlan({ avgCost, shares: 1, price: currentPrice, budget, market, style })
+        ? buildAverageDownPlan({
+            avgCost,
+            shares: 1,
+            price: currentPrice,
+            budget,
+            market,
+            style,
+          })
         : null,
     // shares는 사다리 가격·수량에 영향을 주지 않는다(평단 계산에만 쓰인다).
     // 실제 보유 수량은 아래에서 다시 넣는다.
@@ -130,19 +138,11 @@ export function AverageDownPlanPanel({
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
         <span className="text-muted-foreground">사다리 모양</span>
-        {(
-          [
-            ['basing', '저점다지기형', '바닥은 이미 지났다고 칠 때 실측 — 그래도 중간값 -14.9% 눌림, 18%는 바닥 재이탈'],
-            ['cycle', '사이클 실측형', '지금 깊이(-45~-60%)에서 실제로 더 빠진 분포 그대로 — -9/-20/-33%'],
-            ['conviction', '바닥권 확신형', '지금 35%를 사고 나머지는 아래에 둔다 — 측정과 어긋나지 않게 바닥권 판단을 실행하는 모양'],
-            ['rebound', '반등에 싣기', '예산의 절반 이상을 현재가 위에 둔다 — 측정은 이 모양에 불리하다'],
-            ['dip', '더 빠질 때 싣기', '측정 기반 — 아래로 갈수록 크게 산다'],
-          ] as [LadderStyle, string, string][]
-        ).map(([v, label, why]) => (
+        {LADDER_ORDER.map((v) => (
           <button
             key={v}
             type="button"
-            title={why}
+            title={LADDER_INFO[v].gist}
             onClick={() => setStyle(v)}
             className={`rounded-md border px-2.5 py-1 font-medium ${
               style === v
@@ -150,10 +150,25 @@ export function AverageDownPlanPanel({
                 : 'border-input text-secondary-foreground hover:border-ring'
             }`}
           >
-            {label}
+            {LADDER_INFO[v].label}
           </button>
         ))}
       </div>
+
+      {/* 고른 모양이 무엇이 다른지 한 줄 — title 속성은 폰에서 안 보인다. */}
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+        {LADDER_INFO[style].gist}
+      </p>
+
+      <LadderComparison
+        selected={style}
+        onSelect={setStyle}
+        avgCost={avgCost ?? 0}
+        currentPrice={currentPrice}
+        budget={budget}
+        market={market}
+        won={won}
+      />
 
       {!plan ? (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -174,6 +189,162 @@ export function AverageDownPlanPanel({
           won={won}
           pct={pct}
         />
+      )}
+    </div>
+  )
+}
+
+/**
+ * **다섯 모양이 무엇이 다른지 한 화면에서** 보여 준다.
+ *
+ * 왜 필요한가: 토글만 있으면 하나씩 눌러 가며 기억해야 비교가 되는데, 차이가
+ * 드러나는 자리가 네 군데(차수 가격·비중·마지막 칸 깊이·전부 집행 시 평단)라
+ * 머리로 합쳐지지 않는다. `title` 속성에 설명을 달아 뒀지만 **폰에서는 보이지도
+ * 않는다**(마우스가 없다).
+ *
+ * 예산을 안 넣었으면 금액 대신 **현재가 대비 %**만 보여 준다 — 비어 있는 표를
+ * 그리는 것보다 그쪽이 비교에 쓸모 있다.
+ */
+function LadderComparison({
+  selected,
+  onSelect,
+  avgCost,
+  currentPrice,
+  budget,
+  market,
+  won,
+}: {
+  selected: LadderStyle
+  onSelect: (s: LadderStyle) => void
+  avgCost: number
+  currentPrice: number
+  budget: number
+  market: Market
+  won: (n: number) => string
+}) {
+  const [open, setOpen] = useState(false)
+
+  const rows = useMemo(
+    () =>
+      LADDER_ORDER.map((style) => {
+        const plan =
+          avgCost > 0 && currentPrice > 0 && budget > 0
+            ? buildAverageDownPlan({
+                avgCost,
+                shares: 1,
+                price: currentPrice,
+                budget,
+                market,
+                style,
+              })
+            : null
+        return { style, info: LADDER_INFO[style], steps: LADDERS[style], plan }
+      }),
+    [avgCost, currentPrice, budget, market],
+  )
+
+  const stepText = (offset: number) =>
+    offset === 0 ? '지금' : `${offset > 0 ? '+' : '−'}${Math.abs(Math.round(offset * 100))}%`
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] font-medium text-primary hover:underline"
+      >
+        {open ? '모양 비교 접기 ▴' : `${LADDER_ORDER.length}가지 모양이 뭐가 다른지 한눈에 보기 ▾`}
+      </button>
+
+      {open && (
+        <div className="mt-1.5 rounded-md border border-input p-2">
+          <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+            같은 예산으로 <span className="font-semibold">어디에 얼마씩 걸어 두느냐</span>만
+            다릅니다. 가격 아래 숫자가 그 차수에 쓰는 예산 비중이고,{' '}
+            <span className="underline decoration-dotted">밑줄 친 칸</span>은 현재가보다 위에서 사는
+            차수입니다.
+            {budget > 0 ? '' : ' 금액을 넣으면 실제 가격이 함께 나옵니다.'}
+          </p>
+
+          <div className="flex flex-col gap-1.5">
+            {rows.map(({ style, info, steps, plan }) => {
+              const on = style === selected
+              return (
+                <button
+                  key={style}
+                  type="button"
+                  onClick={() => onSelect(style)}
+                  className={`rounded-md border p-2 text-left ${
+                    on ? 'border-primary bg-primary/5' : 'border-input hover:border-ring'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                    <span className={`text-xs font-bold ${on ? 'text-primary' : ''}`}>
+                      {info.label}
+                    </span>
+                    {on && (
+                      <span className="text-[10px] font-semibold text-primary">지금 보는 중</span>
+                    )}
+                    <span
+                      className={`rounded px-1 py-px text-[10px] font-semibold ${
+                        info.basis === 'measured'
+                          ? 'bg-secondary text-secondary-foreground'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      {info.basis === 'measured' ? '측정에서 나온 간격' : '내 판단으로 고른 간격'}
+                    </span>
+                  </div>
+
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    {info.gist}
+                  </p>
+
+                  <div className="mt-1 grid grid-cols-4 gap-1">
+                    {steps.map((d, i) => {
+                      const t = plan?.tranches[i]
+                      return (
+                        <div
+                          key={i}
+                          className={`rounded bg-muted/60 px-1 py-1 text-center ${
+                            d.offset > 0 ? 'underline decoration-dotted' : ''
+                          }`}
+                        >
+                          <div className="font-mono text-[11px] font-semibold tabular-nums">
+                            {t ? won(t.triggerPrice) : stepText(d.offset)}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {t ? `${stepText(d.offset)} · ` : ''}
+                            {Math.round(d.weight * 100)}%
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {plan && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      전부 집행하면{' '}
+                      <span className="font-mono font-semibold text-secondary-foreground">
+                        {plan.finalQty}주 · 평단 {won(Math.round(plan.finalAvgCost))}
+                      </span>
+                      {plan.unusedBudget > 0 && <> · 못 쓰는 돈 {won(plan.unusedBudget)}</>}
+                    </p>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 예산이 없으면 '전부 집행하면' 줄 자체가 없다 — 없는 것을 설명하지 않는다. */}
+          {budget > 0 && (
+            <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+              <span className="font-semibold">&ldquo;전부 집행하면&rdquo;은 비교용 숫자입니다</span>{' '}
+              — 네 차수가 다 걸리는 경우는 흔치 않고, 아래쪽 차수가 깊은 모양일수록 그 평단은 더
+              드물게 나옵니다. 평단이 낮다고 좋은 모양이 아니라, 그만큼 더 빠져야 도달하는 값입니다.
+            </p>
+          )}
+        </div>
       )}
     </div>
   )
@@ -207,7 +378,14 @@ function PlanBody({
 
   const scenarios = useMemo(() => {
     if (shares <= 0) return null
-    const input = { avgCost, shares, price: currentPrice, budget, market, style }
+    const input = {
+      avgCost,
+      shares,
+      price: currentPrice,
+      budget,
+      market,
+      style,
+    }
     const p = buildAverageDownPlan(input)
     return p ? defaultScenarios(input, p, periodLow) : null
   }, [avgCost, shares, currentPrice, budget, market, periodLow, style])
@@ -218,9 +396,15 @@ function PlanBody({
         {plan.tranches.map((t) => {
           // 아래쪽 차수는 '그 가격까지 내려오면', 위쪽 차수는 '그 가격까지 올라오면' 산다.
           const reached =
-            t.direction === 'rebound' ? currentPrice >= t.triggerPrice : currentPrice <= t.triggerPrice
+            t.direction === 'rebound'
+              ? currentPrice >= t.triggerPrice
+              : currentPrice <= t.triggerPrice
           const when =
-            t.direction === 'now' ? '지금 바로' : t.direction === 'dip' ? '이하로 내려오면' : '이상으로 올라오면'
+            t.direction === 'now'
+              ? '지금 바로'
+              : t.direction === 'dip'
+                ? '이하로 내려오면'
+                : '이상으로 올라오면'
           return (
             <li
               key={t.step}
@@ -250,8 +434,8 @@ function PlanBody({
       </ol>
 
       <p className="mt-1.5 text-[11px] text-muted-foreground">
-        다 집행하면 평단 <span className="font-mono">{won(plan.finalAvgCost)}</span> · 못 쓰고 남는 돈{' '}
-        <span className="font-mono">{won(plan.unusedBudget)}</span> ·{' '}
+        다 집행하면 평단 <span className="font-mono">{won(plan.finalAvgCost)}</span> · 못 쓰고 남는
+        돈 <span className="font-mono">{won(plan.unusedBudget)}</span> ·{' '}
         <span className="font-mono">{won(plan.stopBuyingAbove)}</span> 위에서는 사지 않습니다(평단이
         올라갑니다).
       </p>
@@ -263,10 +447,9 @@ function PlanBody({
           .map((d) => `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`)
           .join(' · ')}
         를 기계적으로 계산한 값입니다. 근거는 사다리마다 다릅니다 —{' '}
-        <span className="font-semibold">{LADDER_BASIS[plan.style].headline}</span>{' '}
-        {LADDER_BASIS[plan.style].body}{' '}
-        지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기 상황에서는 그 개수와 성과 사이에
-        관계가 없다는 것이 측정됐습니다.
+        <span className="font-semibold">{LADDER_INFO[plan.style].headline}</span>{' '}
+        {LADDER_INFO[plan.style].body} 지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기
+        상황에서는 그 개수와 성과 사이에 관계가 없다는 것이 측정됐습니다.
       </p>
 
       <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -309,12 +492,14 @@ function PlanBody({
           </div>
 
           <p className="mt-1.5 border-l-2 border-down pl-2 text-[11px] leading-relaxed text-secondary-foreground">
-            <span className="font-semibold">물타기는 손실률을 낮추지 손실액을 낮추지 않습니다.</span>{' '}
-            떨어진 채로 끝나는 시나리오를 보세요 — 손실 <span className="font-semibold">비율</span>은
-            줄지만 잃는 <span className="font-semibold">금액</span>은 늘어납니다. 돈을 더 넣었기
-            때문이고, 이건 계산 실수가 아니라 물타기의 성질입니다. 반대로 안 빠지고 바로 오르면
-            지금 한 번에 사는 쪽이 낫습니다. 나눠 사는 건 공짜 점심이 아니라, 더 빠질 경우에
-            대비해 그 경우를 유리하게 바꾸는 선택입니다.
+            <span className="font-semibold">
+              물타기는 손실률을 낮추지 손실액을 낮추지 않습니다.
+            </span>{' '}
+            떨어진 채로 끝나는 시나리오를 보세요 — 손실 <span className="font-semibold">비율</span>
+            은 줄지만 잃는 <span className="font-semibold">금액</span>은 늘어납니다. 돈을 더 넣었기
+            때문이고, 이건 계산 실수가 아니라 물타기의 성질입니다. 반대로 안 빠지고 바로 오르면 지금
+            한 번에 사는 쪽이 낫습니다. 나눠 사는 건 공짜 점심이 아니라, 더 빠질 경우에 대비해 그
+            경우를 유리하게 바꾸는 선택입니다.
           </p>
         </>
       )}
