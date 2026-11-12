@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_LADDER_STYLE,
   LADDERS,
-  MEDIAN_FURTHER_DROP,
+  LADDER_BASIS,
   buildAverageDownPlan,
   defaultScenarios,
   type LadderStyle,
@@ -70,7 +70,10 @@ export function AverageDownPlanPanel({
     if (typeof window === 'undefined') return DEFAULT_LADDER_STYLE
     try {
       const v = window.localStorage.getItem(styleKey)
-      return v === 'dip' || v === 'rebound' ? v : DEFAULT_LADDER_STYLE
+      // **LADDERS의 키로 검사한다.** 예전엔 'dip'|'rebound'를 손으로 적어 둬서,
+      // 뒤에 추가한 모양을 고르면 저장은 되는데 새로고침하면 조용히
+      // 기본값으로 돌아갔다(화면·테스트 어디에도 안 걸린다).
+      return v != null && Object.hasOwn(LADDERS, v) ? (v as LadderStyle) : DEFAULT_LADDER_STYLE
     } catch {
       return DEFAULT_LADDER_STYLE
     }
@@ -129,6 +132,7 @@ export function AverageDownPlanPanel({
         <span className="text-muted-foreground">사다리 모양</span>
         {(
           [
+            ['basing', '저점다지기형', '바닥은 이미 지났다고 칠 때 실측 — 그래도 중간값 -14.9% 눌림, 18%는 바닥 재이탈'],
             ['cycle', '사이클 실측형', '지금 깊이(-45~-60%)에서 실제로 더 빠진 분포 그대로 — -9/-20/-33%'],
             ['conviction', '바닥권 확신형', '지금 35%를 사고 나머지는 아래에 둔다 — 측정과 어긋나지 않게 바닥권 판단을 실행하는 모양'],
             ['rebound', '반등에 싣기', '예산의 절반 이상을 현재가 위에 둔다 — 측정은 이 모양에 불리하다'],
@@ -258,28 +262,9 @@ function PlanBody({
           .filter((d) => d.offset !== 0)
           .map((d) => `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`)
           .join(' · ')}
-        를 기계적으로 계산한 값입니다.{' '}
-        {plan.style !== 'rebound' ? (
-          <>
-            근거는 실측입니다 —{' '}
-            <span className="font-semibold">
-              이미 15% 이상 빠진 종목을 추가 매수하면 60거래일 안에 중간값{' '}
-              {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠집니다
-            </span>
-            (104,119건). 저점의 추가 하락폭은 국내 전체 중간값 −17.2%(25%분위 −30.1%), 미국
-            IT −30.1%(25%분위 −45.3%)로, 아래쪽을 −36%까지 비워 둘 근거가 됩니다. 예측이
-            아니라 각오해야 할 기본값입니다.
-          </>
-        ) : (
-          <>
-            <span className="font-semibold">이 모양은 측정이 아니라 당신의 시장 판단에서 나왔습니다</span>
-            — &ldquo;지금이 바닥권이고 저점을 다지는 중&rdquo;이라고 보고 예산의 절반 이상을 현재가
-            위에 두는 구성입니다. 반대쪽 숫자도 알려 드립니다: 이미 15% 이상 빠진 종목을 추가
-            매수하면 60거래일 안에 중간값 {Math.round(MEDIAN_FURTHER_DROP * 100)}%만큼 더 빠졌고
-            (104,119건), &lsquo;반등 확인 후 매수&rsquo; 트리거 7개는 모두 기준선을 넘지 못했습니다.
-            그래서 아래쪽 한 칸은 보험으로 남겨 뒀습니다.
-          </>
-        )}{' '}
+        를 기계적으로 계산한 값입니다. 근거는 사다리마다 다릅니다 —{' '}
+        <span className="font-semibold">{LADDER_BASIS[plan.style].headline}</span>{' '}
+        {LADDER_BASIS[plan.style].body}{' '}
         지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기 상황에서는 그 개수와 성과 사이에
         관계가 없다는 것이 측정됐습니다.
       </p>
