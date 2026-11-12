@@ -23,8 +23,8 @@ const HYNIX: PlanInput = {
   market: 'KR',
 }
 
-describe('사다리 상수 — 세 모양 공통', () => {
-  for (const style of ['dip', 'rebound', 'conviction'] as const) {
+describe('사다리 상수 — 네 모양 공통', () => {
+  for (const style of ['dip', 'rebound', 'conviction', 'cycle'] as const) {
     it(`[${style}] 예산 비중의 합이 정확히 1이다`, () => {
       expect(LADDERS[style].reduce((a, b) => a + b.weight, 0)).toBeCloseTo(1, 10)
     })
@@ -325,5 +325,43 @@ describe('defaultScenarios', () => {
     const recovered = scenarios[2]
     expect(recovered.planPnl).toBeGreaterThan(0)
     expect(recovered.holdPnl).toBeCloseTo(0, 0)
+  })
+})
+
+
+describe("사다리 상수 — cycle (지금 깊이에서 직접 잰 분포)", () => {
+  it('간격이 실측 분위수 그대로다 (-9 / -20 / -33%)', () => {
+    // pipeline/research/semi_cycle_probe.py · 국내 반도체 20종목 10년,
+    // 이미 -45~-60% 빠져 있던 85개월의 그 뒤 24개월 추가 하락폭:
+    //   중간값 -9.2% · 25%분위 -19.7% · 10%분위 -32.6% · 최악 -41.8%
+    // 임의로 고른 값이 아니라 분포에서 읽어온 값이라, 바꾸려면 측정을 다시 해야 한다.
+    expect(LADDERS.cycle.map((d) => d.offset)).toEqual([0, -0.09, -0.2, -0.33])
+  })
+
+  it('1차가 가장 크다 — 중간값이 -9%뿐이라 아래에서 기다릴 이유가 약하다', () => {
+    expect(LADDERS.cycle[0].weight).toBe(0.4)
+    expect(LADDERS.cycle[0].weight).toBe(Math.max(...LADDERS.cycle.map((d) => d.weight)))
+  })
+
+  it('아래로 갈수록 비중이 줄어든다 — dip과 정반대 모양이다', () => {
+    const w = LADDERS.cycle.map((d) => d.weight)
+    for (let i = 1; i < w.length; i += 1) expect(w[i]).toBeLessThan(w[i - 1])
+    const dw = LADDERS.dip.map((d) => d.weight)
+    for (let i = 1; i < dw.length; i += 1) expect(dw[i]).toBeGreaterThan(dw[i - 1])
+  })
+
+  it('현재가 위에는 두지 않는다', () => {
+    expect(LADDERS.cycle.every((d) => d.offset <= 0)).toBe(true)
+  })
+
+  it('SK하이닉스 실제 보유 상태에서의 집행 가격·수량이 고정돼 있다', () => {
+    const c = buildAverageDownPlan({ ...HYNIX, style: 'cycle' })!
+    expect(c.tranches.map((t) => [t.triggerPrice, t.qty])).toEqual([
+      [1_280_000, 9],
+      [1_160_000, 6],
+      [1_020_000, 6],
+      [857_000, 6],
+    ])
+    expect(Math.round(c.finalAvgCost)).toBe(1_404_025)
   })
 })
