@@ -6,6 +6,9 @@ import {
   LADDER_INFO,
   LADDER_ORDER,
   MEDIAN_FURTHER_DROP,
+  addMonths,
+  buildActionPlan,
+  monthsSince,
   buildAverageDownPlan,
   defaultScenarios,
   evaluateScenario,
@@ -516,5 +519,83 @@ describe('CYCLE_TIMELINE — 시간축 측정 (semi_cycle_probe 6부)', () => {
     const offs = LADDERS.basing.map((d) => d.offset * 100)
     expect(offs[1]).toBeGreaterThan(CYCLE_TIMELINE.dipDepthPct)
     expect(offs[2]).toBeLessThan(CYCLE_TIMELINE.dipDepthPct)
+  })
+})
+
+describe('buildActionPlan — 실행 계획', () => {
+  const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+  const TODAY = new Date(2026, 10, 12) // 2026-11-12
+  const steps = buildActionPlan(plan, TODAY, 807_000)
+
+  it('addMonths가 말일을 넘기지 않는다', () => {
+    expect(addMonths(new Date(2026, 2, 31), 1).getMonth()).toBe(3) // 3/31 + 1개월
+    expect(addMonths(new Date(2026, 2, 31), 1).getDate()).toBe(30) // → 4/30
+    expect(addMonths(new Date(2026, 10, 12), 4).getFullYear()).toBe(2027) // 해를 넘긴다
+  })
+
+  it('**다섯 단계가 순서대로 나온다** — 오늘 / 예약 / 시한 / 중단 / 금지', () => {
+    expect(steps.map((s) => s.kind)).toEqual(['now', 'order', 'deadline', 'stop', 'never'])
+  })
+
+  it('첫 단계가 1차 수량·금액을 그대로 말한다', () => {
+    expect(steps[0].title).toContain('11주')
+    expect(steps[0].title).toContain('1,280,000')
+    expect(steps[0].by).toBe('2026-11-12')
+  })
+
+  it('예약 단계가 2~4차를 전부 적는다 — 하나라도 빠지면 계획이 아니다', () => {
+    for (const p of ['1,160,000원 7주', '1,040,000원 4주', '896,000원 4주']) {
+      expect(steps[1].title).toContain(p)
+    }
+  })
+
+  it('시한이 시간 계획의 개월 수만큼 뒤다', () => {
+    expect(steps[2].by).toBe('2027-03-12') // 2026-11-12 + 4개월
+    expect(steps[2].title).toContain('2027-03-12')
+  })
+
+  it('**중단선이 전제로 삼은 바닥가다** — 이게 깨지면 사다리를 바꿔야 한다', () => {
+    expect(steps[3].title).toContain('807,000')
+    expect(steps[3].why).toContain('18%')
+  })
+
+  it('평단 위에서는 사지 않는다고 못 박는다', () => {
+    expect(steps[4].title).toContain('2,032,230')
+  })
+
+  it('모든 단계에 이유가 붙어 있다 — 근거 없는 지시를 내리지 않는다', () => {
+    for (const s of steps) expect(s.why.length).toBeGreaterThan(15)
+  })
+})
+
+describe('monthsSince — "바닥에서 몇 개월차"를 날짜에서 센다', () => {
+  it('상수가 아니라 계산이다 — 시간이 지나면 값이 늘어난다', () => {
+    expect(monthsSince('2026-03-12', new Date(2026, 10, 12))).toBe(8)
+    expect(monthsSince('2026-03-12', new Date(2026, 11, 12))).toBe(9)
+    expect(monthsSince('2026-03-12', new Date(2027, 2, 12))).toBe(12)
+  })
+
+  it('날이 모자라면 한 달을 안 센다', () => {
+    expect(monthsSince('2026-03-20', new Date(2026, 10, 12))).toBe(7)
+  })
+
+  it('날짜를 모르면 null — 그때만 측정 시점 값으로 떨어진다', () => {
+    expect(monthsSince(undefined, new Date())).toBeNull()
+    expect(monthsSince('이상한값', new Date())).toBeNull()
+  })
+
+  it('**시한이 바닥에서 12개월차로 고정된다** — 시간이 지나면 남은 기간이 줄어든다', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const at = (today: Date, trough: string) =>
+      buildActionPlan(plan, today, 807_000, trough).find((s) => s.kind === 'deadline')!.by
+    // 바닥 2026-03-12 → 12개월차는 2027-03-12. 오늘이 언제든 같은 날을 가리킨다.
+    expect(at(new Date(2026, 10, 12), '2026-03-12')).toBe('2027-03-12')
+    expect(at(new Date(2027, 0, 12), '2026-03-12')).toBe('2027-03-12')
+  })
+
+  it('이미 12개월차를 넘겼으면 시한이 오늘이다 — 더 기다릴 근거가 없다', () => {
+    const plan = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const s = buildActionPlan(plan, new Date(2027, 5, 12), 807_000, '2026-03-12')
+    expect(s.find((x) => x.kind === 'deadline')!.by).toBe('2027-06-12')
   })
 })

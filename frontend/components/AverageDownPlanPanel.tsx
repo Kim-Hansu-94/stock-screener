@@ -5,10 +5,13 @@ import {
   DEFAULT_LADDER_STYLE,
   LADDERS,
   CYCLE_TIMELINE,
+  buildActionPlan,
+  monthsSince,
   LADDER_INFO,
   LADDER_ORDER,
   buildAverageDownPlan,
   defaultScenarios,
+  type AverageDownPlan,
   type LadderStyle,
 } from '@/lib/averageDownPlan'
 import type { Market } from '@/lib/types'
@@ -35,6 +38,7 @@ export function AverageDownPlanPanel({
   avgCost,
   currentPrice,
   periodLow,
+  periodLowDate,
   className = '',
 }: {
   market: Market
@@ -42,6 +46,8 @@ export function AverageDownPlanPanel({
   avgCost: number | null
   currentPrice: number
   periodLow: number
+  /** 그 저가를 찍은 날('YYYY-MM-DD'). 실행 계획이 '바닥에서 몇 개월차'를 여기서 센다. */
+  periodLowDate?: string
   className?: string
 }) {
   const key = `avgdownbudget:${market}:${ticker}`
@@ -184,6 +190,7 @@ export function AverageDownPlanPanel({
           avgCost={avgCost}
           currentPrice={currentPrice}
           periodLow={periodLow}
+          periodLowDate={periodLowDate}
           budget={budget}
           market={market}
           style={style}
@@ -356,6 +363,7 @@ function PlanBody({
   avgCost,
   currentPrice,
   periodLow,
+  periodLowDate,
   budget,
   market,
   style,
@@ -366,6 +374,8 @@ function PlanBody({
   avgCost: number
   currentPrice: number
   periodLow: number
+  /** 그 저가를 찍은 날('YYYY-MM-DD'). 실행 계획이 '바닥에서 몇 개월차'를 여기서 센다. */
+  periodLowDate?: string
   budget: number
   market: Market
   style: LadderStyle
@@ -441,7 +451,10 @@ function PlanBody({
         올라갑니다).
       </p>
 
-      {plan.style === 'basing' && <CycleTimelineBox won={won} />}
+      {plan.style === 'basing' && (
+        <ActionPlanBox plan={plan} won={won} troughPrice={periodLow} troughDate={periodLowDate} />
+      )}
+      {plan.style === 'basing' && <CycleTimelineBox won={won} troughDate={periodLowDate} />}
 
       <p className="mt-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-[11px] leading-relaxed text-secondary-foreground">
         차수 가격은 현재가에서{' '}
@@ -517,18 +530,33 @@ function PlanBody({
  * 눌림을 기다리는 기간에 **시한**을 붙이고, 미룰수록 나빠진다는 측정을 같이 적는다
  * (`CYCLE_TIMELINE` 주석 참조). 전제가 "바닥은 이미 지났다"이므로 `basing`에서만 뜬다.
  */
-function CycleTimelineBox({ won }: { won: (n: number) => string }) {
+function CycleTimelineBox({ won, troughDate }: { won: (n: number) => string; troughDate?: string }) {
   const t = CYCLE_TIMELINE
-  const now = t.monthsAfterTrough
+  // 개월 수는 일봉의 저가 날짜에서 센다 — 상수로 두면 시간이 지나는 것만으로 틀려진다.
+  const now = monthsSince(troughDate, new Date()) ?? t.monthsAfterTrough
+  // now가 표에 없는 달이면 표식이 통째로 사라진다 — 가장 가까운 줄에 붙인다.
+  const nearest = t.entryByMonth.reduce((a, b) =>
+    Math.abs(b.month - now) < Math.abs(a.month - now) ? b : a,
+  ).month
   return (
     <div className="mt-2 rounded-md border border-input p-2">
       <p className="text-xs font-bold">언제 사야 하나 — 과거 사이클에 지금을 겹쳐 보면</p>
       <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
         과거 반도체 바닥 85건(국내 55 · 미국 30)을 바닥=0개월로 맞춰 포갠 결과입니다. 이 종목은
-        바닥에서 <span className="font-semibold text-secondary-foreground">{now}개월차</span>이고,
-        그때의 과거 중간값이 바닥 대비 1.45배(국내)·1.56배(미국)인데{' '}
-        <span className="font-semibold text-secondary-foreground">지금 1.59배</span> —{' '}
-        <span className="font-semibold text-secondary-foreground">늦지도 이르지도 않습니다.</span>
+        바닥에서 <span className="font-semibold text-secondary-foreground">{now}개월차</span>입니다.
+        {now === t.monthsAfterTrough ? (
+          <>
+            {' '}그때의 과거 중간값이 바닥 대비 1.45배(국내)·1.56배(미국)인데{' '}
+            <span className="font-semibold text-secondary-foreground">지금 1.59배</span> —{' '}
+            <span className="font-semibold text-secondary-foreground">늦지도 이르지도 않습니다.</span>
+          </>
+        ) : (
+          <>
+            {' '}아래 숫자는 <span className="font-semibold">{t.measuredOn}에 {t.monthsAfterTrough}개월차
+            기준으로 잰 것</span>이라 지금과 한 칸 어긋나 있습니다 — 방향은 그대로지만 정확한 비교는
+            다시 재야 합니다.
+          </>
+        )}
       </p>
 
       <ol className="mt-1.5 flex flex-col gap-1">
@@ -564,9 +592,9 @@ function CycleTimelineBox({ won }: { won: (n: number) => string }) {
           </thead>
           <tbody>
             {t.entryByMonth.map((r) => (
-              <tr key={r.month} className={r.month === now ? 'font-bold text-primary' : ''}>
+              <tr key={r.month} className={r.month === nearest ? 'font-bold text-primary' : ''}>
                 <td className="py-0.5">
-                  {r.month}개월차{r.month === now ? ' (지금)' : ''}
+                  {r.month}개월차{r.month === nearest ? (now === r.month ? ' (지금)' : ' (지금에 가장 가까움)') : ''}
                 </td>
                 <td className={`py-0.5 text-right font-mono ${r.kr >= 0 ? 'text-up' : 'text-down'}`}>
                   {r.kr >= 0 ? '+' : ''}
@@ -588,6 +616,65 @@ function CycleTimelineBox({ won }: { won: (n: number) => string }) {
         <span className="font-semibold">&ldquo;{won(807_000)}원이 진짜 바닥이었다&rdquo;</span>가 맞아야
         뜻이 있고, 바닥인지는 지나고 나서야 알 수 있습니다. 지금 살아남은 종목만 세었으므로 수익률은
         실제보다 높게 잡혀 있습니다.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * **실행 계획** — 패널 맨 위. "그래서 오늘 뭘 하면 되나"에 바로 답한다.
+ *
+ * 사다리(얼마에)와 타임라인(언제)을 사람이 머릿속에서 합치게 두지 않는다 —
+ * 합치는 일을 떠넘기면 대개 아무것도 안 하거나 그날 기분대로 산다.
+ *
+ * `today`를 렌더 시점에 만든다. 이 패널은 카드를 펼쳐야만 마운트되는 클라이언트
+ * 컴포넌트라 서버 렌더와 비교될 일이 없다(`AverageCostCalculator`가 localStorage를
+ * 바로 읽는 것과 같은 이유).
+ */
+function ActionPlanBox({
+  plan,
+  won,
+  troughPrice,
+  troughDate,
+}: {
+  plan: AverageDownPlan
+  won: (n: number) => string
+  troughPrice: number
+  troughDate?: string
+}) {
+  const steps = useMemo(
+    () => buildActionPlan(plan, new Date(), troughPrice, troughDate),
+    [plan, troughPrice, troughDate],
+  )
+  const STYLE: Record<string, { tag: string; cls: string }> = {
+    now: { tag: '오늘', cls: 'bg-primary/10 text-primary' },
+    order: { tag: '예약', cls: 'bg-secondary text-secondary-foreground' },
+    deadline: { tag: '시한', cls: 'bg-secondary text-secondary-foreground' },
+    stop: { tag: '중단', cls: 'bg-destructive/10 text-destructive' },
+    never: { tag: '금지', cls: 'bg-destructive/10 text-destructive' },
+  }
+  return (
+    <div className="mt-2 rounded-md border-l-4 border-primary bg-primary/5 p-2.5">
+      <p className="text-xs font-bold">지금부터 어떻게 할 것인가</p>
+      <ol className="mt-1.5 flex flex-col gap-1.5">
+        {steps.map((s, i) => {
+          const st = STYLE[s.kind] ?? STYLE.order
+          return (
+            <li key={i} className="rounded-md bg-background/70 px-2 py-1.5">
+              <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                <span className={`rounded px-1.5 py-px text-[10px] font-bold ${st.cls}`}>{st.tag}</span>
+                {s.by && <span className="font-mono text-[10px] text-muted-foreground">{s.by}</span>}
+                <span className="text-[11px] font-semibold leading-snug">{s.title}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{s.why}</p>
+            </li>
+          )
+        })}
+      </ol>
+      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+        전부 집행하면 <span className="font-mono font-semibold">{plan.finalQty}주 · 평단 {won(Math.round(plan.finalAvgCost))}원</span>
+        {plan.unusedBudget > 0 && <> (못 쓰는 돈 {won(plan.unusedBudget)}원)</>}. 네 칸이 다 걸리는 경우는
+        흔치 않으니 <span className="font-semibold">그 평단은 목표가 아니라 최대치</span>입니다.
       </p>
     </div>
   )

@@ -242,8 +242,14 @@ export function PositionCard({
                     avgCost={entry.avg_cost}
                     currentPrice={latest.close}
                     /* 시나리오의 '구간 저가'는 지어낸 값이 아니라 **이 종목이 실제로
-                       찍었던 저가**다. 판정에 쓰는 것과 같은 일봉에서 낸다. */
+                       찍었던 저가**다. 판정에 쓰는 것과 같은 일봉에서 낸다.
+                       **날짜도 같이 넘긴다** — 실행 계획이 "바닥에서 몇 개월차인가"를
+                       거기서 계산한다. 개월 수를 상수로 두면 시간이 지나는 것만으로
+                       화면이 조용히 틀린 말을 하게 된다. */
                     periodLow={bars.reduce((lo, b) => (b.low < lo ? b.low : lo), Number.POSITIVE_INFINITY)}
+                    periodLowDate={
+                      bars.reduce((lo, b) => (b.low < lo.low ? b : lo), bars[0] ?? { low: 0, date: '' }).date
+                    }
                     className="mt-3 border-t border-border pt-3"
                   />
                 )}

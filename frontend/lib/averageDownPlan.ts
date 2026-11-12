@@ -347,10 +347,13 @@ export interface CycleTimeline {
   deadlineMonthsAhead: number
   /** 바닥에서 N개월차에 사서 24개월차까지의 중간 수익률(%). */
   entryByMonth: readonly { readonly month: number; readonly kr: number; readonly us: number }[]
+  /** 이 값들을 잰 날. 시간이 지나면 '8개월차'가 더는 지금이 아니다. */
+  measuredOn: string
 }
 
 export const CYCLE_TIMELINE: CycleTimeline = {
   monthsAfterTrough: 8,
+  measuredOn: '2026-11-12',
   dipMonthsAhead: 3,
   dipRangeAhead: [1, 5],
   dipProbabilityPct: 64,
@@ -615,4 +618,127 @@ export function defaultScenarios(
     // 반등 사다리가 노리는 바로 그 경우 — 마지막 위쪽 차수까지 올라와서 거기서 멈춤.
     S('안 빠지고 반등해서 마지막 차수 가격에서 끝', price, topTrigger, topTrigger),
   ]
+}
+
+/**
+ * **실행 계획** — 사다리와 시간 계획을 "오늘 뭘 하면 되는지"로 바꾼다.
+ *
+ * 왜 따로 만드나: 화면에 사다리(얼마에)와 타임라인(언제)이 따로 있으면, 둘을
+ * 머릿속에서 합쳐야 비로소 행동이 나온다. 그 합치는 일을 사람에게 떠넘기면
+ * 대개 **아무것도 안 하거나 그날 기분대로 산다** — 물타기가 실패하는 전형적인
+ * 경로이고, 이 파일 맨 위가 '가격 사다리'를 고른 이유와 같은 문제다.
+ *
+ * 그래서 날짜가 박힌 단계로 바꾼다. 각 단계는 **그대로 증권사에 넣을 수 있는
+ * 주문**이거나 **달력에 적을 수 있는 날**이거나 **취소 조건**이다.
+ *
+ * 새 판단을 넣지 않는다 — 전부 `buildAverageDownPlan`과 `CYCLE_TIMELINE`에서
+ * 파생한다. 여기서 숫자를 새로 고르면 근거가 두 군데로 갈린다.
+ */
+export type ActionKind = 'now' | 'order' | 'deadline' | 'stop' | 'never'
+
+export interface ActionStep {
+  kind: ActionKind
+  /** 한 줄 제목 — 행동을 그대로 쓴다("오늘 1차 11주 매수"). */
+  title: string
+  /** 왜 그렇게 하는지 한 줄. */
+  why: string
+  /** 'YYYY-MM-DD' — 날짜가 있는 단계만. */
+  by?: string
+}
+
+/** 달을 더한다. 말일 넘침은 그 달 말일로 당긴다(3/31 + 1개월 = 4/30). */
+export function addMonths(d: Date, months: number): Date {
+  const day = d.getDate()
+  const out = new Date(d.getFullYear(), d.getMonth() + months, 1)
+  out.setDate(Math.min(day, new Date(out.getFullYear(), out.getMonth() + 1, 0).getDate()))
+  return out
+}
+
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+/**
+ * 바닥을 찍은 날로부터 지금까지 몇 개월인가. **상수로 두지 않는다** — 시간이
+ * 지나는 것만으로 화면이 조용히 틀린 말을 하게 된다. 날짜를 모르면 측정 시점의
+ * 값(`CYCLE_TIMELINE.monthsAfterTrough`)으로 떨어진다.
+ */
+export function monthsSince(troughDate: string | undefined, today: Date): number | null {
+  if (!troughDate) return null
+  const d = new Date(`${troughDate}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return null
+  const m = (today.getFullYear() - d.getFullYear()) * 12 + (today.getMonth() - d.getMonth())
+  return Math.max(0, today.getDate() >= d.getDate() ? m : m - 1)
+}
+
+export function buildActionPlan(
+  plan: AverageDownPlan,
+  today: Date,
+  /** 전제로 삼은 바닥 가격. 이걸 깨면 전제가 틀어진 것이다. */
+  troughPrice: number,
+  /** 그 바닥을 찍은 날. 없으면 측정 시점의 개월 수를 쓴다. */
+  troughDate?: string,
+  timeline: CycleTimeline = CYCLE_TIMELINE,
+): ActionStep[] {
+  const monthsAfter = monthsSince(troughDate, today) ?? timeline.monthsAfterTrough
+  // 시한은 "바닥에서 12개월차"다 — 측정이 그 지점을 가리킨다. 지금이 이미 그보다
+  // 뒤라면 더 기다릴 근거가 없으므로 0개월(= 오늘)이 된다.
+  const deadlineMonths = Math.max(
+    0,
+    timeline.monthsAfterTrough + timeline.deadlineMonthsAhead - monthsAfter,
+  )
+  const w = (n: number) => Math.round(n).toLocaleString('ko-KR')
+  const first = plan.tranches[0]
+  const rest = plan.tranches.slice(1)
+  const deadline = addMonths(today, deadlineMonths)
+  const restCost = rest.reduce((a, t) => a + t.cost, 0)
+
+  const steps: ActionStep[] = [
+    {
+      kind: 'now',
+      title: `오늘 ${first.qty}주 매수 (${w(first.triggerPrice)}원 · ${w(first.cost)}원)`,
+      why:
+        `바닥에서 ${monthsAfter}개월차인 지금이 과거 평균 경로 위이고, ` +
+        `그 자리에서 산 경우가 더 미룬 경우보다 꾸준히 나았다. 미룰 근거가 측정에 없다.`,
+      by: iso(today),
+    },
+  ]
+
+  if (rest.length > 0) {
+    steps.push({
+      kind: 'order',
+      title:
+        `나머지 ${w(restCost)}원은 지정가 예약주문으로 걸어 둔다 — ` +
+        rest.map((t) => `${w(t.triggerPrice)}원 ${t.qty}주`).join(' · '),
+      why:
+        `걸어 두지 않으면 막상 빠졌을 때 무서워서 못 산다. 과거에 ${timeline.dipProbabilityPct}%는 ` +
+        `${timeline.dipRangeAhead[0]}~${timeline.dipRangeAhead[1]}개월 안에 지금보다 싸졌고 ` +
+        `그 깊이가 중간값 ${timeline.dipDepthPct}%였다 — 이 칸들이 그 자리다.`,
+    })
+    steps.push({
+      kind: 'deadline',
+      title: `${iso(deadline)}까지 안 걸린 칸은 그날 시세로 그냥 산다`,
+      why:
+        `기다리는 것 자체가 비용이다. 같은 종목이라도 바닥에서 멀어질수록 남는 게 줄었다` +
+        `(국내 ${timeline.entryByMonth[0].month}개월차 +${timeline.entryByMonth[0].kr}% → ` +
+        `${timeline.entryByMonth[2].month}개월차 +${timeline.entryByMonth[2].kr}%).`,
+      by: iso(deadline),
+    })
+  }
+
+  steps.push({
+    kind: 'stop',
+    title: `종가가 ${w(troughPrice)}원을 깨면 남은 주문을 취소하고 멈춘다`,
+    why:
+      `그 가격이 전제로 삼은 바닥이다. 깨지면 "바닥은 지났다"가 틀린 것이고, 과거에도 ` +
+      `18%는 바닥 아래로 되돌아갔다. 그때는 이 사다리가 아니라 더 깊은 사다리(사이클 실측형·` +
+      `더 빠질 때 싣기)로 다시 짜야 한다.`,
+  })
+
+  steps.push({
+    kind: 'never',
+    title: `${w(plan.stopBuyingAbove)}원(지금 평단) 위에서는 사지 않는다`,
+    why: '그 위에서 사면 평단이 올라간다 — 물타기의 목적과 정반대다.',
+  })
+
+  return steps
 }
