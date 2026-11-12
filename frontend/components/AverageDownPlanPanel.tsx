@@ -11,6 +11,7 @@ import {
   LADDER_ORDER,
   buildAverageDownPlan,
   defaultScenarios,
+  roundTrigger,
   type AverageDownPlan,
   type LadderStyle,
 } from '@/lib/averageDownPlan'
@@ -72,6 +73,33 @@ export function AverageDownPlanPanel({
 
   const budget = Number(budgetText.replace(/[^0-9]/g, '')) || 0
 
+  // **보유 수량은 평단에서 역산할 수 없다** — DB에 평단만 있고 수량은 없다
+  // (`AverageCostCalculator`가 차수별 내역을 기기에만 두고 평단만 올리기 때문).
+  // 그런데 사다리의 "집행 후 평단"은 **기존 보유분과 섞은 값**이라 수량이 반드시
+  // 필요하다. 예전엔 여기서 `shares: 1`을 넣고 "가격·수량에는 영향이 없다"고 적어
+  // 뒀는데, 영향이 없는 건 가격·수량뿐이고 **평단은 통째로 틀린 값이 나왔다**
+  // (13주 보유 기준 1,687,458원이 1,342,686원으로 찍혔다, 2026-11-12 사용자 지적).
+  // 그래서 수량을 못 받았으면 평단을 **아예 계산하지 않는다** — 틀린 평단을
+  // 보여 주느니 "수량을 넣어 달라"고 하는 편이 낫다.
+  const sharesKey = `avgdownshares:${market}:${ticker}`
+  const [sharesText, setSharesText] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    try {
+      return window.localStorage.getItem(sharesKey) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  useEffect(() => {
+    try {
+      if (sharesText) window.localStorage.setItem(sharesKey, sharesText)
+      else window.localStorage.removeItem(sharesKey)
+    } catch {
+      /* 저장 실패는 계산을 막지 않는다 */
+    }
+  }, [sharesKey, sharesText])
+  const shares = Number(sharesText.replace(/[^0-9]/g, '')) || 0
+
   // 사다리 모양도 기기에만 둔다 — 시장을 어떻게 보는지는 개인 판단이고 서버가 알 이유가 없다.
   const styleKey = `avgdownstyle:${market}:${ticker}`
   const [style, setStyle] = useState<LadderStyle>(() => {
@@ -96,19 +124,10 @@ export function AverageDownPlanPanel({
 
   const plan = useMemo(
     () =>
-      avgCost != null && avgCost > 0
-        ? buildAverageDownPlan({
-            avgCost,
-            shares: 1,
-            price: currentPrice,
-            budget,
-            market,
-            style,
-          })
+      avgCost != null && avgCost > 0 && shares > 0
+        ? buildAverageDownPlan({ avgCost, shares, price: currentPrice, budget, market, style })
         : null,
-    // shares는 사다리 가격·수량에 영향을 주지 않는다(평단 계산에만 쓰인다).
-    // 실제 보유 수량은 아래에서 다시 넣는다.
-    [avgCost, currentPrice, budget, market, style],
+    [avgCost, shares, currentPrice, budget, market, style],
   )
 
   const won = (v: number) => `${Math.round(v).toLocaleString('ko-KR')}원`
@@ -141,6 +160,22 @@ export function AverageDownPlanPanel({
           className="h-8 w-36 rounded-md border border-input px-2 text-right font-mono text-xs outline-none focus:border-ring"
         />
         {budget > 0 && <span className="font-mono text-muted-foreground">{won(budget)}</span>}
+      </label>
+
+      <label className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">지금 보유 수량</span>
+        <input
+          inputMode="numeric"
+          value={sharesText}
+          onChange={(e) => setSharesText(e.target.value.replace(/[^0-9]/g, ''))}
+          placeholder="예: 13"
+          className="h-8 w-36 rounded-md border border-input px-2 text-right font-mono text-xs outline-none focus:border-ring"
+        />
+        {shares > 0 && (
+          <span className="font-mono text-muted-foreground">
+            {won(avgCost * shares)} 어치
+          </span>
+        )}
       </label>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
@@ -178,11 +213,23 @@ export function AverageDownPlanPanel({
       />
 
       {!plan ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {budget > 0
-            ? '예산이 1주 값에도 못 미쳐 계획을 세울 수 없습니다.'
-            : '금액을 넣으면 차수별 집행 가격과 수량이 나옵니다. 이 값은 이 기기에만 저장됩니다.'}
-        </p>
+        budget > 0 && shares > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            예산이 1주 값에도 못 미쳐 계획을 세울 수 없습니다.
+          </p>
+        ) : (
+          // **금액·수량이 없어도 차수 가격은 보여 준다.** 가격은 현재가와 사다리 모양만으로
+          // 정해진다 — 예산은 수량·금액에, 보유 수량은 평단에만 쓰인다. 예전엔 여기서
+          // "금액을 넣으면…" 한 줄만 띄웠는데, 그러면 사다리 모양을 눌러도 **눈에 보이는
+          // 것이 글자 한 줄뿐**이라 "버튼이 안 먹는다"로 읽힌다(실제 신고가 들어왔다).
+          <LadderPreview
+            currentPrice={currentPrice}
+            style={style}
+            budget={budget}
+            shares={shares}
+            won={won}
+          />
+        )
       ) : (
         <PlanBody
           key={style}
@@ -191,6 +238,7 @@ export function AverageDownPlanPanel({
           currentPrice={currentPrice}
           periodLow={periodLow}
           periodLowDate={periodLowDate}
+          shares={shares}
           budget={budget}
           market={market}
           style={style}
@@ -364,6 +412,7 @@ function PlanBody({
   currentPrice,
   periodLow,
   periodLowDate,
+  shares,
   budget,
   market,
   style,
@@ -376,17 +425,14 @@ function PlanBody({
   periodLow: number
   /** 그 저가를 찍은 날('YYYY-MM-DD'). 실행 계획이 '바닥에서 몇 개월차'를 여기서 센다. */
   periodLowDate?: string
+  /** 지금 보유 수량. 0이면 부모가 애초에 plan을 만들지 않는다. */
+  shares: number
   budget: number
   market: Market
   style: LadderStyle
   won: (v: number) => string
   pct: (v: number) => string
 }) {
-  // 보유 수량은 평단·원금에서 역산할 수 없다(평단만 저장돼 있다). 시나리오 손익을
-  // 금액으로 내려면 수량이 필요하므로 **사용자가 직접 넣게** 한다 — 지어내지 않는다.
-  const [sharesText, setSharesText] = useState('')
-  const shares = Number(sharesText.replace(/[^0-9]/g, '')) || 0
-
   const scenarios = useMemo(() => {
     if (shares <= 0) return null
     const input = {
@@ -467,17 +513,6 @@ function PlanBody({
         {LADDER_INFO[plan.style].body} 지지 신호 충족 개수는 집행 조건에 넣지 않았습니다 — 물타기
         상황에서는 그 개수와 성과 사이에 관계가 없다는 것이 측정됐습니다.
       </p>
-
-      <label className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">지금 보유 수량(시나리오 계산용)</span>
-        <input
-          inputMode="numeric"
-          value={sharesText}
-          onChange={(e) => setSharesText(e.target.value.replace(/[^0-9]/g, ''))}
-          placeholder="주"
-          className="h-8 w-20 rounded-md border border-input px-2 text-right font-mono text-xs outline-none focus:border-ring"
-        />
-      </label>
 
       {scenarios && (
         <>
@@ -675,6 +710,70 @@ function ActionPlanBox({
         전부 집행하면 <span className="font-mono font-semibold">{plan.finalQty}주 · 평단 {won(Math.round(plan.finalAvgCost))}원</span>
         {plan.unusedBudget > 0 && <> (못 쓰는 돈 {won(plan.unusedBudget)}원)</>}. 네 칸이 다 걸리는 경우는
         흔치 않으니 <span className="font-semibold">그 평단은 목표가 아니라 최대치</span>입니다.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * **금액을 넣기 전에도 보이는 차수 가격.**
+ *
+ * 차수 가격은 `현재가 × (1 + 차수 비율)`이라 **예산과 무관하게 정해진다** — 예산은
+ * 수량·금액에만 쓰인다. 그런데 예전엔 금액이 비면 "금액을 넣으면 차수별 집행 가격과
+ * 수량이 나옵니다"라는 **흐린 글씨 한 줄**만 띄웠다. 그 상태에서 사다리 모양 버튼을
+ * 누르면 바뀌는 것이 버튼 테두리와 설명 한 줄뿐이라 **"버튼이 안 먹는다"로 읽힌다**
+ * (2026-11-12 실제 신고). 가격을 먼저 보여 주면 버튼이 일한다는 것이 바로 보인다.
+ */
+function LadderPreview({
+  currentPrice,
+  style,
+  budget,
+  shares,
+  won,
+}: {
+  currentPrice: number
+  style: LadderStyle
+  budget: number
+  shares: number
+  won: (n: number) => string
+}) {
+  const steps = LADDERS[style]
+  const missing = [budget > 0 ? null : '추가로 쓸 수 있는 금액', shares > 0 ? null : '지금 보유 수량']
+    .filter(Boolean)
+    .join('과 ')
+  return (
+    <div className="mt-2">
+      <ol className="space-y-1">
+        {steps.map((d, i) => {
+          const price = roundTrigger(currentPrice * (1 + d.offset))
+          const when = d.offset === 0 ? '지금 바로' : d.offset < 0 ? '이하로 내려오면' : '이상으로 올라오면'
+          return (
+            <li
+              key={i}
+              className="flex flex-wrap items-baseline justify-between gap-x-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-xs"
+            >
+              <span className="font-semibold">
+                {i + 1}차 · {won(price)} {when}
+              </span>
+              <span className="font-mono text-muted-foreground">
+                {d.offset === 0 ? '지금' : `${d.offset > 0 ? '+' : ''}${Math.round(d.offset * 100)}%`}
+                {' · '}
+                {budget > 0 ? `${Math.floor((budget * d.weight) / price).toLocaleString('ko-KR')}주` : `예산 ${Math.round(d.weight * 100)}%`}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+      <p className="mt-1.5 rounded-md border-l-4 border-primary bg-primary/5 px-2.5 py-1.5 text-[11px] leading-snug">
+        <span className="font-semibold">위에 {missing}을 넣으면</span> 집행 후 평단과 시나리오별
+        손익까지 채워집니다.{' '}
+        {shares <= 0 && (
+          <>
+            <span className="font-semibold">집행 후 평단은 지금 들고 있는 주식과 섞은 값</span>이라
+            보유 수량 없이는 계산할 수 없습니다 — 그래서 지어내지 않고 비워 둡니다.{' '}
+          </>
+        )}
+        넣은 값은 이 기기에만 저장됩니다.
       </p>
     </div>
   )

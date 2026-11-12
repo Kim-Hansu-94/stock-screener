@@ -599,3 +599,67 @@ describe('monthsSince — "바닥에서 몇 개월차"를 날짜에서 센다', 
     expect(s.find((x) => x.kind === 'deadline')!.by).toBe('2027-06-12')
   })
 })
+
+describe('차수 가격은 예산 없이도 정해진다 (금액 입력 전 미리보기의 근거)', () => {
+  it('**가격은 현재가와 사다리 모양만으로 나온다** — 예산은 수량·금액에만 쓰인다', () => {
+    // 화면이 금액 입력 전에 차수 가격을 보여 줄 수 있는 근거. 이게 깨지면
+    // 미리보기가 실제 계획과 다른 가격을 말하게 된다.
+    for (const style of LADDER_ORDER) {
+      const plan = buildAverageDownPlan({ ...HYNIX, style })!
+      const preview = LADDERS[style].map((d) => roundTrigger(HYNIX.price * (1 + d.offset)))
+      // 평단 위라서 건너뛴 차수는 계획에 없다 — 있는 것끼리만 맞댄다.
+      for (const t of plan.tranches) {
+        expect(preview).toContain(t.triggerPrice)
+      }
+    }
+  })
+
+  it('예산을 바꿔도 차수 가격은 그대로다', () => {
+    const a = buildAverageDownPlan({ ...HYNIX, budget: 10_000_000, style: 'basing' })!
+    const b = buildAverageDownPlan({ ...HYNIX, budget: 50_000_000, style: 'basing' })!
+    expect(a.tranches.map((t) => t.triggerPrice)).toEqual(b.tranches.map((t) => t.triggerPrice))
+  })
+
+  it('**사다리를 바꾸면 가격이 실제로 바뀐다** — 버튼이 일한다는 것의 근거', () => {
+    const priceOf = (style: (typeof LADDER_ORDER)[number]) =>
+      LADDERS[style].map((d) => roundTrigger(HYNIX.price * (1 + d.offset))).join(',')
+    const all = LADDER_ORDER.map(priceOf)
+    expect(new Set(all).size).toBe(all.length)
+  })
+})
+
+describe('**집행 후 평단은 기존 보유분과 섞은 값이다** (2026-11-12 사용자 지적)', () => {
+  it('보유 수량이 늘면 집행 후 평단이 올라간다 — 안 그러면 기존 보유분을 안 센 것이다', () => {
+    const one = buildAverageDownPlan({ ...HYNIX, shares: 1, style: 'basing' })!
+    const real = buildAverageDownPlan({ ...HYNIX, shares: 13, style: 'basing' })!
+    expect(real.finalAvgCost).toBeGreaterThan(one.finalAvgCost)
+  })
+
+  it('1차 집행 후 평단이 손으로 낸 가중평균과 같다', () => {
+    // (2,032,230 × 13 + 1,280,000 × 11) ÷ 24 = 1,687,457.9…
+    const p = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const t = p.tranches[0]
+    const byHand = (HYNIX.avgCost * HYNIX.shares + t.triggerPrice * t.qty) / (HYNIX.shares + t.qty)
+    expect(Math.round(t.avgCostAfter)).toBe(Math.round(byHand))
+    expect(Math.round(t.avgCostAfter)).toBe(1_687_458)
+  })
+
+  it('**화면이 1주로 가정하면 평단이 얼마나 틀리는지 박아 둔다**', () => {
+    // 예전 화면이 `shares: 1`을 넘겨서 13주 보유인데 1,342,686원으로 찍혔다.
+    // 이 두 값이 같아지면 또 같은 버그가 들어온 것이다.
+    const wrong = buildAverageDownPlan({ ...HYNIX, shares: 1, style: 'basing' })!
+    expect(Math.round(wrong.tranches[0].avgCostAfter)).toBe(1_342_686)
+    expect(Math.round(wrong.tranches[0].avgCostAfter)).not.toBe(1_687_458)
+  })
+
+  it('총 수량도 기존 보유분을 포함한다', () => {
+    const p = buildAverageDownPlan({ ...HYNIX, style: 'basing' })!
+    const added = p.tranches.reduce((a, t) => a + t.qty, 0)
+    expect(p.finalQty).toBe(HYNIX.shares + added)
+    expect(p.finalQty).toBe(39)
+  })
+
+  it('수량이 0이면 계획을 만들지 않는다 — 틀린 평단을 내느니 안 낸다', () => {
+    expect(buildAverageDownPlan({ ...HYNIX, shares: 0 })).toBeNull()
+  })
+})
