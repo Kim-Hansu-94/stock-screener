@@ -106,7 +106,13 @@ export function AverageDownPlanPanel({
   const shares = Number(sharesText.replace(/[^0-9]/g, '')) || 0
 
   // 사다리 모양도 기기에만 둔다 — 시장을 어떻게 보는지는 개인 판단이고 서버가 알 이유가 없다.
-  const styleKey = `avgdownstyle:${market}:${ticker}`
+  //
+  // **직접 눌러 고른 경우에만 저장한다.** 예전엔 패널이 열릴 때마다 그때의 모양을
+  // 저장해서, 한 번이라도 열어 본 기기는 기본값이 아니라 '그때의 기본값'에 묶였다.
+  // 2026-11-13에 기본값을 rebound → megacap으로 바꿨을 때 바로 이것 때문에 이미 열어 본
+  // 휴대폰에는 계속 '반등에 싣기'가 떴을 것이다. 그래서 키 이름에 v2를 붙여 그때
+  // 자동으로 저장된 값을 버리고, 지금부터는 버튼을 누를 때만 쓴다.
+  const styleKey = `avgdownstyle:v2:${market}:${ticker}`
   const [style, setStyle] = useState<LadderStyle>(() => {
     if (typeof window === 'undefined') return DEFAULT_LADDER_STYLE
     try {
@@ -119,13 +125,14 @@ export function AverageDownPlanPanel({
       return DEFAULT_LADDER_STYLE
     }
   })
-  useEffect(() => {
+  const chooseStyle = (v: LadderStyle) => {
+    setStyle(v)
     try {
-      window.localStorage.setItem(styleKey, style)
+      window.localStorage.setItem(styleKey, v)
     } catch {
       /* 저장 실패는 계산을 막지 않는다 */
     }
-  }, [styleKey, style])
+  }
 
   const plan = useMemo(
     () =>
@@ -190,7 +197,7 @@ export function AverageDownPlanPanel({
             key={v}
             type="button"
             title={LADDER_INFO[v].gist}
-            onClick={() => setStyle(v)}
+            onClick={() => chooseStyle(v)}
             className={`rounded-md border px-2.5 py-1 font-medium ${
               style === v
                 ? 'border-primary bg-primary/10 text-primary'
@@ -222,7 +229,7 @@ export function AverageDownPlanPanel({
 
       <LadderComparison
         selected={style}
-        onSelect={setStyle}
+        onSelect={chooseStyle}
         avgCost={avgCost ?? 0}
         currentPrice={currentPrice}
         budget={budget}

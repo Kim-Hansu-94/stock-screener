@@ -32,7 +32,7 @@ const HYNIX: PlanInput = {
 }
 
 describe('사다리 상수 — 모든 모양 공통', () => {
-  for (const style of ['dip', 'rebound', 'conviction', 'cycle', 'basing'] as const) {
+  for (const style of ['dip', 'rebound', 'conviction', 'cycle', 'basing', 'megacap'] as const) {
     it(`[${style}] 예산 비중의 합이 정확히 1이다`, () => {
       expect(LADDERS[style].reduce((a, b) => a + b.weight, 0)).toBeCloseTo(1, 10)
     })
@@ -91,8 +91,47 @@ describe('사다리 상수 — rebound (사용자 판단: 바닥권 + 반등에 
     }
   })
 
-  it('지금 기본값이다 (사용자가 고른 모양)', () => {
-    expect(DEFAULT_LADDER_STYLE).toBe('rebound')
+  it('기본값이 아니다 — 2026-11-13에 megacap으로 바뀌었다 (사용자 결정)', () => {
+    // 초대형주 11건 중 10건이 이 깊이에서 4개월 안에 더 빠졌다. 예산 절반 이상을
+    // 현재가 위에 두는 이 모양은 그 기록과 반대 방향이라 기본에서 내려왔다.
+    expect(DEFAULT_LADDER_STYLE).not.toBe('rebound')
+  })
+})
+
+describe('사다리 상수 — megacap (초대형주 실측, 기본값)', () => {
+  it('기본값이다 (2026-11-13 사용자 결정)', () => {
+    expect(DEFAULT_LADDER_STYLE).toBe('megacap')
+  })
+
+  it('화면 맨 앞에 온다', () => {
+    expect(LADDER_ORDER[0]).toBe('megacap')
+  })
+
+  it('**차수 가격이 측정한 분위수 그대로다** — 4개월 안 추가 하락 75% / 50% / 25%가 닿은 자리', () => {
+    // megacap_drawdown_probe 실측: 75%가 닿음 −19.8% · 절반 −26.6% · 25%만 −29.2%.
+    // 이 숫자를 손으로 다듬으면 "어느 분포의 어느 자리인가"가 사라진다.
+    expect(LADDERS.megacap.map((d) => d.offset)).toEqual([0, -0.198, -0.266, -0.292])
+  })
+
+  it('비중이 되돌려 돌린 12개월 1등(50/25/15/10)이다', () => {
+    expect(LADDERS.megacap.map((d) => d.weight)).toEqual([0.5, 0.25, 0.15, 0.1])
+  })
+
+  it('전부 현재가 아래에 둔다 — 초대형주 11건 중 10건이 먼저 더 빠졌다', () => {
+    expect(LADDERS.megacap.every((d) => d.offset <= 0)).toBe(true)
+  })
+
+  it('SK하이닉스 실제 보유 상태에서의 집행 가격·수량이 고정돼 있다', () => {
+    const m = buildAverageDownPlan({ ...HYNIX, style: 'megacap' })!
+    // 현재가 1,280,000 · 예산 3,000만 · 13주 보유 기준.
+    expect(m.tranches.map((t) => [t.triggerPrice, t.qty])).toEqual([
+      [1_280_000, 11],
+      [1_020_000, 8],
+      [939_000, 5],
+      [906_000, 3],
+    ])
+    // 4차까지 전부 걸려도 예산이 거의 놀지 않는다(호가 단위 자투리만 남는다).
+    expect(m.unusedBudget / HYNIX.budget).toBeLessThan(0.02)
   })
 })
 
@@ -157,8 +196,8 @@ describe('roundTrigger', () => {
   })
 })
 
-describe('buildAverageDownPlan — SK하이닉스 실제 보유 상태 (rebound 기본값)', () => {
-  const plan = buildAverageDownPlan(HYNIX)!
+describe('buildAverageDownPlan — SK하이닉스 실제 보유 상태 (rebound)', () => {
+  const plan = buildAverageDownPlan({ ...HYNIX, style: 'rebound' })!
 
   it('4차까지 나온다', () => {
     expect(plan.tranches.map((t) => t.step)).toEqual([1, 2, 3, 4])
@@ -220,7 +259,7 @@ describe('buildAverageDownPlan — SK하이닉스 실제 보유 상태 (rebound 
     // 반등 사다리는 가격을 쫓아 올라가므로 평단을 넘길 수 있다. 그 가격에 사면
     // 평단이 올라가 이 계산기의 목적과 정반대가 된다. 평단을 지금 가격 바로 위로
     // 낮춰 두면 위쪽 차수가 전부 빠져야 한다.
-    const tight = buildAverageDownPlan({ ...HYNIX, avgCost: 1_300_000 })!
+    const tight = buildAverageDownPlan({ ...HYNIX, avgCost: 1_300_000, style: 'rebound' })!
     expect(tight.tranches.every((t) => t.direction !== 'rebound')).toBe(true)
     // 건너뛴 몫은 조용히 사라지지 않고 '못 쓴 돈'으로 드러난다.
     expect(tight.unusedBudget).toBeGreaterThan(0)
@@ -262,7 +301,7 @@ describe('buildAverageDownPlan — 안 되는 입력', () => {
 })
 
 describe('evaluateScenario — 양방향 사다리', () => {
-  const plan = buildAverageDownPlan(HYNIX)! // rebound: now / -12% / +8% / +23%
+  const plan = buildAverageDownPlan({ ...HYNIX, style: 'rebound' })! // now / -12% / +8% / +23%
 
   it('아래쪽 차수는 최저가로, 위쪽 차수는 최고가로 걸린다', () => {
     const E = (lo: number, hi: number) => evaluateScenario(HYNIX, plan, '', lo, hi, hi).executedSteps
@@ -303,7 +342,7 @@ describe('evaluateScenario — 양방향 사다리', () => {
 })
 
 describe('defaultScenarios', () => {
-  const plan = buildAverageDownPlan(HYNIX)!
+  const plan = buildAverageDownPlan({ ...HYNIX, style: 'rebound' })!
   // 807,000원은 position_signals_probe가 찍은 **실제 구간 저가**다(2026-03-16~11-11).
   const scenarios = defaultScenarios(HYNIX, plan, 807_000)
 
@@ -399,7 +438,7 @@ describe('사다리 상수 — basing (바닥은 이미 지났다고 칠 때)', 
     for (let i = 1; i < w.length; i += 1) expect(w[i]).toBeLessThan(w[i - 1])
   })
 
-  it('**꼬리가 다섯 중 가장 얕다** — 깊은 꼬리가 손해였다는 것이 이 모양의 요점이다', () => {
+  it('**꼬리가 dip·conviction·cycle보다 얕다** — 깊은 꼬리가 손해였다는 것이 이 모양의 요점이다', () => {
     const last = (s: keyof typeof LADDERS) => LADDERS[s][LADDERS[s].length - 1].offset
     for (const other of ['dip', 'conviction', 'cycle'] as const) {
       expect(last('basing')).toBeGreaterThan(last(other))
