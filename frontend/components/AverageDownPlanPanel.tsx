@@ -207,6 +207,19 @@ export function AverageDownPlanPanel({
         {LADDER_INFO[style].gist}
       </p>
 
+      {/*
+        **한계를 여기 둔다 — 아래 근거 문단 옆이 아니다.** 근거 문단은 계획이
+        만들어졌을 때만(예산·보유 수량을 둘 다 넣었을 때만) 렌더되는 분기 안에
+        있어서, 처음 화면에서는 한 글자도 보이지 않는다(실측으로 0개였다).
+        한계는 모양을 **고르기 전에** 읽어야 하는 정보다.
+      */}
+      <p className="mt-1.5 rounded-md border-l-2 border-muted-foreground/40 bg-muted/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        <span className="font-semibold text-secondary-foreground">
+          이 모양을 믿을 때 걸리는 한계
+        </span>{' '}
+        — {LADDER_INFO[style].caveat}
+      </p>
+
       <LadderComparison
         selected={style}
         onSelect={setStyle}

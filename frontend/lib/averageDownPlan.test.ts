@@ -450,12 +450,16 @@ describe('LADDER_INFO — 모양별 설명', () => {
       expect(i.gist.length).toBeGreaterThan(10)
       expect(i.headline.length).toBeGreaterThan(10)
       expect(i.body.length).toBeGreaterThan(30)
+      // 근거만 적고 한계를 빼면 화면이 다섯 모양을 모두 "측정으로 뒷받침됨"으로
+      // 보이게 한다. cycle이 실제로 그랬다 — 간격을 잰 85개월에 대형 메모리가
+      // 0건인데 화면에 그 말이 없었다.
+      expect(i.caveat.length, `${style}에 한계 설명이 없다`).toBeGreaterThan(30)
     }
   })
 
   it('**모양마다 문구가 다르다** — 같은 설명을 돌려 쓰면 화면이 조용히 거짓말한다', () => {
     // 실제로 cycle·basing을 추가한 뒤 화면이 둘 다 dip의 근거를 적고 있었다.
-    for (const key of ['label', 'gist', 'headline'] as const) {
+    for (const key of ['label', 'gist', 'headline', 'caveat'] as const) {
       const all = Object.values(LADDER_INFO).map((i) => i[key])
       expect(new Set(all).size).toBe(all.length)
     }
@@ -463,7 +467,7 @@ describe('LADDER_INFO — 모양별 설명', () => {
 
   it('마크다운 별표가 남아 있지 않다 — 평문으로 렌더된다', () => {
     for (const i of Object.values(LADDER_INFO)) {
-      expect(i.label + i.gist + i.headline + i.body).not.toContain('**')
+      expect(i.label + i.gist + i.headline + i.body + i.caveat).not.toContain('**')
     }
   })
 
@@ -474,6 +478,19 @@ describe('LADDER_INFO — 모양별 설명', () => {
     expect(t).toContain('+51.6%') // 이 모양의 24개월 중간값
     expect(t).toContain('+50.3%') // 한 번에 다 사기 — 그보다 높았다
     expect(t).toContain('−9.9%') // 한 번에 다 사기의 나쁜 25% — 나눠 사는 이유
+  })
+
+  it('cycle의 한계가 **대형 메모리 0건**을 밝힌다', () => {
+    // 프로브 실측(2026-11-13): -45~-60% 구간 85개월(15종목), 그중
+    // 삼성전자+SK하이닉스는 `-45 ~ -60%: 0건`. 간격은 소부장에서 나온 값인데
+    // 화면이 그 말을 빼면 "지금 깊이에서 직접 쟀다"만 남아 과신하게 된다.
+    const t = LADDER_INFO.cycle.caveat
+    expect(t).toContain('삼성전자')
+    expect(t).toContain('85개월')
+    expect(t).toMatch(/한 달도 없|0번/)
+    // "추가 하락폭"이 24개월 안의 최저가라는 것 — 이게 빠지면 "반드시 그만큼
+    // 더 빠진다"로 읽힌다.
+    expect(t).toContain('24개월')
   })
 
   it('판단에서 나온 모양은 rebound 하나뿐이고, 그렇게 표시된다', () => {
@@ -742,7 +759,7 @@ describe('사다리 설명에 한 종목 전용 숫자를 박지 않는다', () 
     // 어떤 보유 종목에도 뜨므로, 다른 종목을 보면 그대로 틀린 말이 된다.
     // 측정 결과 수치(+51.6% 등)는 종목과 무관하므로 그대로 둔다.
     for (const [style, info] of Object.entries(LADDER_INFO)) {
-      const t = `${info.gist} ${info.headline} ${info.body}`
+      const t = `${info.gist} ${info.headline} ${info.body} ${info.caveat}`
       expect(t, `${style}에 원 단위 가격이 박혀 있다`).not.toMatch(/\d{3},\d{3}원/)
       expect(t, `${style}에 '바닥에서 N개월'이 박혀 있다`).not.toMatch(/바닥에서 \d+개월/)
     }

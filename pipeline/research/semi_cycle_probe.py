@@ -501,6 +501,17 @@ def main() -> None:
             f"    24개월 안에 그 가격 회복 {len(rec)/len(rs)*100:.0f}%"
             f" · 중간값 {q([float(x) for x in rec],0.5):.0f}개월" if rec else "    회복 0건"
         )
+        # **어느 종목이 이 구간을 채웠는지**를 반드시 찍는다. 깊은 구간의 간격은
+        # 사다리 차수 가격이 되는데, 그 85개월이 전부 소부장이면 대형 메모리에
+        # 그대로 쓸 수 없다 — 종목 수만 세면 그 사실이 출력에서 사라진다.
+        cnt: dict[str, int] = {}
+        for r in rs:
+            cnt[r["code"]] = cnt.get(r["code"], 0) + 1
+        top = sorted(cnt.items(), key=lambda kv: -kv[1])
+        print(
+            "    채운 종목: "
+            + " · ".join(f"{KR_SEMI.get(c, c)} {n}" for c, n in top)
+        )
 
     # SK하이닉스·삼성전자만 따로 — 사용자가 든 종목은 대형 메모리다.
     print("\n  [대형 메모리만: 삼성전자 + SK하이닉스]")
