@@ -73,8 +73,13 @@ def fetch(ticker: str):
     h = h[["High", "Low", "Close"]].dropna()
     h.index = pd.to_datetime(h.index).tz_localize(None).to_period("M").to_timestamp()
     h = h[~h.index.duplicated(keep="last")]
+    # fast_info는 속성으로 읽는다. dict처럼 `.get("market_cap")`을 쓰면 키 이름이
+    # 달라(camelCase) 조용히 None이 나온다 — 첫 실행에서 전 종목이 그렇게 빠졌다.
     fi = t.fast_info
-    cap, last = fi.get("market_cap"), fi.get("last_price")
+    try:
+        cap, last = fi.market_cap, fi.last_price
+    except Exception:  # noqa: BLE001
+        cap, last = None, None
     if not cap or not last:
         return h, None
     return h, cap / last   # 유효 주식 수
@@ -96,8 +101,11 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"  {tk}: 실패 {type(e).__name__}: {e}")
             continue
-        if h is None or sh is None or len(h) < 30:
-            print(f"  {tk}: 데이터 부족")
+        if h is None or len(h) < 30:
+            print(f"  {tk}: 월봉 부족 ({0 if h is None else len(h)}개)")
+            continue
+        if sh is None:
+            print(f"  {tk}: 시총을 못 읽음 — 과거 시총을 추정할 수 없어 제외")
             continue
         thr = THRESHOLD_KRW if tk in KR else thr_usd
         unit = "원" if tk in KR else "$"
